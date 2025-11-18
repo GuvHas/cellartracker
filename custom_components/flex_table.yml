@@ -1,55 +1,45 @@
-type: custom:auto-entities
-card:
-  type: custom:flex-table-card
-  title: Wine Cellar
-  clickable: true
-  unsafe_render_html: true
-  columns:
-    - name: Wine
-      data: Wine
-    - name: Vintage
-      data: Vintage
-    - name: Rack
-      data: state
-    - name: Bin
-      data: Bin
-    - name: Country
-      data: Country
-    - name: Drink From
-      data: BeginConsume
-      modify: |
-        (() => {
-          const year = new Date().getFullYear();
-          const val = parseInt(x);
-          if (!x || isNaN(val)) return '—';
-          const color = val > year ? '#f44336' : '#4CAF50';
-          return `<span style="color:${color}">${x}</span>`;
-        })()        
-    - name: Drink By
-      data: EndConsume
-      modify: |
-        (() => {
-          const year = new Date().getFullYear();
-          const val = parseInt(x);
-          if (!x || isNaN(val)) return '—';
-          const color = val > year ? '#4CAF50' : '#f44336';
-         return `<span style="color:${color}">${x}</span>`;
-        })()      
-    - name: Value
-      data: Valuation
-      modify: parseFloat(x).toFixed(0)
-filter:
-  include:
-    - options: {}
-      entity_id: sensor.cellartracker_*
-  exclude:
-    - options: {}
-      entity_id: sensor.cellartracker_total_bottles
-    - options: {}
-      entity_id: sensor.cellartracker_total_value
-    - options: {}
-      state: unavailable
-    - options: {}
-      state: unknown
-sort:
-  method: name
+type: custom:flex-table-card
+title: Wine Cellar
+clickable: true
+unsafe_render_html: true
+entities:
+  include: sensor.cellartracker_inventory
+columns:
+  - name: Wine
+    data: bottles
+    modify: >
+      `<a href="https://www.cellartracker.com/wine.asp?iWine=${x.iWine}"
+      target="_blank" style="color: var(--primary-text-color); text-decoration:
+      none; font-weight: bold;">${x.Wine}</a>`
+  - name: Vintage
+    data: bottles.Vintage
+  - name: Rack
+    data: bottles.Location
+  - name: Bin
+    data: bottles.Bin
+  - name: Country
+    data: bottles.Country
+  - name: Drink From
+    data: bottles.BeginConsume
+    modify: |
+      (() => {
+        const year = new Date().getFullYear();
+        const val = parseInt(x);
+        if (!x || isNaN(val)) return '—';
+        const color = val > year ? '#f44336' : '#4CAF50';
+        return `<span style="color:${color}">${x}</span>`;
+      })()        
+  - name: Drink By
+    data: bottles.EndConsume
+    modify: |
+      (() => {
+        const year = new Date().getFullYear();
+        const val = parseInt(x);
+        if (!x || isNaN(val)) return '—';
+        const color = val > year ? '#4CAF50' : '#f44336';
+       return `<span style="color:${color}">${x}</span>`;
+      })()      
+  - name: Value
+    data: bottles.Valuation
+    modify: parseFloat(x).toFixed(0)
+sort_by: Wine
