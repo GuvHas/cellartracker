@@ -1,8 +1,8 @@
 {
   "domain": "cellar_tracker",
   "name": "CellarTracker",
-  "version": "0.0.8",
-  "documentation": "https://github.com/GuvHas/cellar_tracker",
+  "version": "0.0.9",
+  "documentation": "https://github.com/GuvHas/cellartracker",
   "requirements": ["cellartracker"],
   "config_flow": true,
   "dependencies": [],
