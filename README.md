@@ -16,7 +16,7 @@ Creates two more senors, for total value and total number of bottles.
 # Installation
 Manually add the repository to HACS 
 
-- **Repository:** https://github.com/GuvHas/cellar_tracker
+- **Repository:** https://github.com/GuvHas/cellartracker
 - **Category:** Integration
 
 # Configuration:
