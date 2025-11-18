@@ -3,7 +3,7 @@ This is an personal attempt at creating an integration to CellarTracker to Home 
 
 The aim is to fetch the data from CellarTracker and display it in a nice way in a dashboard.
 
-Creates one sensor for each bottle in the inventory, with the information (location, country, appellation, producer etc) as attributes,
+Creates one sensor for the whole inventory, with the information per bottle (location, country, appellation, producer etc) as attributes,
 Creates two more senors, for total value and total number of bottles.
 
 "CellarTracker!" is a trademark of CellarTracker! LLC
