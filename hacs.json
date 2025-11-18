@@ -4,6 +4,6 @@
   "render_readme": true,
   "version": "0.0.8",
   "domain": ["cellar_tracker"],
-  "documentation": "https://github.com/GuvHas/cellar_tracker",
+  "documentation": "https://github.com/GuvHas/cellartracker",
   "codeowners": ["@GuvHas"]
 }
