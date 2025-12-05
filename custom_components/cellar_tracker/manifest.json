@@ -1,7 +1,7 @@
 {
   "domain": "cellar_tracker",
   "name": "CellarTracker",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "documentation": "https://github.com/GuvHas/cellartracker",
   "requirements": ["cellartracker"],
   "config_flow": true,

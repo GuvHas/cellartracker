@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wine Cellar</title>
+    <style>
+        /* 1. DEFINE VARIABLES (Theme Engine) */
+        :root {
+            /* --- Light Mode Defaults --- */
+            --app-bg: #ffffff;
+            --card-bg: #f5f5f5;
+            --input-bg: #ffffff;
+            --text-primary: #212121;
+            --text-secondary: #757575;
+            --divider: #e0e0e0;
+            --accent-color: #03a9f4;
+            --row-hover: #f0f0f0;
+            
+            --status-green: #2e7d32;
+            --status-red: #d32f2f;
+        }
+
+        /* --- Dark Mode Overrides --- */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --app-bg: #111111;
+                --card-bg: #1c1c1c;
+                --input-bg: #2c2c2c;
+                --text-primary: #e1e1e1;
+                --text-secondary: #b0b0b0;
+                --divider: #444444;
+                --accent-color: #29b6f6;
+                --row-hover: #292929;
+                
+                --status-green: #66bb6a;
+                --status-red: #ef5350;
+            }
+        }
+
+        /* 2. APPLY VARIABLES */
+        body {
+            font-family: 'Roboto', 'Segoe UI', Helvetica, Arial, sans-serif;
+            background-color: var(--app-bg);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 16px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Search Bar */
+        #search-container { margin-bottom: 20px; }
+        input#search {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 16px;
+            background-color: var(--input-bg);
+            border: 1px solid var(--divider);
+            color: var(--text-primary);
+            border-radius: 8px;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+        input#search:focus { 
+            outline: none; 
+            border-color: var(--accent-color); 
+            box-shadow: 0 0 0 1px var(--accent-color);
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid var(--divider);
+            color: var(--accent-color);
+            position: sticky;
+            top: 0;
+            background-color: var(--app-bg);
+            cursor: pointer;
+            user-select: none;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+        }
+        
+        th:hover { background-color: var(--row-hover); }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--divider);
+        }
+
+        tr { transition: background-color 0.1s; }
+        tr:hover { background-color: var(--row-hover); }
+
+        /* Links */
+        a { 
+            color: var(--text-primary); 
+            text-decoration: none; 
+            font-weight: 600; 
+        }
+        a:hover { 
+            text-decoration: underline; 
+            color: var(--accent-color); 
+        }
+        
+        /* Typography utils */
+        .vintage { color: var(--text-secondary); }
+        .price { 
+            color: var(--status-green); 
+            font-family: 'Roboto Mono', monospace; 
+            font-weight: bold; 
+            text-align: right; 
+        }
+        
+        /* Status Colors */
+        .window-red { color: var(--status-red); font-weight: bold; }
+        .window-green { color: var(--status-green); font-weight: bold; }
+        
+        /* Sort Icons */
+        th span.sort-icon { font-size: 0.8em; margin-left: 5px; opacity: 0.5; }
+        th.asc span.sort-icon::after { content: "▲"; color: var(--accent-color); }
+        th.desc span.sort-icon::after { content: "▼"; color: var(--accent-color); }
+
+        /* Mobile Responsive */
+        @media (max-width: 600px) {
+            .hide-mobile { display: none; }
+            td, th { padding: 10px 8px; }
+            body { padding: 10px; }
+        }
+        
+        #loading { text-align: center; margin-top: 50px; font-style: italic; color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+
+    <div id="search-container">
+        <input type="text" id="search" placeholder="Search wines..." onkeyup="filterTable()">
+    </div>
+
+    <div id="loading">Loading Cellar...</div>
+
+    <table id="wineTable" style="display:none;">
+        <thead>
+            <tr>
+                <th onclick="sortTable('Wine')">Wine<span class="sort-icon"></span></th>
+                <th onclick="sortTable('Vintage')">Vintage<span class="sort-icon"></span></th>
+                <th class="hide-mobile" onclick="sortTable('Location')">Loc<span class="sort-icon"></span></th>
+                <th class="hide-mobile" onclick="sortTable('Bin')">Bin<span class="sort-icon"></span></th>
+                <th onclick="sortTable('BeginConsume')">From<span class="sort-icon"></span></th>
+                <th onclick="sortTable('EndConsume')">To<span class="sort-icon"></span></th>
+                <th onclick="sortTable('Valuation')" style="text-align: right;">Price<span class="sort-icon"></span></th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            </tbody>
+    </table>
+
+    <script>
+        let allWines = [];
+        let currentSort = { key: 'Wine', direction: 'asc' };
+
+        // 1. Fetch Data
+        fetch('/api/cellartracker/inventory')
+            .then(response => response.json())
+            .then(data => {
+                allWines = data;
+                // Normalize numbers for sorting
+                allWines.forEach(w => {
+                    w.Valuation = parseFloat(w.Valuation) || 0;
+                    w.Vintage = parseInt(w.Vintage) || 0; 
+                    w.BeginConsume = parseInt(w.BeginConsume) || 0;
+                    w.EndConsume = parseInt(w.EndConsume) || 0;
+                });
+                
+                sortData('Wine');
+                renderTable(allWines);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('wineTable').style.display = 'table';
+            })
+            .catch(err => {
+                document.getElementById('loading').innerText = "Error loading data.";
+                console.error(err);
+            });
+
+        // 2. Render Table
+        function renderTable(data) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            const currentYear = new Date().getFullYear();
+
+            data.forEach(wine => {
+                const tr = document.createElement('tr');
+                
+                const name = wine.Wine || 'Unknown';
+                const vintage = wine.Vintage === 0 ? 'NV' : wine.Vintage;
+                const location = wine.Location || '';
+                const bin = wine.Bin || '';
+                const price = wine.Valuation.toFixed(0);
+                const link = `https://www.cellartracker.com/wine.asp?iWine=${wine.iWine}`;
+
+                // Logic: Drink From
+                let fromClass = '';
+                let fromText = '—';
+                if (wine.BeginConsume > 0) {
+                    fromText = wine.BeginConsume;
+                    fromClass = wine.BeginConsume > currentYear ? 'window-red' : 'window-green';
+                }
+
+                // Logic: Drink By
+                let toClass = '';
+                let toText = '—';
+                if (wine.EndConsume > 0) {
+                    toText = wine.EndConsume;
+                    toClass = wine.EndConsume > currentYear ? 'window-green' : 'window-red';
+                }
+
+                tr.innerHTML = `
+                    <td><a href="${link}" target="_blank">${name}</a></td>
+                    <td class="vintage">${vintage}</td>
+                    <td class="hide-mobile">${location}</td>
+                    <td class="hide-mobile">${bin}</td>
+                    <td class="${fromClass}">${fromText}</td>
+                    <td class="${toClass}">${toText}</td>
+                    <td class="price">${price}</td> `;
+                tbody.appendChild(tr);
+            });
+            updateHeaderIcons();
+        }
+
+        // 3. Sorting
+        function sortTable(key) {
+            if (currentSort.key === key) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.direction = 'asc';
+            }
+            sortData(key);
+            filterTable(); 
+        }
+
+        function sortData(key) {
+            const dir = currentSort.direction === 'asc' ? 1 : -1;
+            allWines.sort((a, b) => {
+                let valA = a[key];
+                let valB = b[key];
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+                if (valA < valB) return -1 * dir;
+                if (valA > valB) return 1 * dir;
+                return 0;
+            });
+        }
+
+        function updateHeaderIcons() {
+            document.querySelectorAll('th').forEach(th => th.classList.remove('asc', 'desc'));
+            const headers = Array.from(document.querySelectorAll('th'));
+            const activeHeader = headers.find(th => th.getAttribute('onclick').includes(`'${currentSort.key}'`));
+            if (activeHeader) activeHeader.classList.add(currentSort.direction);
+        }
+
+        // 4. Filtering
+        function filterTable() {
+            const term = document.getElementById('search').value.toLowerCase();
+            const filtered = allWines.filter(wine => {
+                const combined = (wine.Wine + " " + wine.Location + " " + wine.Bin).toLowerCase();
+                return combined.includes(term);
+            });
+            renderTable(filtered);
+        }
+    </script>
+</body>
+</html>

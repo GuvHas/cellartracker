@@ -1,8 +1,6 @@
-# cellar_data.py
-
 import logging
-from datetime import timedelta
 import hashlib
+from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -32,32 +30,24 @@ class WineCellarData(DataUpdateCoordinator):
             update_interval=scan_interval,
         )
         
+        # Using the standard library as requested
         from cellartracker import cellartracker
         self._client = cellartracker.CellarTracker(self._username, self._password)
-
 
     def _process_inventory(self, inventory: list) -> dict:
         """Process the raw inventory list into a structured dictionary."""
         if not inventory:
-            _LOGGER.warning("CellarTracker returned empty inventory")
             return {"total_bottles": 0, "total_value": 0.0, "bottles": []}
 
         total_value = 0.0
         processed_bottles = []
-        
-        # Keep track of generated IDs to ensure they are truly unique.
         seen_ids = set()
 
         for bottle in inventory:
             if 'iWine' not in bottle:
-                _LOGGER.warning("Skipping bottle because it's missing the 'iWine' identifier: %s", bottle)
                 continue
 
-            # --- STABLE UNIQUE ID GENERATION ---
-            # Create a stable ID from attributes that don't change.
-            # We combine multiple attributes to ensure uniqueness.
-            # Using a hash prevents the ID from becoming excessively long.
-            
+            # Stable Unique ID Generation
             base_id_string = (
                 f"{bottle['iWine']}_"
                 f"{bottle.get('PurchaseDate', '')}_"
@@ -66,7 +56,6 @@ class WineCellarData(DataUpdateCoordinator):
                 f"{bottle.get('Bin', '')}"
             )
             
-            # If multiple bottles have the exact same attributes, we add a counter.
             counter = 0
             unique_id = hashlib.sha1(base_id_string.encode('utf-8')).hexdigest()[:16]
             temp_id = unique_id
@@ -75,10 +64,8 @@ class WineCellarData(DataUpdateCoordinator):
                 counter += 1
                 temp_id = f"{unique_id}_{counter}"
             
-            unique_id = temp_id
-            seen_ids.add(unique_id)
-            bottle['unique_bottle_id'] = unique_id
-            # --- END OF STABLE ID LOGIC ---
+            seen_ids.add(temp_id)
+            bottle['unique_bottle_id'] = temp_id
 
             try:
                 valuation = float(bottle.get('Valuation', 0.0))
@@ -89,17 +76,16 @@ class WineCellarData(DataUpdateCoordinator):
             
             processed_bottles.append(bottle)
         
-        total_bottles = len(processed_bottles)
-
         return {
-            "total_bottles": total_bottles,
+            "total_bottles": len(processed_bottles),
             "total_value": round(total_value, 2),
             "bottles": processed_bottles,
         }
 
     async def _async_update_data(self) -> dict:
-        """Fetch inventory from CellarTracker asynchronously."""
+        """Fetch inventory from CellarTracker."""
         try:
+            # Use the library to fetch data
             inventory_list = await self._hass.async_add_executor_job(self._client.get_inventory)
             return await self._hass.async_add_executor_job(self._process_inventory, inventory_list)
 
