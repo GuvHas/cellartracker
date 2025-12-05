@@ -26,4 +26,4 @@ Optionally change the time between refreshes (Default 1 hour)
 Add the index.html file to /config/www
 
 # Example
-<img width="772" height="606" alt="image" src="https://github.com/user-attachments/assets/8b19ec91-a1ff-48eb-870f-7eb00981e056" />
+<img width="760" height="436" alt="cellar_image" src="https://github.com/user-attachments/assets/fa262a19-2725-4f64-bc7b-1f7c7535b510" />
