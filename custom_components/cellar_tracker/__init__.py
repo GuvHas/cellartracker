@@ -32,6 +32,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        # Reset view flag when no more config entries remain
+        remaining = {k: v for k, v in hass.data[DOMAIN].items() if k != "_view_registered"}
+        if not remaining:
+            hass.data[DOMAIN].pop("_view_registered", None)
     return unload_ok
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

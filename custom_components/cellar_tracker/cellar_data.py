@@ -87,7 +87,7 @@ class WineCellarData(DataUpdateCoordinator):
         try:
             # Use the library to fetch data
             inventory_list = await self._hass.async_add_executor_job(self._client.get_inventory)
-            return await self._hass.async_add_executor_job(self._process_inventory, inventory_list)
+            return self._process_inventory(inventory_list)
 
         except Exception as e:
             _LOGGER.error("Error communicating with CellarTracker API: %s", e)
