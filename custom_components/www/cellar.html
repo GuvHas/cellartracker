@@ -168,8 +168,23 @@
         let currentSort = { key: 'Wine', direction: 'asc' };
 
         // 1. Fetch Data
-        fetch('/api/cellartracker/inventory')
-            .then(response => response.json())
+        // Extract HA auth token from URL hash (passed by iframe card) or parent window
+        function getHassToken() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('token')) return params.get('token');
+            try { return document.querySelector('home-assistant').hass.auth.data.access_token; } catch(e) {}
+            try { return parent.document.querySelector('home-assistant').hass.auth.data.access_token; } catch(e) {}
+            return null;
+        }
+
+        const token = getHassToken();
+        const fetchOpts = token ? { headers: { 'Authorization': 'Bearer ' + token } } : {};
+
+        fetch('/api/cellartracker/inventory', fetchOpts)
+            .then(response => {
+                if (!response.ok) throw new Error('Auth failed (' + response.status + '). Pass ?token=YOUR_LONG_LIVED_TOKEN in the URL.');
+                return response.json();
+            })
             .then(data => {
                 allWines = data;
                 // Normalize numbers for sorting
