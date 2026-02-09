@@ -192,6 +192,14 @@
             });
 
         // 2. Render Table
+        function createCell(text, className, hideMobile) {
+            const td = document.createElement('td');
+            td.textContent = text;
+            if (className) td.className = className;
+            if (hideMobile) td.classList.add('hide-mobile');
+            return td;
+        }
+
         function renderTable(data) {
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
@@ -199,38 +207,47 @@
 
             data.forEach(wine => {
                 const tr = document.createElement('tr');
-                
+
                 const name = wine.Wine || 'Unknown';
-                const vintage = wine.Vintage === 0 ? 'NV' : wine.Vintage;
+                const vintage = wine.Vintage === 0 ? 'NV' : String(wine.Vintage);
                 const location = wine.Location || '';
                 const bin = wine.Bin || '';
                 const price = wine.Valuation.toFixed(0);
-                const link = `https://www.cellartracker.com/wine.asp?iWine=${wine.iWine}`;
+                const iWine = encodeURIComponent(wine.iWine || '');
+                const link = `https://www.cellartracker.com/wine.asp?iWine=${iWine}`;
+
+                // Wine name cell with link
+                const nameTd = document.createElement('td');
+                const anchor = document.createElement('a');
+                anchor.href = link;
+                anchor.target = '_blank';
+                anchor.textContent = name;
+                nameTd.appendChild(anchor);
+                tr.appendChild(nameTd);
+
+                tr.appendChild(createCell(vintage, 'vintage'));
+                tr.appendChild(createCell(location, null, true));
+                tr.appendChild(createCell(bin, null, true));
 
                 // Logic: Drink From
                 let fromClass = '';
-                let fromText = '—';
+                let fromText = '\u2014';
                 if (wine.BeginConsume > 0) {
-                    fromText = wine.BeginConsume;
+                    fromText = String(wine.BeginConsume);
                     fromClass = wine.BeginConsume > currentYear ? 'window-red' : 'window-green';
                 }
+                tr.appendChild(createCell(fromText, fromClass));
 
                 // Logic: Drink By
                 let toClass = '';
-                let toText = '—';
+                let toText = '\u2014';
                 if (wine.EndConsume > 0) {
-                    toText = wine.EndConsume;
+                    toText = String(wine.EndConsume);
                     toClass = wine.EndConsume > currentYear ? 'window-green' : 'window-red';
                 }
+                tr.appendChild(createCell(toText, toClass));
 
-                tr.innerHTML = `
-                    <td><a href="${link}" target="_blank">${name}</a></td>
-                    <td class="vintage">${vintage}</td>
-                    <td class="hide-mobile">${location}</td>
-                    <td class="hide-mobile">${bin}</td>
-                    <td class="${fromClass}">${fromText}</td>
-                    <td class="${toClass}">${toText}</td>
-                    <td class="price">${price}</td> `;
+                tr.appendChild(createCell(price, 'price'));
                 tbody.appendChild(tr);
             });
             updateHeaderIcons();

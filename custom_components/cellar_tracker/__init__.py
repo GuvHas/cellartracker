@@ -17,8 +17,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Register the custom API view for the dashboard
-    hass.http.register_view(CellarTrackerInventoryView(hass))
+    # Register the custom API view only once across all config entries
+    if not hass.data[DOMAIN].get("_view_registered"):
+        hass.http.register_view(CellarTrackerInventoryView(hass))
+        hass.data[DOMAIN]["_view_registered"] = True
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(update_listener))

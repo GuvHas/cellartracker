@@ -13,7 +13,7 @@ class CellarTrackerInventoryView(HomeAssistantView):
 
     url = "/api/cellartracker/inventory"
     name = "api:cellartracker:inventory"
-    requires_auth = False 
+    requires_auth = True
 
     def __init__(self, hass: HomeAssistant):
         """Initialize the view."""
