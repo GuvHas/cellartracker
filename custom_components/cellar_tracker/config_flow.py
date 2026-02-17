@@ -58,7 +58,7 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         """Return the options flow handler."""
-        return CellarTrackerOptionsFlowHandler(config_entry)
+        return CellarTrackerOptionsFlowHandler()
 
 
 class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
