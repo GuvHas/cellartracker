@@ -59,7 +59,7 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = device_info
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_native_unit_of_measurement = currency
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL
         self._attr_suggested_display_precision = 2
 
     @property
