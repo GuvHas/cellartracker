@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_CURRENCY, DEFAULT_CURRENCY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +18,9 @@ class WineCellarData(DataUpdateCoordinator):
         self._hass = hass
         self._username = entry.data["username"]
         self._password = entry.data["password"]
+        self._currency = entry.options.get(
+            CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        )
 
         scan_interval = timedelta(
             seconds=entry.options.get("scan_interval", entry.data.get("scan_interval", 3600))
@@ -33,6 +36,11 @@ class WineCellarData(DataUpdateCoordinator):
         # Using the standard library as requested
         from cellartracker import cellartracker
         self._client = cellartracker.CellarTracker(self._username, self._password)
+
+    @property
+    def currency(self) -> str:
+        """Return the configured currency symbol."""
+        return self._currency
 
     def _process_inventory(self, inventory: list) -> dict:
         """Process the raw inventory list into a structured dictionary."""

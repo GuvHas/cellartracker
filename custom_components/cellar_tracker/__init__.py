@@ -4,7 +4,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .cellar_data import WineCellarData
-from .views import CellarTrackerInventoryView
+from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 from .const import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register the custom API view only once across all config entries
     if not hass.data[DOMAIN].get("_view_registered"):
         hass.http.register_view(CellarTrackerInventoryView(hass))
+        hass.http.register_view(CellarTrackerSettingsView(hass))
         hass.data[DOMAIN]["_view_registered"] = True
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -166,6 +166,7 @@
     <script>
         let allWines = [];
         let currentSort = { key: 'Wine', direction: 'asc' };
+        let currencySymbol = '$';
 
         // 1. Fetch Data
         // Extract HA auth token from URL hash (passed by iframe card) or parent window
@@ -180,24 +181,27 @@
         const token = getHassToken();
         const fetchOpts = token ? { headers: { 'Authorization': 'Bearer ' + token } } : {};
 
-        fetch('/api/cellartracker/inventory', fetchOpts)
-            .then(response => {
-                if (!response.ok) throw new Error('Auth failed (' + response.status + '). Pass ?token=YOUR_LONG_LIVED_TOKEN in the URL.');
-                return response.json();
-            })
-            .then(data => {
+        Promise.all([
+            fetch('/api/cellartracker/inventory', fetchOpts).then(r => {
+                if (!r.ok) throw new Error('Auth failed (' + r.status + '). Pass ?token=YOUR_LONG_LIVED_TOKEN in the URL.');
+                return r.json();
+            }),
+            fetch('/api/cellartracker/settings', fetchOpts).then(r => r.json()).catch(() => ({ currency: '$' }))
+        ])
+            .then(([data, settings]) => {
+                currencySymbol = settings.currency || '$';
                 allWines = data;
                 // Normalize numbers for sorting
                 allWines.forEach(w => {
                     w.Valuation = parseFloat(w.Valuation) || 0;
-                    w.Vintage = parseInt(w.Vintage) || 0; 
+                    w.Vintage = parseInt(w.Vintage) || 0;
                     w.BeginConsume = parseInt(w.BeginConsume) || 0;
                     w.EndConsume = parseInt(w.EndConsume) || 0;
                 });
-                
+
                 sortData('Wine');
                 renderTable(allWines);
-                
+
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('wineTable').style.display = 'table';
             })
@@ -227,7 +231,7 @@
                 const vintage = wine.Vintage === 0 ? 'NV' : String(wine.Vintage);
                 const location = wine.Location || '';
                 const bin = wine.Bin || '';
-                const price = wine.Valuation.toFixed(0);
+                const price = currencySymbol + ' ' + wine.Valuation.toFixed(0);
                 const iWine = encodeURIComponent(wine.iWine || '');
                 const link = `https://www.cellartracker.com/wine.asp?iWine=${iWine}`;
 

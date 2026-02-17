@@ -4,9 +4,10 @@ import logging
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_CURRENCY
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class CellarTrackerInventoryView(HomeAssistantView):
     """Expose inventory data via a custom API endpoint."""
@@ -26,8 +27,34 @@ class CellarTrackerInventoryView(HomeAssistantView):
 
         # Return data from the first loaded coordinator
         for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if entry_id.startswith("_"):
+                continue
             if coordinator.data:
                 # Returns the raw list of bottle objects (JSON)
                 return web.json_response(coordinator.data.get("bottles", []))
-        
+
         return web.json_response([])
+
+
+class CellarTrackerSettingsView(HomeAssistantView):
+    """Expose integration settings (e.g. currency) via API."""
+
+    url = "/api/cellartracker/settings"
+    name = "api:cellartracker:settings"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant):
+        """Initialize the view."""
+        self.hass = hass
+
+    async def get(self, request):
+        """Handle GET request for settings."""
+        if DOMAIN not in self.hass.data:
+            return web.json_response({"currency": DEFAULT_CURRENCY})
+
+        for entry_id, coordinator in self.hass.data[DOMAIN].items():
+            if entry_id.startswith("_"):
+                continue
+            return web.json_response({"currency": coordinator.currency})
+
+        return web.json_response({"currency": DEFAULT_CURRENCY})

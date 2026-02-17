@@ -1,10 +1,10 @@
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_CURRENCY, DEFAULT_CURRENCY
 from .cellar_data import WineCellarData
 
 async def async_setup_entry(
@@ -14,6 +14,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinator: WineCellarData = hass.data[DOMAIN][entry.entry_id]
+
+    currency = entry.options.get(
+        CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+    )
 
     device_info = {
         "identifiers": {(DOMAIN, entry.entry_id)},
@@ -25,7 +29,7 @@ async def async_setup_entry(
 
     sensors = [
         TotalBottlesSensor(coordinator, device_info, entry.entry_id),
-        TotalValueSensor(coordinator, device_info, entry.entry_id),
+        TotalValueSensor(coordinator, device_info, entry.entry_id, currency),
         CellarInventorySensor(coordinator, device_info, entry.entry_id),
     ]
 
@@ -39,6 +43,8 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{entry_id}_total_bottles"
         self._attr_icon = "mdi:bottle-wine"
         self._attr_device_info = device_info
+        self._attr_native_unit_of_measurement = "bottles"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self):
@@ -46,12 +52,15 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
 
 
 class TotalValueSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, device_info, entry_id):
+    def __init__(self, coordinator, device_info, entry_id, currency=DEFAULT_CURRENCY):
         super().__init__(coordinator)
         self._attr_name = "CellarTracker Total Value"
         self._attr_unique_id = f"{entry_id}_total_value"
         self._attr_device_info = device_info
-        self._attr_icon = "mdi:currency-usd"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_native_unit_of_measurement = currency
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_suggested_display_precision = 2
 
     @property
     def native_value(self):
