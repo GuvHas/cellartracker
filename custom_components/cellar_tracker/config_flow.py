@@ -7,7 +7,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_SCAN_INTERVAL
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_CURRENCY, DEFAULT_CURRENCY, CURRENCY_OPTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_SCAN_INTERVAL, default=3600): vol.All(vol.Coerce(int), vol.Range(min=300)),
+        vol.Optional(CONF_CURRENCY, default=DEFAULT_CURRENCY): vol.In(CURRENCY_OPTIONS),
     }
 )
 
@@ -74,10 +75,14 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
         current_scan_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL, 3600)
         )
+        current_currency = self.config_entry.options.get(
+            CONF_CURRENCY, self.config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        )
 
         options_schema = vol.Schema(
             {
                 vol.Optional(CONF_SCAN_INTERVAL, default=current_scan_interval): vol.All(vol.Coerce(int), vol.Range(min=300)),
+                vol.Optional(CONF_CURRENCY, default=current_currency): vol.In(CURRENCY_OPTIONS),
             }
         )
 
