@@ -1,6 +1,7 @@
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -59,7 +60,7 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = device_info
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_native_unit_of_measurement = currency
-        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_suggested_display_precision = 2
 
     @property
@@ -78,6 +79,7 @@ class CellarInventorySensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{entry_id}_inventory_status"
         self._attr_icon = "mdi:api"
         self._attr_device_info = device_info
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self):
