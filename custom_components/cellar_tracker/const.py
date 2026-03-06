@@ -4,19 +4,40 @@ DOMAIN = "cellar_tracker"
 PLATFORMS = ["sensor"]
 
 CONF_CURRENCY = "currency"
-DEFAULT_CURRENCY = "$"
+DEFAULT_CURRENCY = "USD"
+DEFAULT_SCAN_INTERVAL = 21600
+MIN_SCAN_INTERVAL = 900
 
 CURRENCY_OPTIONS = {
-    "$": "USD ($)",
-    "€": "EUR (€)",
-    "£": "GBP (£)",
+    "USD": "USD ($)",
+    "EUR": "EUR (€)",
+    "GBP": "GBP (£)",
     "CHF": "CHF",
-    "CA$": "CAD (CA$)",
-    "AU$": "AUD (AU$)",
-    "¥": "JPY (¥)",
-    "kr": "SEK/NOK/DKK (kr)",
-    "R$": "BRL (R$)",
-    "₹": "INR (₹)",
+    "CAD": "CAD (CA$)",
+    "AUD": "AUD (AU$)",
+    "JPY": "JPY (¥)",
+    "SEK": "SEK (kr)",
+    "NOK": "NOK (kr)",
+    "DKK": "DKK (kr)",
+    "BRL": "BRL (R$)",
+    "INR": "INR (₹)",
     "ZAR": "ZAR",
-    "NZ$": "NZD (NZ$)",
+    "NZD": "NZD (NZ$)",
+}
+
+CURRENCY_SYMBOLS = {
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "CHF": "CHF",
+    "CAD": "CA$",
+    "AUD": "AU$",
+    "JPY": "¥",
+    "SEK": "kr",
+    "NOK": "kr",
+    "DKK": "kr",
+    "BRL": "R$",
+    "INR": "₹",
+    "ZAR": "ZAR",
+    "NZD": "NZ$",
 }
