@@ -1,10 +1,11 @@
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, CONF_CURRENCY, DEFAULT_CURRENCY
+from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
 from .cellar_data import WineCellarData
 
 async def async_setup_entry(
@@ -15,8 +16,8 @@ async def async_setup_entry(
     """Set up the sensor platform."""
     coordinator: WineCellarData = hass.data[DOMAIN][entry.entry_id]
 
-    currency = entry.options.get(
-        CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+    currency = normalize_currency(
+        entry.options.get(CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY))
     )
 
     device_info = {
@@ -78,6 +79,7 @@ class CellarInventorySensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{entry_id}_inventory_status"
         self._attr_icon = "mdi:api"
         self._attr_device_info = device_info
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self):
