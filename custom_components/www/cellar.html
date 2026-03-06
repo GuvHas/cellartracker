@@ -142,7 +142,7 @@
 <body>
 
     <div id="search-container">
-        <input type="text" id="search" placeholder="Search wines..." onkeyup="filterTable()">
+        <input type="text" id="search" placeholder="Search wines...">
     </div>
 
     <div id="loading">Loading Cellar...</div>
@@ -169,27 +169,19 @@
         let currencySymbol = '$';
 
         // 1. Fetch Data
-        // Extract HA auth token from URL hash (passed by iframe card) or parent window
-        function getHassToken() {
-            const params = new URLSearchParams(window.location.search);
-            if (params.has('token')) return params.get('token');
-            try { return document.querySelector('home-assistant').hass.auth.data.access_token; } catch(e) {}
-            try { return parent.document.querySelector('home-assistant').hass.auth.data.access_token; } catch(e) {}
-            return null;
-        }
-
-        const token = getHassToken();
-        const fetchOpts = token ? { headers: { 'Authorization': 'Bearer ' + token } } : {};
+        const fetchOpts = { credentials: 'same-origin' };
 
         Promise.all([
             fetch('/api/cellartracker/inventory', fetchOpts).then(r => {
-                if (!r.ok) throw new Error('Auth failed (' + r.status + '). Pass ?token=YOUR_LONG_LIVED_TOKEN in the URL.');
+                if (!r.ok) throw new Error('Auth failed (' + r.status + '). Open this page from within Home Assistant.');
                 return r.json();
             }),
-            fetch('/api/cellartracker/settings', fetchOpts).then(r => r.json()).catch(() => ({ currency: '$' }))
+            fetch('/api/cellartracker/settings', fetchOpts)
+                .then(r => r.json())
+                .catch(() => ({ currency: 'USD', currency_symbol: '$' }))
         ])
             .then(([data, settings]) => {
-                currencySymbol = settings.currency || '$';
+                currencySymbol = settings.currency_symbol || settings.currency || '$';
                 allWines = data;
                 // Normalize numbers for sorting
                 allWines.forEach(w => {
@@ -240,6 +232,7 @@
                 const anchor = document.createElement('a');
                 anchor.href = link;
                 anchor.target = '_blank';
+                anchor.rel = 'noopener noreferrer';
                 anchor.textContent = name;
                 nameTd.appendChild(anchor);
                 tr.appendChild(nameTd);
@@ -308,11 +301,13 @@
         function filterTable() {
             const term = document.getElementById('search').value.toLowerCase();
             const filtered = allWines.filter(wine => {
-                const combined = (wine.Wine + " " + wine.Location + " " + wine.Bin).toLowerCase();
+                const combined = `${wine.Wine || ''} ${wine.Location || ''} ${wine.Bin || ''}`.toLowerCase();
                 return combined.includes(term);
             });
             renderTable(filtered);
         }
+
+        document.getElementById('search').addEventListener('input', filterTable);
     </script>
 </body>
 </html>
