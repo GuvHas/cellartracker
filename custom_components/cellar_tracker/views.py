@@ -4,7 +4,7 @@ import logging
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, DEFAULT_CURRENCY
+from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,11 +50,26 @@ class CellarTrackerSettingsView(HomeAssistantView):
     async def get(self, request):
         """Handle GET request for settings."""
         if DOMAIN not in self.hass.data:
-            return web.json_response({"currency": DEFAULT_CURRENCY})
+            return web.json_response(
+                {
+                    "currency": DEFAULT_CURRENCY,
+                    "currency_symbol": CURRENCY_SYMBOLS.get(DEFAULT_CURRENCY, DEFAULT_CURRENCY),
+                }
+            )
 
         for entry_id, coordinator in self.hass.data[DOMAIN].items():
             if entry_id.startswith("_"):
                 continue
-            return web.json_response({"currency": coordinator.currency})
+            return web.json_response(
+                {
+                    "currency": coordinator.currency,
+                    "currency_symbol": CURRENCY_SYMBOLS.get(coordinator.currency, coordinator.currency),
+                }
+            )
 
-        return web.json_response({"currency": DEFAULT_CURRENCY})
+        return web.json_response(
+            {
+                "currency": DEFAULT_CURRENCY,
+                "currency_symbol": CURRENCY_SYMBOLS.get(DEFAULT_CURRENCY, DEFAULT_CURRENCY),
+            }
+        )

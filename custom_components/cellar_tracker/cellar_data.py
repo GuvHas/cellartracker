@@ -2,13 +2,46 @@ import logging
 import hashlib
 from datetime import timedelta
 
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, CONF_CURRENCY, DEFAULT_CURRENCY
+from .const import (
+    CONF_CURRENCY,
+    DEFAULT_CURRENCY,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    normalize_currency,
+)
 
 _LOGGER = logging.getLogger(__name__)
+AUTH_ERROR_MARKERS = ("auth", "unauthorized", "invalid", "forbidden", "401")
+CONNECTIVITY_ERROR_MARKERS = (
+    "timeout",
+    "timed out",
+    "connection",
+    "tempor",
+    "dns",
+    "ssl",
+    "503",
+)
+
+
+def _is_auth_error(err: Exception) -> bool:
+    """Best-effort check for authentication failures."""
+    message = str(err).lower()
+    return any(marker in message for marker in AUTH_ERROR_MARKERS)
+
+
+def _is_connectivity_error(err: Exception) -> bool:
+    """Best-effort check for temporary connectivity issues."""
+    if isinstance(err, (OSError, TimeoutError, ValueError)):
+        return True
+
+    message = str(err).lower()
+    return any(marker in message for marker in CONNECTIVITY_ERROR_MARKERS)
 
 class WineCellarData(DataUpdateCoordinator):
     """Fetch and process CellarTracker inventory data."""
@@ -16,14 +49,17 @@ class WineCellarData(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         """Initialize the data coordinator."""
         self._hass = hass
-        self._username = entry.data["username"]
-        self._password = entry.data["password"]
-        self._currency = entry.options.get(
-            CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        self._username = entry.data[CONF_USERNAME]
+        self._password = entry.data[CONF_PASSWORD]
+        self._currency = normalize_currency(
+            entry.options.get(CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY))
         )
 
         scan_interval = timedelta(
-            seconds=entry.options.get("scan_interval", entry.data.get("scan_interval", 3600))
+            seconds=entry.options.get(
+                CONF_SCAN_INTERVAL,
+                entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            )
         )
 
         super().__init__(
@@ -31,6 +67,7 @@ class WineCellarData(DataUpdateCoordinator):
             _LOGGER,
             name=DOMAIN,
             update_interval=scan_interval,
+            always_update=False,
         )
         
         # Using the standard library as requested
@@ -96,7 +133,11 @@ class WineCellarData(DataUpdateCoordinator):
             # Use the library to fetch data
             inventory_list = await self._hass.async_add_executor_job(self._client.get_inventory)
             return self._process_inventory(inventory_list)
-
-        except Exception as e:
-            _LOGGER.error("Error communicating with CellarTracker API: %s", e)
-            raise UpdateFailed(f"Error communicating with CellarTracker API: {e}")
+        except Exception as err:  # Third-party library raises broad exception types
+            if _is_auth_error(err):
+                raise ConfigEntryAuthFailed("Authentication failed for CellarTracker") from err
+            if _is_connectivity_error(err):
+                _LOGGER.warning("Temporary communication error with CellarTracker API: %s", err)
+            else:
+                _LOGGER.error("Error communicating with CellarTracker API: %s", err)
+            raise UpdateFailed(f"Error communicating with CellarTracker API: {err}") from err
