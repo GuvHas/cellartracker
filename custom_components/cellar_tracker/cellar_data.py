@@ -24,6 +24,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# A cellar reporting zero bottles right after holding stock is usually an
+# upstream error page, but it can also mean the last bottle was drunk. Reject
+# the first such poll to protect the statistics, then believe a repeat.
+TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
+
 
 class WineCellarData(DataUpdateCoordinator):
     """Fetch and process CellarTracker inventory data."""
@@ -56,14 +61,47 @@ class WineCellarData(DataUpdateCoordinator):
         from cellartracker import cellartracker
         self._client = cellartracker.CellarTracker(self._username, self._password)
 
+        # Consecutive polls that reported an empty cellar after it held stock.
+        self._suspicious_empty_polls = 0
+
     @property
     def currency(self) -> str:
         """Return the configured currency symbol."""
         return self._currency
 
-    def _process_inventory(self, inventory: list) -> dict:
-        """Process the raw inventory list into a structured dictionary."""
+    def _process_inventory(self, inventory: list, previous: dict | None = None) -> dict:
+        """Process the raw inventory list into a structured dictionary.
+
+        Args:
+            inventory: rows as returned by the cellartracker library.
+            previous: the last successful result, used to tell a genuinely empty
+                cellar apart from an upstream error page.
+
+        Raises:
+            UpdateFailed: the response does not look like inventory data.
+        """
+        had_bottles = bool(previous and previous.get("total_bottles"))
+
         if not inventory:
+            # An error page that parses to zero rows is indistinguishable from
+            # an empty cellar on its own, and a stocked cellar does not empty
+            # itself between two polls - but a one-bottle cellar can. Reject the
+            # first suspicious zero, then accept it so the sensor recovers
+            # instead of being stranded as unavailable.
+            if had_bottles:
+                self._suspicious_empty_polls += 1
+                if self._suspicious_empty_polls <= TOLERATED_SUSPICIOUS_EMPTY_POLLS:
+                    raise UpdateFailed(
+                        "CellarTracker returned no inventory rows but the cellar "
+                        f"previously held {previous['total_bottles']} bottles; "
+                        "treating as an upstream error"
+                    )
+                _LOGGER.warning(
+                    "CellarTracker has reported an empty cellar for %s consecutive "
+                    "polls (previously %s bottles); accepting it as correct",
+                    self._suspicious_empty_polls,
+                    previous["total_bottles"],
+                )
             return {"total_bottles": 0, "total_value": 0.0, "bottles": []}
 
         total_value = 0.0
@@ -102,7 +140,29 @@ class WineCellarData(DataUpdateCoordinator):
                 bottle['Valuation'] = 0.0
             
             processed_bottles.append(bottle)
-        
+
+        if not processed_bottles:
+            # Rows parsed, but none carried the key column: we were handed an
+            # HTML error page or the upstream schema changed.
+            raise UpdateFailed(
+                f"CellarTracker returned {len(inventory)} unrecognised row(s) "
+                "with no 'iWine' column; treating as an upstream error rather "
+                "than an empty cellar"
+            )
+
+        # Real inventory came back; any earlier suspicion is resolved.
+        self._suspicious_empty_polls = 0
+
+        if had_bottles and len(processed_bottles) < previous["total_bottles"] // 2:
+            # A truncated response can still yield some valid rows. We cannot
+            # know whether the drop is real, so publish it but leave a trace.
+            _LOGGER.warning(
+                "CellarTracker inventory dropped from %s to %s bottles in a "
+                "single poll; verify the data is correct",
+                previous["total_bottles"],
+                len(processed_bottles),
+            )
+
         return {
             "total_bottles": len(processed_bottles),
             "total_value": round(total_value, 2),
@@ -127,4 +187,5 @@ class WineCellarData(DataUpdateCoordinator):
             _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
             raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
 
-        return self._process_inventory(inventory_list)
+        # self.data is the last successful result, or None on the first poll.
+        return self._process_inventory(inventory_list, previous=self.data)
