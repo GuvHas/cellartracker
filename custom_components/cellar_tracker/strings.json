@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CellarTracker",
+        "description": "Sign in with your CellarTracker account.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "scan_interval": "Seconds between refreshes",
+          "currency": "Currency"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate CellarTracker",
+        "description": "CellarTracker rejected the stored credentials for {username}. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password.",
+      "cannot_connect": "Could not reach CellarTracker. Check your network and try again.",
+      "unknown": "Unexpected error. See the Home Assistant log for details."
+    },
+    "abort": {
+      "already_configured": "This CellarTracker account is already configured.",
+      "reauth_successful": "CellarTracker was re-authenticated successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "CellarTracker options",
+        "data": {
+          "scan_interval": "Seconds between refreshes",
+          "currency": "Currency"
+        }
+      }
+    }
+  }
+}

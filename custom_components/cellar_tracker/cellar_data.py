@@ -2,6 +2,12 @@ import logging
 import hashlib
 from datetime import timedelta
 
+# `cellartracker.errors` is a dependency-free module, so importing it here is
+# cheap. The exception *types* are the only reliable way to classify failures:
+# the library raises them bare (`raise AuthenticationError`), so `str(err)` is
+# always the empty string and message sniffing can never match.
+from cellartracker.errors import AuthenticationError, CannotConnect
+
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -17,31 +23,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-AUTH_ERROR_MARKERS = ("auth", "unauthorized", "invalid", "forbidden", "401")
-CONNECTIVITY_ERROR_MARKERS = (
-    "timeout",
-    "timed out",
-    "connection",
-    "tempor",
-    "dns",
-    "ssl",
-    "503",
-)
 
-
-def _is_auth_error(err: Exception) -> bool:
-    """Best-effort check for authentication failures."""
-    message = str(err).lower()
-    return any(marker in message for marker in AUTH_ERROR_MARKERS)
-
-
-def _is_connectivity_error(err: Exception) -> bool:
-    """Best-effort check for temporary connectivity issues."""
-    if isinstance(err, (OSError, TimeoutError, ValueError)):
-        return True
-
-    message = str(err).lower()
-    return any(marker in message for marker in CONNECTIVITY_ERROR_MARKERS)
 
 class WineCellarData(DataUpdateCoordinator):
     """Fetch and process CellarTracker inventory data."""
@@ -130,14 +112,19 @@ class WineCellarData(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch inventory from CellarTracker."""
         try:
-            # Use the library to fetch data
-            inventory_list = await self._hass.async_add_executor_job(self._client.get_inventory)
-            return self._process_inventory(inventory_list)
-        except Exception as err:  # Third-party library raises broad exception types
-            if _is_auth_error(err):
-                raise ConfigEntryAuthFailed("Authentication failed for CellarTracker") from err
-            if _is_connectivity_error(err):
-                _LOGGER.warning("Temporary communication error with CellarTracker API: %s", err)
-            else:
-                _LOGGER.error("Error communicating with CellarTracker API: %s", err)
-            raise UpdateFailed(f"Error communicating with CellarTracker API: {err}") from err
+            inventory_list = await self._hass.async_add_executor_job(
+                self._client.get_inventory
+            )
+        except AuthenticationError as err:
+            # Surfaces as a reauth flow (see async_step_reauth in config_flow).
+            raise ConfigEntryAuthFailed(
+                "Invalid CellarTracker credentials"
+            ) from err
+        except (CannotConnect, TimeoutError, OSError) as err:
+            _LOGGER.warning("Temporary communication error with CellarTracker: %r", err)
+            raise UpdateFailed(f"Cannot reach CellarTracker: {err!r}") from err
+        except Exception as err:
+            _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
+            raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
+
+        return self._process_inventory(inventory_list)
