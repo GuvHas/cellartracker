@@ -3,9 +3,12 @@
   "name": "CellarTracker",
   "version": "0.0.14",
   "documentation": "https://github.com/GuvHas/cellartracker",
-  "requirements": ["cellartracker"],
+  "issue_tracker": "https://github.com/GuvHas/cellartracker/issues",
+  "requirements": ["cellartracker==1.1.1"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["http"],
   "codeowners": ["@GuvHas"],
-  "iot_class": "cloud_poll"
+  "iot_class": "cloud_poll",
+  "integration_type": "service",
+  "loggers": ["cellartracker"]
 }

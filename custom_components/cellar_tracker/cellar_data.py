@@ -1,12 +1,17 @@
+import asyncio
 import logging
 import hashlib
 from collections import Counter
 from datetime import timedelta
 
-# `cellartracker.errors` is a dependency-free module, so importing it here is
-# cheap. The exception *types* are the only reliable way to classify failures:
+# Imported at module scope: Home Assistant imports integration modules in an
+# executor, so the file I/O happens off the event loop. Importing inside
+# __init__ runs it *on* the loop and trips HA's blocking-call detector.
+#
+# The exception *types* are also the only reliable way to classify failures:
 # the library raises them bare (`raise AuthenticationError`), so `str(err)` is
 # always the empty string and message sniffing can never match.
+from cellartracker import cellartracker
 from cellartracker.errors import AuthenticationError, CannotConnect
 
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
@@ -29,6 +34,12 @@ _LOGGER = logging.getLogger(__name__)
 # upstream error page, but it can also mean the last bottle was drunk. Reject
 # the first such poll to protect the statistics, then believe a repeat.
 TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
+
+# The library calls requests.get() without a timeout, so a server that accepts
+# the connection and never replies holds the worker until TCP keepalive expires
+# (~2h by default). This bounds what Home Assistant waits for; it cannot cancel
+# the blocked thread, which needs timeout= upstream in cellartracker.
+REQUEST_TIMEOUT = 60
 
 
 class WineCellarData(DataUpdateCoordinator):
@@ -58,8 +69,6 @@ class WineCellarData(DataUpdateCoordinator):
             always_update=False,
         )
         
-        # Using the standard library as requested
-        from cellartracker import cellartracker
         self._client = cellartracker.CellarTracker(self._username, self._password)
 
         # Consecutive polls that reported an empty cellar after it held stock.
@@ -175,9 +184,10 @@ class WineCellarData(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch inventory from CellarTracker."""
         try:
-            inventory_list = await self._hass.async_add_executor_job(
-                self._client.get_inventory
-            )
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                inventory_list = await self._hass.async_add_executor_job(
+                    self._client.get_inventory
+                )
         except AuthenticationError as err:
             # Surfaces as a reauth flow (see async_step_reauth in config_flow).
             raise ConfigEntryAuthFailed(

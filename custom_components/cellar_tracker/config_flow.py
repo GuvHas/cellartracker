@@ -6,6 +6,7 @@ import voluptuous as vol
 
 # Classify failures by exception type: the library raises these bare, so
 # `str(err)` is always "" and message sniffing can never match.
+from cellartracker import cellartracker
 from cellartracker.errors import AuthenticationError, CannotConnect
 
 from homeassistant import config_entries
@@ -45,8 +46,6 @@ def _validate_credentials(username: str, password: str) -> None:
         AuthenticationError: the username/password pair was rejected.
         CannotConnect: CellarTracker was unreachable.
     """
-    from cellartracker import cellartracker
-
     cellartracker.CellarTracker(username, password).get_inventory()
 
 
