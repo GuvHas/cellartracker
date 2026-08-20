@@ -1,5 +1,6 @@
 import logging
 import hashlib
+from collections import Counter
 from datetime import timedelta
 
 # `cellartracker.errors` is a dependency-free module, so importing it here is
@@ -106,7 +107,10 @@ class WineCellarData(DataUpdateCoordinator):
 
         total_value = 0.0
         processed_bottles = []
-        seen_ids = set()
+        # Occurrences per base id. A Counter resolves duplicates in O(1); the
+        # previous linear probe restarted at 0 for every duplicate, making a
+        # group of N identical bottles cost O(N^2).
+        id_counts: Counter[str] = Counter()
 
         for bottle in inventory:
             if 'iWine' not in bottle:
@@ -121,16 +125,15 @@ class WineCellarData(DataUpdateCoordinator):
                 f"{bottle.get('Bin', '')}"
             )
             
-            counter = 0
             unique_id = hashlib.sha1(base_id_string.encode('utf-8')).hexdigest()[:16]
-            temp_id = unique_id
-            
-            while temp_id in seen_ids:
-                counter += 1
-                temp_id = f"{unique_id}_{counter}"
-            
-            seen_ids.add(temp_id)
-            bottle['unique_bottle_id'] = temp_id
+
+            # Suffixes are allocated densely (base, base_1, base_2, ...), which
+            # is exactly what the probe produced, so ids are unchanged.
+            occurrence = id_counts[unique_id]
+            id_counts[unique_id] += 1
+            bottle['unique_bottle_id'] = (
+                unique_id if not occurrence else f"{unique_id}_{occurrence}"
+            )
 
             try:
                 valuation = float(bottle.get('Valuation', 0.0))
@@ -187,5 +190,9 @@ class WineCellarData(DataUpdateCoordinator):
             _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
             raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
 
-        # self.data is the last successful result, or None on the first poll.
-        return self._process_inventory(inventory_list, previous=self.data)
+        # Parsing a large cellar means hashing every row and copying every dict,
+        # so keep it off the event loop. self.data is the last successful
+        # result, or None on the first poll.
+        return await self._hass.async_add_executor_job(
+            self._process_inventory, inventory_list, self.data
+        )

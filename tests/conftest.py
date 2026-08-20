@@ -162,8 +162,10 @@ class FakeHass:
 
     def __init__(self, entries=None):
         self.config_entries = _FakeEntryManager(entries or {})
+        self.executor_jobs = []
 
     async def async_add_executor_job(self, func, *args):
+        self.executor_jobs.append(getattr(func, "__name__", repr(func)))
         return func(*args)
 
 
