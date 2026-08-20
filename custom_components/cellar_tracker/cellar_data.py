@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import hashlib
-from collections import Counter
+from collections import defaultdict
 from datetime import timedelta
 
 # Imported at module scope: Home Assistant imports integration modules in an
@@ -40,6 +40,39 @@ TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
 # (~2h by default). This bounds what Home Assistant waits for; it cannot cancel
 # the blocked thread, which needs timeout= upstream in cellartracker.
 REQUEST_TIMEOUT = 60
+
+# Columns that identify a physical bottle. Volatile columns are deliberately
+# excluded: Valuation moves whenever CellarTracker re-prices a wine, and an id
+# that changed on every re-pricing would be useless to anything keying on it.
+IDENTITY_FIELDS = ("iWine", "PurchaseDate", "Barcode", "Location", "Bin")
+
+# Unit separator: cannot occur in CellarTracker's tab-separated payload, so it
+# cannot be forged by field contents to collide with another row's identity.
+_FIELD_SEPARATOR = "\x1f"
+
+
+def _bottle_identity(bottle: dict) -> str:
+    """Return the 16-hex-character identity of a physical bottle.
+
+    Truncating to 64 bits keeps the id readable; at cellar scale (thousands of
+    bottles, not billions) the collision probability is negligible.
+    """
+    payload = _FIELD_SEPARATOR.join(
+        str(bottle.get(field, "")) for field in IDENTITY_FIELDS
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _row_fingerprint(bottle: dict) -> str:
+    """Order-independent digest of a row's full contents.
+
+    Used only to rank bottles that share an identity, so that duplicate
+    suffixes do not depend on the order CellarTracker happened to return.
+    """
+    payload = _FIELD_SEPARATOR.join(
+        f"{key}={bottle[key]}" for key in sorted(bottle) if key != "unique_bottle_id"
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class WineCellarData(DataUpdateCoordinator):
@@ -116,42 +149,25 @@ class WineCellarData(DataUpdateCoordinator):
 
         total_value = 0.0
         processed_bottles = []
-        # Occurrences per base id. A Counter resolves duplicates in O(1); the
-        # previous linear probe restarted at 0 for every duplicate, making a
-        # group of N identical bottles cost O(N^2).
-        id_counts: Counter[str] = Counter()
 
+        # Pass 1: copy each row and derive its identity. Rows are copied
+        # because they belong to the caller.
+        identities: list[str] = []
         for bottle in inventory:
             if 'iWine' not in bottle:
                 continue
 
-            # Stable Unique ID Generation
-            base_id_string = (
-                f"{bottle['iWine']}_"
-                f"{bottle.get('PurchaseDate', '')}_"
-                f"{bottle.get('Barcode', '')}_"
-                f"{bottle.get('Location', '')}_"
-                f"{bottle.get('Bin', '')}"
-            )
-            
-            unique_id = hashlib.sha1(base_id_string.encode('utf-8')).hexdigest()[:16]
-
-            # Suffixes are allocated densely (base, base_1, base_2, ...), which
-            # is exactly what the probe produced, so ids are unchanged.
-            occurrence = id_counts[unique_id]
-            id_counts[unique_id] += 1
-            bottle['unique_bottle_id'] = (
-                unique_id if not occurrence else f"{unique_id}_{occurrence}"
-            )
+            row = dict(bottle)
 
             try:
-                valuation = float(bottle.get('Valuation', 0.0))
-                bottle['Valuation'] = valuation
-                total_value += valuation
+                valuation = float(row.get('Valuation') or 0.0)
             except (ValueError, TypeError):
-                bottle['Valuation'] = 0.0
-            
-            processed_bottles.append(bottle)
+                valuation = 0.0
+            row['Valuation'] = valuation
+            total_value += valuation
+
+            processed_bottles.append(row)
+            identities.append(_bottle_identity(row))
 
         if not processed_bottles:
             # Rows parsed, but none carried the key column: we were handed an
@@ -161,6 +177,29 @@ class WineCellarData(DataUpdateCoordinator):
                 "with no 'iWine' column; treating as an upstream error rather "
                 "than an empty cellar"
             )
+
+        # Pass 2: assign ids. Bottles sharing an identity are interchangeable,
+        # so their suffixes are ranked by a fingerprint of the whole row rather
+        # than by arrival order - otherwise a reordered response moves an id
+        # onto a different row. Only duplicates need that tie-break, so the
+        # extra hashing is confined to them.
+        groups: dict[str, list[int]] = defaultdict(list)
+        for index, identity in enumerate(identities):
+            groups[identity].append(index)
+
+        for identity, indexes in groups.items():
+            if len(indexes) == 1:
+                processed_bottles[indexes[0]]['unique_bottle_id'] = identity
+                continue
+
+            ranked = sorted(
+                indexes,
+                key=lambda index: (_row_fingerprint(processed_bottles[index]), index),
+            )
+            for rank, index in enumerate(ranked):
+                processed_bottles[index]['unique_bottle_id'] = (
+                    identity if not rank else f"{identity}_{rank}"
+                )
 
         # Real inventory came back; any earlier suspicion is resolved.
         self._suspicious_empty_polls = 0
