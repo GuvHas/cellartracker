@@ -150,11 +150,53 @@ _module(
 _module("homeassistant.helpers.entity", EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"))
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 
+class FakeResponse:
+    """Stand-in for aiohttp's json response."""
+
+    def __init__(self, payload, status=200):
+        self.payload = payload
+        self.status = status
+
+
+def _json_response(payload, *, status=200, **kwargs):
+    return FakeResponse(payload, status)
+
+
+class FakeRequest:
+    """Minimal aiohttp request exposing only the query string."""
+
+    def __init__(self, **query):
+        self.query = dict(query)
+
+
 # views.py imports aiohttp; stub it so the package __init__ is importable.
 _module("aiohttp")
-_module("aiohttp.web", json_response=lambda *args, **kwargs: (args, kwargs))
+_module("aiohttp.web", json_response=_json_response)
 _module("homeassistant.components")
 _module("homeassistant.components.http", HomeAssistantView=object)
+
+
+class FakeCoordinator:
+    """Stands in for WineCellarData in view tests."""
+
+    def __init__(self, *, currency="USD", bottles=None, data=True):
+        self.currency = currency
+        if not data:
+            self.data = None
+        else:
+            bottles = bottles or []
+            self.data = {
+                "total_bottles": len(bottles),
+                "total_value": 0.0,
+                "bottles": bottles,
+            }
+
+
+class ViewHass:
+    """HomeAssistant double carrying only hass.data."""
+
+    def __init__(self, data=None):
+        self.data = data if data is not None else {}
 
 
 class FakeHass:

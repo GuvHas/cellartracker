@@ -2,3 +2,12 @@ type: iframe
 url: /local/cellar.html
 aspect_ratio: 100%
 title: My Wine Collection
+
+# With more than one CellarTracker account configured, name the account
+# explicitly - the API will not guess which cellar to show:
+#
+#   url: /local/cellar.html?entry_id=YOUR_ENTRY_ID
+#
+# The entry id is the last path segment of the integration's URL under
+# Settings / Devices & Services, and is also listed in the error message the
+# dashboard shows when the account is ambiguous.
