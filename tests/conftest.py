@@ -58,10 +58,11 @@ class DataUpdateCoordinator:
 class ConfigEntry:
     """Lightweight config entry double."""
 
-    def __init__(self, *, entry_id="test_entry", data=None, options=None):
+    def __init__(self, *, entry_id="test_entry", data=None, options=None, title="alice"):
         self.entry_id = entry_id
         self.data = data or {}
         self.options = options or {}
+        self.title = title
 
 
 class _FlowBase:
@@ -177,6 +178,26 @@ _module("aiohttp")
 _module("aiohttp.web", json_response=_json_response)
 _module("homeassistant.components")
 _module("homeassistant.components.http", HomeAssistantView=object)
+
+
+class SensorEntity:
+    """Stub of homeassistant.components.sensor.SensorEntity."""
+
+
+class CoordinatorEntity:
+    """Stub of the CoordinatorEntity mixin."""
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+
+
+_module(
+    "homeassistant.components.sensor",
+    SensorEntity=SensorEntity,
+    SensorDeviceClass=types.SimpleNamespace(MONETARY="monetary"),
+    SensorStateClass=types.SimpleNamespace(MEASUREMENT="measurement", TOTAL="total"),
+)
+sys.modules["homeassistant.helpers.update_coordinator"].CoordinatorEntity = CoordinatorEntity
 
 
 class FakeCoordinator:
