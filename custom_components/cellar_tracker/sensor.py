@@ -5,8 +5,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
 from .cellar_data import WineCellarData
+from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -20,9 +21,14 @@ async def async_setup_entry(
         entry.options.get(CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY))
     )
 
+    # Name the device after the account so two configured cellars are
+    # distinguishable. entry.title is the username by default and follows a
+    # rename of the config entry; a device the user renamed themselves keeps
+    # their name regardless. The identifiers are unchanged, so this renames the
+    # existing device rather than creating a second one.
     device_info = {
         "identifiers": {(DOMAIN, entry.entry_id)},
-        "name": "CellarTracker",
+        "name": entry.title or "CellarTracker",
         "manufacturer": "CellarTracker",
         "model": "Inventory",
         "entry_type": "service",
@@ -38,9 +44,13 @@ async def async_setup_entry(
 
 
 class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
+    # Home Assistant composes the friendly name as "<device> <entity>", so the
+    # entity name must not repeat the integration's own name.
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator, device_info, entry_id):
         super().__init__(coordinator)
-        self._attr_name = "CellarTracker Total Bottles"
+        self._attr_name = "Total bottles"
         self._attr_unique_id = f"{entry_id}_total_bottles"
         self._attr_icon = "mdi:bottle-wine"
         self._attr_device_info = device_info
@@ -53,9 +63,11 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
 
 
 class TotalValueSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator, device_info, entry_id, currency=DEFAULT_CURRENCY):
         super().__init__(coordinator)
-        self._attr_name = "CellarTracker Total Value"
+        self._attr_name = "Total value"
         self._attr_unique_id = f"{entry_id}_total_value"
         self._attr_device_info = device_info
         self._attr_device_class = SensorDeviceClass.MONETARY
@@ -70,12 +82,14 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
 
 class CellarInventorySensor(CoordinatorEntity, SensorEntity):
     """
-    Master sensor indicating status. 
+    Master sensor indicating status.
     NOTE: Detailed bottle list is exposed via API, not attributes, to avoid DB crash.
     """
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator, device_info, entry_id):
         super().__init__(coordinator)
-        self._attr_name = "CellarTracker Status"
+        self._attr_name = "Status"
         self._attr_unique_id = f"{entry_id}_inventory_status"
         self._attr_icon = "mdi:api"
         self._attr_device_info = device_info

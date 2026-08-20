@@ -1,3 +1,5 @@
+[![CI](https://github.com/GuvHas/cellartracker/actions/workflows/ci.yml/badge.svg)](https://github.com/GuvHas/cellartracker/actions/workflows/ci.yml)
+
 # Disclaimer
 This is an personal attempt at creating an integration to CellarTracker to Home Assistant, I am in no way affiliated or connected to CellarTracker! LLC.
 

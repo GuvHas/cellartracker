@@ -1,0 +1,15 @@
+[tool.ruff]
+# 100 rather than Home Assistant core's 88: a deliberate config choice, not a
+# quality one. It keeps this change about wiring up CI instead of reflowing
+# working lines, while still catching genuinely long ones.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cellar_tracker", "conftest"]

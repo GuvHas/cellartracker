@@ -169,19 +169,64 @@
         let currencySymbol = '$';
 
         // 1. Fetch Data
-        function getHassToken() {
+        const TOKEN_STORAGE_KEY = 'cellartracker_token';
+
+        // A Home Assistant long-lived token is full-account and never expires,
+        // so it must not sit in the address bar, where it reaches browser
+        // history, reverse-proxy and Home Assistant access logs, and any shared
+        // screenshot. A ?token= is honoured once so existing bookmarks keep
+        // working, then moved into sessionStorage and removed from the URL.
+        function consumeLegacyUrlToken() {
             const params = new URLSearchParams(window.location.search);
-            if (params.has('token')) return params.get('token');
+            if (!params.has('token')) return;
 
+            const legacy = params.get('token');
+            console.warn(
+                'cellar.html: passing ?token= in the URL is deprecated - it leaks the ' +
+                'token into browser history and server logs. Embed this page with an ' +
+                'iframe card instead so it can use your Home Assistant session.'
+            );
             try {
-                return window.parent?.document?.querySelector('home-assistant')?.hass?.auth?.data?.access_token || null;
-            } catch (e) {}
+                sessionStorage.setItem(TOKEN_STORAGE_KEY, legacy);
+            } catch (e) { /* storage unavailable in private mode */ }
 
-            try {
-                return document.querySelector('home-assistant')?.hass?.auth?.data?.access_token || null;
-            } catch (e) {}
+            params.delete('token');
+            const query = params.toString();
+            window.history.replaceState(
+                null, '', window.location.pathname + (query ? '?' + query : '')
+            );
+        }
 
+        function tokenFromHomeAssistant() {
+            // Try the embedding page first, then this document. Each lookup is
+            // guarded: reading a cross-origin parent throws.
+            const sources = [
+                () => window.parent && window.parent.document,
+                () => document
+            ];
+            for (const source of sources) {
+                try {
+                    const found = source()
+                        ?.querySelector('home-assistant')
+                        ?.hass?.auth?.data?.access_token;
+                    if (found) return found;
+                } catch (e) { /* cross-origin or not embedded */ }
+            }
             return null;
+        }
+
+        function storedToken() {
+            try {
+                return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function getHassToken() {
+            consumeLegacyUrlToken();
+            // Prefer the live session: it requires no stored secret at all.
+            return tokenFromHomeAssistant() || storedToken();
         }
 
         const token = getHassToken();
@@ -192,14 +237,38 @@
             }
             : { credentials: 'same-origin' };
 
+        // With more than one CellarTracker account configured, the API refuses
+        // to guess. Pass the account through from this page's own URL, e.g.
+        //   url: /local/cellar.html?entry_id=abc123
+        const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
+
+        function apiUrl(path) {
+            const base = '/api/cellartracker/' + path;
+            return entryId ? base + '?entry_id=' + encodeURIComponent(entryId) : base;
+        }
+
+        async function fetchJson(path) {
+            const response = await fetch(apiUrl(path), fetchOpts);
+            if (response.ok) return response.json();
+
+            let body = null;
+            try { body = await response.json(); } catch (e) { /* not JSON */ }
+
+            if (body && Array.isArray(body.entries)) {
+                throw new Error(body.detail + ' Available: ' + body.entries.join(', '));
+            }
+            if (response.status === 401 || response.status === 403) {
+                throw new Error(
+                    'Not authorised (' + response.status + '). Open this page from ' +
+                    'Home Assistant so it can use your session.'
+                );
+            }
+            throw new Error('Could not load data (HTTP ' + response.status + ').');
+        }
+
         Promise.all([
-            fetch('/api/cellartracker/inventory', fetchOpts).then(r => {
-                if (!r.ok) throw new Error('Auth failed (' + r.status + '). Open from Home Assistant or provide ?token=LONG_LIVED_ACCESS_TOKEN in the URL.');
-                return r.json();
-            }),
-            fetch('/api/cellartracker/settings', fetchOpts)
-                .then(r => r.json())
-                .catch(() => ({ currency: 'USD', currency_symbol: '$' }))
+            fetchJson('inventory'),
+            fetchJson('settings').catch(() => ({ currency: 'USD', currency_symbol: '$' }))
         ])
             .then(([data, settings]) => {
                 currencySymbol = settings.currency_symbol || settings.currency || '$';
@@ -219,7 +288,9 @@
                 document.getElementById('wineTable').style.display = 'table';
             })
             .catch(err => {
-                document.getElementById('loading').innerText = "Error loading data.";
+                // textContent, never innerHTML: the message embeds server data.
+                document.getElementById('loading').textContent =
+                    err.message || 'Error loading data.';
                 console.error(err);
             });
 

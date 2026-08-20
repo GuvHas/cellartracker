@@ -1,11 +1,12 @@
 """The CellarTracker integration."""
 import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .cellar_data import WineCellarData
-from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 from .const import DOMAIN, PLATFORMS
+from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 
 _LOGGER = logging.getLogger(__name__)
 

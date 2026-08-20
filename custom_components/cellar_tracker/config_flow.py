@@ -1,11 +1,15 @@
-# config_flow.py
+"""Config and options flow for the CellarTracker integration."""
 
 import logging
 
 import voluptuous as vol
 
+# Classify failures by exception type: the library raises these bare, so
+# `str(err)` is always "" and message sniffing can never match.
+from cellartracker import cellartracker
+from cellartracker.errors import AuthenticationError, CannotConnect
 from homeassistant import config_entries
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_SCAN_INTERVAL
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
 
 from .const import (
@@ -19,7 +23,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-AUTH_ERROR_MARKERS = ("auth", "unauthorized", "invalid", "forbidden", "401")
 
 DATA_SCHEMA = vol.Schema(
     {
@@ -32,81 +35,88 @@ DATA_SCHEMA = vol.Schema(
     }
 )
 
-
-def _is_auth_error(err: Exception) -> bool:
-    """Best-effort check for authentication failures from the third-party library."""
-    message = str(err).lower()
-    return any(marker in message for marker in AUTH_ERROR_MARKERS)
+REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
 
-def _is_connectivity_error(err: Exception) -> bool:
-    """Best-effort check for temporary connectivity failures."""
-    if isinstance(err, (OSError, TimeoutError, ValueError)):
-        return True
+def _validate_credentials(username: str, password: str) -> None:
+    """Authenticate against CellarTracker. Blocking - run in an executor.
 
-    message = str(err).lower()
-    connectivity_markers = (
-        "timeout",
-        "timed out",
-        "connection",
-        "tempor",
-        "dns",
-        "ssl",
-        "503",
-    )
-    return any(marker in message for marker in connectivity_markers)
+    Raises:
+        AuthenticationError: the username/password pair was rejected.
+        CannotConnect: CellarTracker was unreachable.
+    """
+    cellartracker.CellarTracker(username, password).get_inventory()
+
 
 class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for CellarTracker."""
 
     VERSION = 1
 
+    async def _async_check_credentials(self, username: str, password: str) -> dict:
+        """Return a form-errors dict; empty means the credentials are valid."""
+        try:
+            await self.hass.async_add_executor_job(
+                _validate_credentials, username, password
+            )
+        except AuthenticationError:
+            _LOGGER.warning("CellarTracker rejected the credentials for %s", username)
+            return {"base": "invalid_auth"}
+        except (CannotConnect, TimeoutError, OSError) as err:
+            _LOGGER.warning("Cannot reach CellarTracker while validating: %r", err)
+            return {"base": "cannot_connect"}
+        except Exception:  # noqa: BLE001 - third-party library, unknown surface
+            _LOGGER.exception("Unexpected error validating CellarTracker credentials")
+            return {"base": "unknown"}
+        return {}
+
     async def async_step_user(self, user_input=None):
         """Handle the initial user step."""
         errors = {}
 
         if user_input is not None:
-            try:
-                user_input[CONF_CURRENCY] = normalize_currency(
-                    user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
-                )
+            user_input[CONF_CURRENCY] = normalize_currency(
+                user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+            )
 
-                def _validate_credentials():
-                    """Validate credentials by authenticating and fetching data."""
-                    from cellartracker import cellartracker
-
-                    client = cellartracker.CellarTracker(
-                        user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
-                    )
-                    client.get_inventory()
-                    return True
-
-                await self.hass.async_add_executor_job(_validate_credentials)
-
+            errors = await self._async_check_credentials(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+            )
+            if not errors:
                 await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
                 self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
-
-            except Exception as err:  # Third-party library raises broad exception types
-                if _is_auth_error(err):
-                    _LOGGER.warning(
-                        "Authentication failed for CellarTracker user %s",
-                        user_input[CONF_USERNAME],
-                    )
-                    errors["base"] = "auth"
-                elif _is_connectivity_error(err):
-                    _LOGGER.warning(
-                        "Network error while validating CellarTracker credentials: %s",
-                        err,
-                    )
-                    errors["base"] = "cannot_connect"
-                else:
-                    _LOGGER.exception("Unexpected error validating CellarTracker credentials")
-                    errors["base"] = "unknown"
+                return self.async_create_entry(
+                    title=user_input[CONF_USERNAME], data=user_input
+                )
 
         return self.async_show_form(
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(self, entry_data):
+        """Entry point when the coordinator raises ConfigEntryAuthFailed."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Ask for a new password for the existing account."""
+        entry = self._get_reauth_entry()
+        username = entry.data[CONF_USERNAME]
+        errors = {}
+
+        if user_input is not None:
+            errors = await self._async_check_credentials(
+                username, user_input[CONF_PASSWORD]
+            )
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=REAUTH_SCHEMA,
+            errors=errors,
+            description_placeholders={"username": username},
         )
 
     @staticmethod
@@ -119,8 +129,7 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for CellarTracker."""
 
-    # The __init__ method has been completely removed as it is no longer necessary.
-    # The 'self.config_entry' attribute is now automatically provided by the base class.
+    # `self.config_entry` is provided automatically by the base class.
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -134,10 +143,11 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL,
             self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
-        current_currency = self.config_entry.options.get(
-            CONF_CURRENCY, self.config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        current_currency = normalize_currency(
+            self.config_entry.options.get(
+                CONF_CURRENCY, self.config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+            )
         )
-        current_currency = normalize_currency(current_currency)
 
         options_schema = vol.Schema(
             {
