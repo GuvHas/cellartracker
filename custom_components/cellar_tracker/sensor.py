@@ -5,8 +5,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
 from .cellar_data import WineCellarData
+from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -70,7 +71,7 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
 
 class CellarInventorySensor(CoordinatorEntity, SensorEntity):
     """
-    Master sensor indicating status. 
+    Master sensor indicating status.
     NOTE: Detailed bottle list is exposed via API, not attributes, to avoid DB crash.
     """
     def __init__(self, coordinator, device_info, entry_id):

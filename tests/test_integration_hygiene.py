@@ -16,6 +16,7 @@ from __future__ import annotations
 import inspect
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -86,3 +87,57 @@ def test_config_flow_is_declared():
 def test_integration_owns_its_logger():
     """Lets Home Assistant attribute library log records to this integration."""
     assert "cellartracker" in MANIFEST.get("loggers", [])
+
+
+@pytest.mark.parametrize("field", ["documentation", "issue_tracker"])
+def test_manifest_urls_are_https(field):
+    assert MANIFEST[field].startswith("https://")
+
+
+def test_codeowners_are_github_handles():
+    assert MANIFEST["codeowners"]
+    for owner in MANIFEST["codeowners"]:
+        assert owner.startswith("@"), f"{owner!r} is not a GitHub handle"
+
+
+def test_iot_class_is_recognised():
+    assert MANIFEST["iot_class"] in {
+        "assumed_state", "cloud_polling", "cloud_poll", "cloud_push",
+        "local_polling", "local_poll", "local_push", "calculated",
+    }
+
+
+def test_integration_type_is_recognised():
+    assert MANIFEST["integration_type"] in {
+        "device", "entity", "hardware", "helper", "hub", "service", "system", "virtual",
+    }
+
+
+# --------------------------------------------------------------------------
+# Translations must cover every step and error the flows actually use.
+# hassfest enforces this in CI; catching it here gives a faster signal.
+# --------------------------------------------------------------------------
+STRINGS = json.loads((COMPONENT / "strings.json").read_text())
+EN = json.loads((COMPONENT / "translations" / "en.json").read_text())
+FLOW_SOURCE = (COMPONENT / "config_flow.py").read_text()
+
+
+def test_english_translations_match_strings():
+    assert EN == STRINGS, "translations/en.json has drifted from strings.json"
+
+
+def test_every_flow_step_has_a_translation():
+    used = set(re.findall(r'step_id="([^"]+)"', FLOW_SOURCE))
+    translated = set(STRINGS["config"]["step"]) | set(STRINGS["options"]["step"])
+    assert used <= translated, f"untranslated step(s): {sorted(used - translated)}"
+
+
+def test_every_error_key_has_a_translation():
+    used = set(re.findall(r'"base":\s*"([^"]+)"', FLOW_SOURCE))
+    translated = set(STRINGS["config"]["error"])
+    assert used <= translated, f"untranslated error(s): {sorted(used - translated)}"
+
+
+def test_reauth_abort_reason_is_translated():
+    """async_update_reload_and_abort defaults to this reason."""
+    assert "reauth_successful" in STRINGS["config"]["abort"]

@@ -1,6 +1,6 @@
 import asyncio
-import logging
 import hashlib
+import logging
 from collections import defaultdict
 from datetime import timedelta
 
@@ -13,9 +13,8 @@ from datetime import timedelta
 # always the empty string and message sniffing can never match.
 from cellartracker import cellartracker
 from cellartracker.errors import AuthenticationError, CannotConnect
-
-from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -101,7 +100,7 @@ class WineCellarData(DataUpdateCoordinator):
             update_interval=scan_interval,
             always_update=False,
         )
-        
+
         self._client = cellartracker.CellarTracker(self._username, self._password)
 
         # Consecutive polls that reported an empty cellar after it held stock.

@@ -8,9 +8,8 @@ import voluptuous as vol
 # `str(err)` is always "" and message sniffing can never match.
 from cellartracker import cellartracker
 from cellartracker.errors import AuthenticationError, CannotConnect
-
 from homeassistant import config_entries
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_SCAN_INTERVAL
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
 
 from .const import (

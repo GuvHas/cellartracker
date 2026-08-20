@@ -147,7 +147,10 @@ _module(
     DataUpdateCoordinator=DataUpdateCoordinator,
     UpdateFailed=UpdateFailed,
 )
-_module("homeassistant.helpers.entity", EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"))
+_module(
+    "homeassistant.helpers.entity",
+    EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
+)
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 
 class FakeResponse:
