@@ -169,19 +169,64 @@
         let currencySymbol = '$';
 
         // 1. Fetch Data
-        function getHassToken() {
+        const TOKEN_STORAGE_KEY = 'cellartracker_token';
+
+        // A Home Assistant long-lived token is full-account and never expires,
+        // so it must not sit in the address bar, where it reaches browser
+        // history, reverse-proxy and Home Assistant access logs, and any shared
+        // screenshot. A ?token= is honoured once so existing bookmarks keep
+        // working, then moved into sessionStorage and removed from the URL.
+        function consumeLegacyUrlToken() {
             const params = new URLSearchParams(window.location.search);
-            if (params.has('token')) return params.get('token');
+            if (!params.has('token')) return;
 
+            const legacy = params.get('token');
+            console.warn(
+                'cellar.html: passing ?token= in the URL is deprecated - it leaks the ' +
+                'token into browser history and server logs. Embed this page with an ' +
+                'iframe card instead so it can use your Home Assistant session.'
+            );
             try {
-                return window.parent?.document?.querySelector('home-assistant')?.hass?.auth?.data?.access_token || null;
-            } catch (e) {}
+                sessionStorage.setItem(TOKEN_STORAGE_KEY, legacy);
+            } catch (e) { /* storage unavailable in private mode */ }
 
-            try {
-                return document.querySelector('home-assistant')?.hass?.auth?.data?.access_token || null;
-            } catch (e) {}
+            params.delete('token');
+            const query = params.toString();
+            window.history.replaceState(
+                null, '', window.location.pathname + (query ? '?' + query : '')
+            );
+        }
 
+        function tokenFromHomeAssistant() {
+            // Try the embedding page first, then this document. Each lookup is
+            // guarded: reading a cross-origin parent throws.
+            const sources = [
+                () => window.parent && window.parent.document,
+                () => document
+            ];
+            for (const source of sources) {
+                try {
+                    const found = source()
+                        ?.querySelector('home-assistant')
+                        ?.hass?.auth?.data?.access_token;
+                    if (found) return found;
+                } catch (e) { /* cross-origin or not embedded */ }
+            }
             return null;
+        }
+
+        function storedToken() {
+            try {
+                return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function getHassToken() {
+            consumeLegacyUrlToken();
+            // Prefer the live session: it requires no stored secret at all.
+            return tokenFromHomeAssistant() || storedToken();
         }
 
         const token = getHassToken();

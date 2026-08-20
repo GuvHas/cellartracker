@@ -3,6 +3,12 @@ url: /local/cellar.html
 aspect_ratio: 100%
 title: My Wine Collection
 
+# Embed the page with this card rather than opening /local/cellar.html in a
+# tab: embedded, it reads your live Home Assistant session from the parent
+# frame and needs no stored credential. Passing ?token=... still works for old
+# bookmarks but is deprecated - a long-lived token is full-account and never
+# expires, so a URL carrying one leaks it into history and server logs.
+#
 # With more than one CellarTracker account configured, name the account
 # explicitly - the API will not guess which cellar to show:
 #
