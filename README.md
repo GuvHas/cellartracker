@@ -522,6 +522,25 @@ run them — they skip if it is absent.
 
 CI runs the suite on Python 3.12 and 3.13, plus `ruff`, `hassfest` and HACS validation.
 
+### Cutting a release
+
+Releases are published by `.github/workflows/release.yml`, which refuses to tag a commit whose
+`manifest.json` version disagrees with the release, or whose tests and lint do not pass.
+
+1. Bump `version` in `custom_components/cellar_tracker/manifest.json`.
+2. Optionally write `release_notes/<version>.md`. If it exists the workflow uses it verbatim;
+   otherwise GitHub generates notes from the commit history. Write them by hand whenever a
+   version changes how the integration is installed or configured — 0.0.16 moved the dashboard
+   URL, which no generated changelog would have made obvious.
+3. Merge to `main`, then either push the tag (`git tag 0.0.17 && git push origin 0.0.17`) or run
+   **Actions → Release → Run workflow** and enter the version. The second path creates the tag
+   for you, which is what to use when your client cannot push tag refs.
+
+Tags are bare version numbers with no `v` prefix, optionally with a single-letter suffix
+(`0.0.13b`), matching every release since 0.0.10. Re-running a dispatch for a version whose tag
+already exists is safe: the workflow checks that tag out and validates it, rather than validating
+the branch and publishing the tag.
+
 ### Known limitation
 
 The upstream `cellartracker` library calls `requests.get()` without a `timeout`. This integration

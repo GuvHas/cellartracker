@@ -1,0 +1,150 @@
+name: Release
+
+# Two ways in, because pushing a tag is not always available:
+#   - push a version tag, and this publishes the release for it;
+#   - or run this workflow from the Actions tab with a version, and it
+#     creates the tag first. The second path is what to use when your
+#     client cannot push tag refs.
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+[a-z]"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. "0.0.17". Must match manifest.json.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish ${{ inputs.version || github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history and tags: --generate-notes needs the previous tag,
+          # and the step below may need to check an existing one out.
+          fetch-depth: 0
+
+      # Inputs reach the shell through the environment, never through
+      # ${{ }} interpolation into the script body.
+      - name: Resolve the version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            version="$INPUT_VERSION"
+          else
+            version="$REF_NAME"
+          fi
+          # Anchored, and matching the two tag patterns above exactly. A shell
+          # glob will not do this: every * in [0-9]*.[0-9]*.[0-9]* is
+          # unrestricted, so it accepts 0.0.17rc1 and 0.0.17/evil alike.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+[a-z]?$'; then
+            echo "::error::'$version' is not a version like 0.0.17 or 0.0.17b"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # A dispatch can land on a tag that already exists: a retried run, or a
+      # tag someone pushed by hand. `gh release create <tag>` publishes that
+      # existing tag, so everything below has to be validated against the tag
+      # rather than against the branch. Otherwise a branch that moved on since
+      # the tag would have its manifest, tests and notes checked here while
+      # the release archive carried different code.
+      - name: Select the commit to release
+        id: target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
+            git checkout --force --detach "refs/tags/$VERSION"
+            echo "Tag $VERSION already exists; validating and releasing that tag."
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $VERSION does not exist yet; releasing $GITHUB_REF_NAME at $(git rev-parse --short HEAD)."
+          fi
+
+      # A tag that disagrees with the manifest is what HACS shows users, so
+      # catch it here rather than after the release exists.
+      - name: Check the version matches the manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          manifest=$(python3 -c "import json; print(json.load(open('custom_components/cellar_tracker/manifest.json'))['version'])")
+          if [ "$manifest" != "$VERSION" ]; then
+            echo "::error::manifest.json says $manifest, but this release is $VERSION. Bump the manifest first."
+            exit 1
+          fi
+          echo "manifest.json and the release agree on $VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements_test.txt ruff==0.15.8
+
+      # Never tag or publish a commit that does not pass its own checks.
+      - run: python -m pytest -q
+      - run: ruff check .
+
+      # Only when the tag is not already there; if it was, it is what we just
+      # validated and it is already what gh will publish.
+      # Pushing with GITHUB_TOKEN does not start another workflow run, so this
+      # tag push cannot re-enter the push trigger above.
+      - name: Create the tag
+        if: github.event_name == 'workflow_dispatch' && steps.target.outputs.tag_exists != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              tag -a "$VERSION" -m "$VERSION"
+          git push origin "refs/tags/$VERSION"
+
+      # release_notes/<version>.md if it exists, otherwise GitHub's generated
+      # notes. Hand-written notes matter when a version changes how the
+      # integration is installed or configured.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::error::Release $VERSION already exists. Delete it first, or pick a new version."
+            exit 1
+          fi
+          notes="release_notes/$VERSION.md"
+          if [ -f "$notes" ]; then
+            echo "Using $notes"
+            gh release create "$VERSION" --title "$VERSION" --notes-file "$notes"
+          else
+            echo "No $notes; generating notes from the commit history"
+            gh release create "$VERSION" --title "$VERSION" --generate-notes
+          fi
+          echo "::notice::Published $VERSION"
