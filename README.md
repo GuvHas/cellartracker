@@ -536,7 +536,10 @@ Releases are published by `.github/workflows/release.yml`, which refuses to tag 
    **Actions → Release → Run workflow** and enter the version. The second path creates the tag
    for you, which is what to use when your client cannot push tag refs.
 
-Tags are bare version numbers with no `v` prefix, matching every release since 0.0.10.
+Tags are bare version numbers with no `v` prefix, optionally with a single-letter suffix
+(`0.0.13b`), matching every release since 0.0.10. Re-running a dispatch for a version whose tag
+already exists is safe: the workflow checks that tag out and validates it, rather than validating
+the branch and publishing the tag.
 
 ### Known limitation
 

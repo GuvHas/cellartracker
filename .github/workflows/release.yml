@@ -31,7 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so --generate-notes can see the previous tag.
+          # Full history and tags: --generate-notes needs the previous tag,
+          # and the step below may need to check an existing one out.
           fetch-depth: 0
 
       # Inputs reach the shell through the environment, never through
@@ -49,14 +50,37 @@ jobs:
           else
             version="$REF_NAME"
           fi
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *)
-              echo "::error::'$version' is not a version like 0.0.17"
-              exit 1
-              ;;
-          esac
+          # Anchored, and matching the two tag patterns above exactly. A shell
+          # glob will not do this: every * in [0-9]*.[0-9]*.[0-9]* is
+          # unrestricted, so it accepts 0.0.17rc1 and 0.0.17/evil alike.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+[a-z]?$'; then
+            echo "::error::'$version' is not a version like 0.0.17 or 0.0.17b"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # A dispatch can land on a tag that already exists: a retried run, or a
+      # tag someone pushed by hand. `gh release create <tag>` publishes that
+      # existing tag, so everything below has to be validated against the tag
+      # rather than against the branch. Otherwise a branch that moved on since
+      # the tag would have its manifest, tests and notes checked here while
+      # the release archive carried different code.
+      - name: Select the commit to release
+        id: target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
+            git checkout --force --detach "refs/tags/$VERSION"
+            echo "Tag $VERSION already exists; validating and releasing that tag."
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $VERSION does not exist yet; releasing $GITHUB_REF_NAME at $(git rev-parse --short HEAD)."
+          fi
 
       # A tag that disagrees with the manifest is what HACS shows users, so
       # catch it here rather than after the release exists.
@@ -83,26 +107,24 @@ jobs:
 
       - run: pip install -r requirements_test.txt ruff==0.15.8
 
-      # Never tag a commit that does not pass its own checks.
+      # Never tag or publish a commit that does not pass its own checks.
       - run: python -m pytest -q
       - run: ruff check .
 
-      # Pushing with GITHUB_TOKEN does not start another workflow run, so
-      # this tag push cannot re-enter the push trigger above.
+      # Only when the tag is not already there; if it was, it is what we just
+      # validated and it is already what gh will publish.
+      # Pushing with GITHUB_TOKEN does not start another workflow run, so this
+      # tag push cannot re-enter the push trigger above.
       - name: Create the tag
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.target.outputs.tag_exists != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists; releasing from it."
-          else
-            git -c user.name="github-actions[bot]" \
-                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-                tag -a "$VERSION" -m "$VERSION"
-            git push origin "refs/tags/$VERSION"
-          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              tag -a "$VERSION" -m "$VERSION"
+          git push origin "refs/tags/$VERSION"
 
       # release_notes/<version>.md if it exists, otherwise GitHub's generated
       # notes. Hand-written notes matter when a version changes how the
