@@ -24,14 +24,6 @@ from cellar_tracker.sensor import async_setup_entry as sensor_setup_entry
 from conftest import ConfigEntry, ViewHass
 
 
-class _Http:
-    def __init__(self):
-        self.registered = []
-
-    def register_view(self, view):
-        self.registered.append(type(view).__name__)
-
-
 class _Entries:
     def __init__(self):
         self.unload_ok = True
@@ -49,7 +41,6 @@ class _Entries:
 class LifecycleHass(ViewHass):
     def __init__(self):
         super().__init__({})
-        self.http = _Http()
         self.config_entries = _Entries()
 
 

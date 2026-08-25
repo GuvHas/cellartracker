@@ -24,6 +24,7 @@ sensors for bottle count and cellar value, plus a searchable, sortable dashboard
 - [Lovelace and automation examples](#lovelace-and-automation-examples)
 - [Troubleshooting and FAQ](#troubleshooting-and-faq)
 - [Development](#development)
+- [License](#license)
 
 ---
 
@@ -45,7 +46,8 @@ in an executor too, so neither touches Home Assistant's event loop.
 - A selectable currency, so the value sensor is denominated correctly.
 - A diagnostic status sensor.
 - A REST endpoint exposing full per-bottle detail, and a self-contained dashboard page that
-  renders it as a searchable, sortable table with drink-window highlighting.
+  renders it as a searchable, sortable table with drink-window highlighting. The page ships with
+  the integration and is served from it, so there is nothing to copy into `<config>/www`.
 - Reauthentication: if your password changes, Home Assistant prompts you to re-enter it rather
   than silently failing.
 - Multiple CellarTracker accounts, each as its own device.
@@ -130,6 +132,9 @@ The response contains all 66 columns CellarTracker returns; the table above is t
 
 ## Installation via HACS
 
+**Requires Home Assistant 2024.7 or newer** — that is the release that added the static-path API
+the integration uses to serve its dashboard page.
+
 1. Open **HACS** in Home Assistant.
 2. Click the **⋮** menu (top right) → **Custom repositories**.
 3. Add:
@@ -138,14 +143,10 @@ The response contains all 66 columns CellarTracker returns; the table above is t
 4. Click **Add**, then close the dialog.
 5. Search HACS for **CellarTracker** and click **Download**.
 6. **Restart Home Assistant.**
-7. Copy the dashboard page into place (optional, needed for the bottle table):
 
-   ```
-   custom_components/www/cellar.html  →  <config>/www/cellar.html
-   ```
-
-   Create `<config>/www/` if it does not exist. Files there are served at `/local/`, so the page
-   ends up at `/local/cellar.html`.
+That is the whole installation. There is no file to copy: the dashboard page ships inside the
+integration and Home Assistant serves it at `/cellartracker/cellar.html` as soon as the
+integration loads.
 
 Then continue to [Configuration](#configuration).
 
@@ -163,33 +164,30 @@ Then continue to [Configuration](#configuration).
    Note the directory is `cellar_tracker`, with an underscore — it must match the integration's
    domain exactly.
 
-3. Copy the dashboard page (optional):
-
-   ```
-   custom_components/www/cellar.html  →  <config>/www/cellar.html
-   ```
-
-4. Your config directory should now contain:
+3. Your config directory should now contain:
 
    ```
    <config>/
-   ├── custom_components/
-   │   └── cellar_tracker/
-   │       ├── __init__.py
-   │       ├── cellar_data.py
-   │       ├── config_flow.py
-   │       ├── const.py
-   │       ├── manifest.json
-   │       ├── sensor.py
-   │       ├── strings.json
-   │       ├── views.py
-   │       └── translations/
-   │           └── en.json
-   └── www/
-       └── cellar.html
+   └── custom_components/
+       └── cellar_tracker/
+           ├── __init__.py
+           ├── cellar_data.py
+           ├── config_flow.py
+           ├── const.py
+           ├── manifest.json
+           ├── sensor.py
+           ├── strings.json
+           ├── views.py
+           ├── translations/
+           │   └── en.json
+           └── www/
+               └── cellar.html
    ```
 
-5. **Restart Home Assistant.**
+   Copy the folder whole — `www/cellar.html` is the dashboard page, and the integration serves it
+   from there. Nothing goes into `<config>/www`.
+
+4. **Restart Home Assistant.**
 
 ---
 
@@ -242,11 +240,12 @@ polling it every minute is neither useful nor neighbourly. Fifteen minutes is th
 
 ## The dashboard
 
-Add an **iframe card** pointing at the page you copied to `www/`:
+The page is served by the integration itself, from wherever the integration was installed. Add an
+**iframe card** pointing at it:
 
 ```yaml
 type: iframe
-url: /local/cellar.html
+url: /cellartracker/cellar.html
 aspect_ratio: 100%
 title: My Wine Collection
 ```
@@ -262,7 +261,7 @@ ready, red = too early or past); and light/dark theme following your Home Assist
 
 ```yaml
 type: iframe
-url: /local/cellar.html?entry_id=YOUR_ENTRY_ID
+url: /cellartracker/cellar.html?entry_id=YOUR_ENTRY_ID
 aspect_ratio: 100%
 title: Alice's Cellar
 ```
@@ -270,6 +269,12 @@ title: Alice's Cellar
 The entry ID is the last path segment of the URL when you open the integration under
 **Settings → Devices & Services**. If you omit it with several accounts configured, the page
 tells you which IDs exist rather than guessing.
+
+**Upgrading from before v0.0.16?** You once had to copy the page into `<config>/www` yourself.
+That copy still works — `/local/cellar.html` is Home Assistant's own static mount and this change
+does not touch it — so existing cards keep rendering. It is a stale copy, though: it will not pick
+up fixes to the page. Point your card at `/cellartracker/cellar.html` and delete
+`<config>/www/cellar.html` when convenient.
 
 ---
 
@@ -448,11 +453,23 @@ rather than publishing a wrong number. Check **Settings → System → Logs** fo
 No — 900 seconds is enforced. Each refresh downloads your entire inventory, and CellarTracker is
 a small service. If you need a value right now, use **⋮ → Reload** on the integration.
 
+### The dashboard page 404s
+
+Check the URL: it is `/cellartracker/cellar.html`, served by the integration. If Home Assistant
+returns 404 there, the integration has not finished loading — look under **Settings → Devices &
+Services** — or the page is missing from the install, which the log reports as
+`Dashboard page ... is missing`. Re-download the integration in HACS, or re-copy the
+`cellar_tracker` folder whole if you installed manually.
+
+`/local/cellar.html` is the pre-v0.0.16 location and only works if you copied the page into
+`<config>/www` yourself. It is not created for you.
+
 ### The dashboard says "Not authorised"
 
 The page could not read your Home Assistant session. Almost always this means it was opened as a
 standalone browser tab rather than embedded in an iframe card. Use the card described in
-[The dashboard](#the-dashboard).
+[The dashboard](#the-dashboard). The page is deliberately unauthenticated static content; the data
+behind it is not, so the API calls it makes need your session.
 
 ### The dashboard says several accounts are configured
 
@@ -494,7 +511,7 @@ logger:
 
 ```bash
 pip install -r requirements_test.txt
-python -m pytest          # 134 tests
+python -m pytest          # 149 tests
 ruff check .
 ```
 
@@ -511,6 +528,13 @@ The upstream `cellartracker` library calls `requests.get()` without a `timeout`.
 bounds how long Home Assistant waits, so a hung request fails cleanly and retries on schedule, but
 it cannot cancel a worker thread already blocked in the library. A fully robust fix needs
 `timeout=` upstream.
+
+---
+
+## License
+
+[MIT](LICENSE). "CellarTracker!" is a trademark of CellarTracker! LLC; this project is not
+affiliated with them.
 
 ---
 

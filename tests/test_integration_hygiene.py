@@ -68,7 +68,7 @@ def test_requirements_are_version_pinned():
 
 
 def test_http_dependency_is_declared():
-    """The integration calls hass.http.register_view."""
+    """The integration calls hass.http.register_view and serves a static path."""
     assert "http" in MANIFEST["dependencies"]
 
 
@@ -76,8 +76,44 @@ def test_domain_matches_the_package_directory():
     assert MANIFEST["domain"] == COMPONENT.name == cellar_data.DOMAIN
 
 
-def test_manifest_and_hacs_versions_agree():
-    assert MANIFEST["version"] == HACS["version"]
+# HACS validates hacs.json against a closed schema and fails the repository
+# outright on an unknown key. Everything describing the integration itself
+# belongs in manifest.json, which is where HACS reads it from.
+HACS_ALLOWED_KEYS = {
+    "name",
+    "content_in_root",
+    "zip_release",
+    "filename",
+    "hide_default_branch",
+    "country",
+    "homeassistant",
+    "persistent_directory",
+    "hacs",
+    "render_readme",
+}
+
+
+def test_hacs_manifest_uses_only_keys_hacs_accepts():
+    extra = sorted(set(HACS) - HACS_ALLOWED_KEYS)
+    assert not extra, f"hacs.json keys HACS rejects: {extra}"
+
+
+def test_the_version_is_declared_once_in_the_manifest():
+    """Two copies drift; HACS reads the integration version from manifest.json."""
+    assert re.fullmatch(r"\d+\.\d+\.\d+", MANIFEST["version"])
+    assert "version" not in HACS
+
+
+def test_hacs_declares_the_minimum_home_assistant_version():
+    """async_register_static_paths landed in 2024.7."""
+    assert HACS["homeassistant"] >= "2024.7.0"
+
+
+def test_the_repository_is_licensed():
+    """HACS refuses to validate a repository with no license."""
+    licence = COMPONENT.parent.parent / "LICENSE"
+    assert licence.is_file(), "HACS requires a LICENSE file at the repository root"
+    assert licence.read_text().strip(), "LICENSE is empty"
 
 
 def test_config_flow_is_declared():
@@ -101,9 +137,10 @@ def test_codeowners_are_github_handles():
 
 
 def test_iot_class_is_recognised():
+    """hassfest's list exactly - the shorter "cloud_poll"/"local_poll" are not on it."""
     assert MANIFEST["iot_class"] in {
-        "assumed_state", "cloud_polling", "cloud_poll", "cloud_push",
-        "local_polling", "local_poll", "local_push", "calculated",
+        "assumed_state", "calculated", "cloud_polling", "cloud_push",
+        "local_polling", "local_push",
     }
 
 

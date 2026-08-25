@@ -1,18 +1,22 @@
 type: iframe
-url: /local/cellar.html
+url: /cellartracker/cellar.html
 aspect_ratio: 100%
 title: My Wine Collection
 
-# Embed the page with this card rather than opening /local/cellar.html in a
-# tab: embedded, it reads your live Home Assistant session from the parent
-# frame and needs no stored credential. Passing ?token=... still works for old
-# bookmarks but is deprecated - a long-lived token is full-account and never
-# expires, so a URL carrying one leaks it into history and server logs.
+# The page is served by the integration itself from where it was installed,
+# so there is nothing to copy into <config>/www. Installs that predate v0.0.16
+# and already copied it keep working at /local/cellar.html; either URL is fine.
+#
+# Embed the page with this card rather than opening it in a tab: embedded, it
+# reads your live Home Assistant session from the parent frame and needs no
+# stored credential. Passing ?token=... still works for old bookmarks but is
+# deprecated - a long-lived token is full-account and never expires, so a URL
+# carrying one leaks it into history and server logs.
 #
 # With more than one CellarTracker account configured, name the account
 # explicitly - the API will not guess which cellar to show:
 #
-#   url: /local/cellar.html?entry_id=YOUR_ENTRY_ID
+#   url: /cellartracker/cellar.html?entry_id=YOUR_ENTRY_ID
 #
 # The entry id is the last path segment of the integration's URL under
 # Settings / Devices & Services, and is also listed in the error message the

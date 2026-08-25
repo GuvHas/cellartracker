@@ -181,11 +181,33 @@ class FakeRequest:
         self.query = dict(query)
 
 
+class StaticPathConfig:
+    """Stub of homeassistant.components.http.StaticPathConfig."""
+
+    def __init__(self, url_path, path, cache_headers=True):
+        self.url_path = url_path
+        self.path = path
+        self.cache_headers = cache_headers
+
+
+def _config_entry_only_config_schema(domain):
+    """Stub of cv.config_entry_only_config_schema; identity is all tests need."""
+    return domain
+
+
 # views.py imports aiohttp; stub it so the package __init__ is importable.
 _module("aiohttp")
 _module("aiohttp.web", json_response=_json_response)
 _module("homeassistant.components")
-_module("homeassistant.components.http", HomeAssistantView=object)
+_module(
+    "homeassistant.components.http",
+    HomeAssistantView=object,
+    StaticPathConfig=StaticPathConfig,
+)
+sys.modules["homeassistant.helpers"].config_validation = _module(
+    "homeassistant.helpers.config_validation",
+    config_entry_only_config_schema=_config_entry_only_config_schema,
+)
 
 
 class SensorEntity:
@@ -224,11 +246,29 @@ class FakeCoordinator:
             }
 
 
+class FakeHttp:
+    """Records what the component registered on hass.http."""
+
+    def __init__(self):
+        self.registered = []
+        self.static_paths = []
+
+    def register_view(self, view):
+        self.registered.append(type(view).__name__)
+
+    async def async_register_static_paths(self, configs):
+        self.static_paths.extend(configs)
+
+
 class ViewHass:
-    """HomeAssistant double carrying only hass.data."""
+    """HomeAssistant double carrying hass.data and an http/executor surface."""
 
     def __init__(self, data=None):
         self.data = data if data is not None else {}
+        self.http = FakeHttp()
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
 
 
 class FakeHass:

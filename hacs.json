@@ -1,9 +1,5 @@
 {
   "name": "CellarTracker",
-  "description": "Integration for displaying the content of a wine cellar with CellarTracker.",
   "render_readme": true,
-  "version": "0.0.15",
-  "domain": ["cellar_tracker"],
-  "documentation": "https://github.com/GuvHas/cellartracker",
-  "codeowners": ["@GuvHas"]
+  "homeassistant": "2024.7.0"
 }
