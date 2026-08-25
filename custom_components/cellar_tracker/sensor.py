@@ -59,7 +59,8 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.coordinator.data.get("total_bottles", 0)
+        # `or {}`: coordinator.data is None until the first successful refresh.
+        return (self.coordinator.data or {}).get("total_bottles", 0)
 
 
 class TotalValueSensor(CoordinatorEntity, SensorEntity):
@@ -77,7 +78,7 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.coordinator.data.get("total_value", 0.0)
+        return (self.coordinator.data or {}).get("total_value", 0.0)
 
 
 class CellarInventorySensor(CoordinatorEntity, SensorEntity):

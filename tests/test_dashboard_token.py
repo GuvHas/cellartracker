@@ -26,7 +26,7 @@ import pytest
 
 CELLAR_HTML = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "custom_components" / "www" / "cellar.html"
+    / "custom_components" / "cellar_tracker" / "www" / "cellar.html"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -64,7 +64,7 @@ globalThis.sessionStorage = {
 };
 
 globalThis.window = {
-    location: { search: scenario.search, pathname: "/local/cellar.html" },
+    location: { search: scenario.search, pathname: "/cellartracker/cellar.html" },
     history: {
         replaceState(state, title, url) {
             replaceStateCalls.push(url);

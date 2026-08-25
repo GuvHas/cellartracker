@@ -239,7 +239,7 @@
 
         // With more than one CellarTracker account configured, the API refuses
         // to guess. Pass the account through from this page's own URL, e.g.
-        //   url: /local/cellar.html?entry_id=abc123
+        //   url: /cellartracker/cellar.html?entry_id=abc123
         const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
 
         function apiUrl(path) {

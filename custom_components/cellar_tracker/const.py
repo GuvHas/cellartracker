@@ -3,6 +3,14 @@
 DOMAIN = "cellar_tracker"
 PLATFORMS = ["sensor"]
 
+# The dashboard page ships inside the integration directory so that a HACS
+# download installs it - HACS copies custom_components/cellar_tracker and
+# nothing else, so a page kept beside it was never present on the user's
+# system. The integration serves it itself at DASHBOARD_URL; nothing has to be
+# copied into <config>/www.
+DASHBOARD_FILENAME = "cellar.html"
+DASHBOARD_URL = f"/cellartracker/{DASHBOARD_FILENAME}"
+
 CONF_CURRENCY = "currency"
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600

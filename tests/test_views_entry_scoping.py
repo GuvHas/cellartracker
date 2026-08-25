@@ -27,9 +27,13 @@ BOTTLES_B = [{"iWine": "2", "Wine": "Rioja"}]
 
 
 def build(entries):
-    """entries: {entry_id: FakeCoordinator}. Includes the registration sentinel."""
-    data = {DOMAIN: {**entries, "_view_registered": True}}
-    hass = ViewHass(data)
+    """entries: {entry_id: FakeCoordinator}.
+
+    ``hass.data[DOMAIN]`` holds coordinators and nothing else: the views moved
+    to ``async_setup``, so the ``_view_registered`` bool that used to sit
+    alongside them - and the prefix filter that skipped it - are both gone.
+    """
+    hass = ViewHass({DOMAIN: dict(entries)})
     return CellarTrackerInventoryView(hass), CellarTrackerSettingsView(hass)
 
 
@@ -126,12 +130,18 @@ def test_domain_absent_entirely():
     assert get(settings).payload["currency"] == "USD"
 
 
-def test_registration_sentinel_is_never_treated_as_an_entry():
-    """`_view_registered` is a bool stored alongside coordinators."""
-    inventory, settings = build({"a": FakeCoordinator(bottles=BOTTLES_A)})
+def test_every_stored_key_is_offered_as_an_entry():
+    """Nothing in hass.data[DOMAIN] is hidden from the caller any more.
 
-    assert get(inventory).payload == BOTTLES_A
-    assert "_view_registered" not in get(settings, entry_id="nope").payload.get("entries", [])
+    The listing in the error payload is how a user finds their entry id, so a
+    silently filtered key would be an entry they could never select.
+    """
+    inventory, settings = build(
+        {"a": FakeCoordinator(bottles=BOTTLES_A), "b": FakeCoordinator(bottles=BOTTLES_B)}
+    )
+
+    assert sorted(get(inventory, entry_id="nope").payload["entries"]) == ["a", "b"]
+    assert sorted(get(settings, entry_id="nope").payload["entries"]) == ["a", "b"]
 
 
 def test_settings_response_includes_the_symbol():

@@ -34,12 +34,15 @@ class _CellarTrackerView(HomeAssistantView):
         self.hass = hass
 
     def _coordinators(self) -> dict:
-        """Return only real config entries, never bookkeeping keys."""
-        return {
-            entry_id: coordinator
-            for entry_id, coordinator in self.hass.data.get(DOMAIN, {}).items()
-            if not entry_id.startswith("_")
-        }
+        """Return the coordinator for every loaded config entry.
+
+        ``hass.data[DOMAIN]`` holds coordinators keyed by entry id and nothing
+        else, so no filtering is needed. It used to also carry a
+        ``_view_registered`` bool, which is why this once skipped keys by
+        prefix; the views are registered in ``async_setup`` now and that flag
+        is gone.
+        """
+        return dict(self.hass.data.get(DOMAIN, {}))
 
     def _resolve(self, request):
         """Resolve the requested config entry.

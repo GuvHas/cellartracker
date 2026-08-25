@@ -1,14 +1,14 @@
 {
   "domain": "cellar_tracker",
   "name": "CellarTracker",
-  "version": "0.0.15",
-  "documentation": "https://github.com/GuvHas/cellartracker",
-  "issue_tracker": "https://github.com/GuvHas/cellartracker/issues",
-  "requirements": ["cellartracker==1.1.1"],
+  "codeowners": ["@GuvHas"],
   "config_flow": true,
   "dependencies": ["http"],
-  "codeowners": ["@GuvHas"],
-  "iot_class": "cloud_poll",
+  "documentation": "https://github.com/GuvHas/cellartracker",
   "integration_type": "service",
-  "loggers": ["cellartracker"]
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/GuvHas/cellartracker/issues",
+  "loggers": ["cellartracker"],
+  "requirements": ["cellartracker==1.1.1"],
+  "version": "0.0.16"
 }
