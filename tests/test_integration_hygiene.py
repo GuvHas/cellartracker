@@ -76,6 +76,13 @@ def test_domain_matches_the_package_directory():
     assert MANIFEST["domain"] == COMPONENT.name == cellar_data.DOMAIN
 
 
+def test_manifest_keys_are_ordered_the_way_hassfest_demands():
+    """hassfest: domain, name, then alphabetical - and it fails the build over it."""
+    keys = list(MANIFEST)
+    assert keys[:2] == ["domain", "name"], f"first two keys are {keys[:2]}"
+    assert keys[2:] == sorted(keys[2:]), f"not alphabetical after 'name': {keys[2:]}"
+
+
 # HACS validates hacs.json against a closed schema and fails the repository
 # outright on an unknown key. Everything describing the integration itself
 # belongs in manifest.json, which is where HACS reads it from.
