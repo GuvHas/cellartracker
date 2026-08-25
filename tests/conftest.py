@@ -63,6 +63,14 @@ class ConfigEntry:
         self.data = data or {}
         self.options = options or {}
         self.title = title
+        self.unload_callbacks = []
+
+    def async_on_unload(self, callback):
+        self.unload_callbacks.append(callback)
+        return callback
+
+    def add_update_listener(self, listener):
+        return listener
 
 
 class _FlowBase:
