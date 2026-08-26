@@ -72,6 +72,13 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial user step."""
+        # One CellarTracker account per installation. Checked before anything
+        # else so a duplicate is refused without a round trip to CellarTracker,
+        # and checked via the entry list rather than the unique id alone so
+        # that legacy entries - keyed on the username - also block.
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
+
         errors = {}
 
         if user_input is not None:
@@ -83,7 +90,9 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
             if not errors:
-                await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
+                # The domain, not the username: a second entry is a duplicate
+                # whichever account it names.
+                await self.async_set_unique_id(DOMAIN)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input[CONF_USERNAME], data=user_input

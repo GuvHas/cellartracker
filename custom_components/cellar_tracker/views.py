@@ -20,11 +20,11 @@ def _currency_payload(currency: str) -> dict:
 
 
 class _CellarTrackerView(HomeAssistantView):
-    """Shared entry resolution for the CellarTracker endpoints.
+    """Shared lookup for the CellarTracker endpoints.
 
-    Both endpoints must describe the *same* config entry, otherwise a dashboard
-    can render one account's bottles priced in another account's currency.
-    Resolution therefore lives here rather than in each view.
+    The config flow allows one account per installation, so there is nothing to
+    disambiguate: both endpoints serve the same single coordinator, which is
+    what stops them ever describing different accounts.
     """
 
     requires_auth = True
@@ -33,59 +33,30 @@ class _CellarTrackerView(HomeAssistantView):
         """Initialize the view."""
         self.hass = hass
 
-    def _coordinators(self) -> dict:
-        """Return the coordinator for every loaded config entry.
+    def _coordinator(self):
+        """Return the configured coordinator, or None if there is none yet.
 
-        ``hass.data[DOMAIN]`` holds coordinators keyed by entry id and nothing
-        else, so no filtering is needed. It used to also carry a
-        ``_view_registered`` bool, which is why this once skipped keys by
-        prefix; the views are registered in ``async_setup`` now and that flag
-        is gone.
+        ``?entry_id=`` is accepted and ignored so dashboards configured against
+        the multi-account release keep working unchanged.
         """
-        return dict(self.hass.data.get(DOMAIN, {}))
-
-    def _resolve(self, request):
-        """Resolve the requested config entry.
-
-        Returns:
-            (coordinator, error_response). ``coordinator`` is None with no error
-            when nothing is configured; callers then return their own default.
-        """
-        coordinators = self._coordinators()
+        coordinators = self.hass.data.get(DOMAIN, {})
         if not coordinators:
-            return None, None
-
-        entry_id = (request.query.get("entry_id") or "").strip()
-
-        if entry_id:
-            coordinator = coordinators.get(entry_id)
-            if coordinator is None:
-                return None, web.json_response(
-                    {
-                        "error": "unknown_entry_id",
-                        "detail": f"No CellarTracker config entry with id {entry_id!r}.",
-                        "entries": sorted(coordinators),
-                    },
-                    status=404,
-                )
-            return coordinator, None
+            return None
 
         if len(coordinators) > 1:
-            # Never guess: picking the first entry silently showed the wrong
-            # cellar and left the others unreachable.
-            return None, web.json_response(
-                {
-                    "error": "entry_id_required",
-                    "detail": (
-                        "Multiple CellarTracker accounts are configured. "
-                        "Add ?entry_id=<id> to the request."
-                    ),
-                    "entries": sorted(coordinators),
-                },
-                status=400,
+            # Only reachable on an install that added a second account before
+            # single-instance was enforced. Pick deterministically so both
+            # endpoints agree, and say so rather than silently choosing.
+            _LOGGER.warning(
+                "More than one CellarTracker account is configured (%s). Only one "
+                "is supported; serving %s. Remove the others in Settings > "
+                "Devices & Services.",
+                ", ".join(sorted(coordinators)),
+                min(coordinators),
             )
+            return coordinators[min(coordinators)]
 
-        return next(iter(coordinators.values())), None
+        return next(iter(coordinators.values()))
 
 
 class CellarTrackerInventoryView(_CellarTrackerView):
@@ -96,10 +67,7 @@ class CellarTrackerInventoryView(_CellarTrackerView):
 
     async def get(self, request):
         """Handle GET request for inventory."""
-        coordinator, error = self._resolve(request)
-        if error is not None:
-            return error
-
+        coordinator = self._coordinator()
         if coordinator is None or not coordinator.data:
             return web.json_response([])
 
@@ -114,9 +82,6 @@ class CellarTrackerSettingsView(_CellarTrackerView):
 
     async def get(self, request):
         """Handle GET request for settings."""
-        coordinator, error = self._resolve(request)
-        if error is not None:
-            return error
-
+        coordinator = self._coordinator()
         currency = DEFAULT_CURRENCY if coordinator is None else coordinator.currency
         return web.json_response(_currency_payload(currency))

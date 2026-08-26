@@ -73,6 +73,10 @@ class ConfigEntry:
         return listener
 
 
+class _Aborted(Exception):
+    """Raised by the stub when a flow helper would abort."""
+
+
 class _FlowBase:
     """Shared fake for ConfigFlow/OptionsFlow result helpers.
 
@@ -107,7 +111,15 @@ class _FlowBase:
         self.unique_id = unique_id
 
     def _abort_if_unique_id_configured(self):
+        if any(getattr(e, "unique_id", None) == self.unique_id for e in self._existing_entries):
+            raise _Aborted("already_configured")
         return None
+
+    # Entries Home Assistant already has for this domain.
+    _existing_entries: list = []
+
+    def _async_current_entries(self, include_ignore=False):
+        return list(self._existing_entries)
 
     # --- reauth helpers (HA >= 2024.11) ---
     def _get_reauth_entry(self):

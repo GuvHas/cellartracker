@@ -50,7 +50,8 @@ in an executor too, so neither touches Home Assistant's event loop.
   the integration and is served from it, so there is nothing to copy into `<config>/www`.
 - Reauthentication: if your password changes, Home Assistant prompts you to re-enter it rather
   than silently failing.
-- Multiple CellarTracker accounts, each as its own device.
+- One account per installation, enforced by the config flow, so there is no ambiguity
+  about which cellar an entity or endpoint refers to.
 - Upstream error pages are rejected rather than being recorded as a genuine zero, so an outage
   cannot punch a hole in your cellar-value history.
 
@@ -224,11 +225,10 @@ and history all stay as they were.
 There is no proactive "change my password now" form. If you would rather not wait for the next
 refresh to notice, use **⋮ → Reload** on the integration to trigger one immediately.
 
-### Multiple accounts
+### One account per installation
 
-Add the integration more than once. Each account becomes its own device, named after that
-account. When more than one is configured, the REST endpoints require you to say which one you
-mean (see below); with a single account nothing changes.
+The config flow allows a single CellarTracker account. Adding it a second time aborts rather
+than creating a duplicate. To switch accounts, delete the existing entry and add it again.
 
 ### A note on the refresh interval
 
@@ -257,18 +257,9 @@ It gives you search across wine name, location and bin; sortable columns; bottle
 in your configured currency; links to each wine on CellarTracker; drink-window colouring (green =
 ready, red = too early or past); and light/dark theme following your Home Assistant theme.
 
-**With more than one account configured**, name the one you want:
-
-```yaml
-type: iframe
-url: /cellartracker/cellar.html?entry_id=YOUR_ENTRY_ID
-aspect_ratio: 100%
-title: Alice's Cellar
-```
-
-The entry ID is the last path segment of the URL when you open the integration under
-**Settings → Devices & Services**. If you omit it with several accounts configured, the page
-tells you which IDs exist rather than guessing.
+The card needs no account parameter — one account is supported per installation, so the
+endpoints have nothing to disambiguate. A stale `?entry_id=...` left over from a card configured
+against v0.0.16 is accepted and ignored, so those cards keep working unchanged.
 
 **Upgrading from before v0.0.16?** You once had to copy the page into `<config>/www` yourself.
 That copy still works — `/local/cellar.html` is Home Assistant's own static mount and this change
@@ -471,10 +462,11 @@ standalone browser tab rather than embedded in an iframe card. Use the card desc
 [The dashboard](#the-dashboard). The page is deliberately unauthenticated static content; the data
 behind it is not, so the API calls it makes need your session.
 
-### The dashboard says several accounts are configured
+### Can I add a second CellarTracker account?
 
-Expected with more than one account. Add `?entry_id=...` to the iframe URL. The error message
-lists the available IDs.
+No. One account per installation is enforced: a second attempt aborts with "CellarTracker
+is already configured". Remove the existing entry under **Settings → Devices & Services**
+first if you want to switch accounts.
 
 ### Passing `?token=` in the dashboard URL
 

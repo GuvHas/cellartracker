@@ -237,14 +237,11 @@
             }
             : { credentials: 'same-origin' };
 
-        // With more than one CellarTracker account configured, the API refuses
-        // to guess. Pass the account through from this page's own URL, e.g.
-        //   url: /cellartracker/cellar.html?entry_id=abc123
-        const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
-
+        // One CellarTracker account per installation, so the endpoints need no
+        // account parameter. A stale ?entry_id= on an old card URL is harmless:
+        // the API ignores it.
         function apiUrl(path) {
-            const base = '/api/cellartracker/' + path;
-            return entryId ? base + '?entry_id=' + encodeURIComponent(entryId) : base;
+            return '/api/cellartracker/' + path;
         }
 
         async function fetchJson(path) {
