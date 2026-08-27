@@ -33,11 +33,13 @@ sensors for bottle count and cellar value, plus a searchable, sortable dashboard
 The integration is a standard modern custom component: UI config flow, a
 `DataUpdateCoordinator` for polling, and entities grouped under a device per account.
 
-**How it fetches data.** It uses the [`cellartracker`](https://pypi.org/project/cellartracker/)
-library, which calls CellarTracker's `xlquery.asp` export endpoint and requests the **`Inventory`
-table in tab-separated format**. One HTTP request per refresh returns every bottle you own, with
-66 columns each. The blocking call runs in an executor with a 60-second bound, and parsing runs
-in an executor too, so neither touches Home Assistant's event loop.
+**How it fetches data.** One request per refresh to CellarTracker's `xlquery.asp` export
+endpoint for the **`Inventory` table in tab-separated format**, returning every bottle you own
+with 66 columns each. The request uses Home Assistant's shared `aiohttp` session under a
+60-second `asyncio.timeout`, so a hung server is cancelled cleanly rather than parking a
+worker thread. Parsing runs in an executor, so the event loop is never blocked. The
+[`cellartracker`](https://pypi.org/project/cellartracker/) library supplies the endpoint URL
+and error semantics; its own `requests`-based transport sets no timeout and is not used.
 
 **Features**
 

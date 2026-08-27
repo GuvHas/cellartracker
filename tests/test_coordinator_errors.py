@@ -17,19 +17,24 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from cellar_tracker.cellar_data import WineCellarData
 from conftest import ConfigEntry, FakeHass
 
+ROWS = "iWine\tValuation\n1\t12.50\n2\t7.50"
 
-def build_coordinator(*, raises=None, returns=None) -> WineCellarData:
-    """Real coordinator with a stubbed CellarTracker client."""
+
+def build_coordinator(*, raises=None, returns=ROWS) -> WineCellarData:
+    """Real coordinator with the payload fetch stubbed.
+
+    Patching _fetch_payload rather than the transport keeps these tests about
+    the exception *mapping*, which is what they are for.
+    """
     entry = ConfigEntry(data={"username": "alice", "password": "secret"})
     coordinator = WineCellarData(FakeHass(), entry)
 
-    class _Client:
-        def get_inventory(self):
-            if raises is not None:
-                raise raises
-            return returns
+    async def _fetch_payload():
+        if raises is not None:
+            raise raises
+        return returns
 
-    coordinator._client = _Client()
+    coordinator._fetch_payload = _fetch_payload
     return coordinator
 
 
@@ -58,7 +63,6 @@ def test_parse_error_is_not_mistaken_for_an_auth_failure():
 
 def test_successful_fetch_returns_processed_inventory():
     """The happy path must keep working."""
-    rows = [{"iWine": "1", "Valuation": "12.50"}, {"iWine": "2", "Valuation": "7.50"}]
-    result = update(build_coordinator(returns=rows))
+    result = update(build_coordinator())
     assert result["total_bottles"] == 2
     assert result["total_value"] == 20.0

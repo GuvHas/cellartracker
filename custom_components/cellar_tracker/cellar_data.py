@@ -1,22 +1,30 @@
 import asyncio
+import csv
 import hashlib
+import io
 import logging
 from collections import defaultdict
 from datetime import timedelta
 
-# Imported at module scope: Home Assistant imports integration modules in an
-# executor, so the file I/O happens off the event loop. Importing inside
-# __init__ runs it *on* the loop and trips HA's blocking-call detector.
+# The library still owns the endpoint contract - its URL, the marker that
+# signals a rejected login, and the exception types - but not the transport:
+# its requests.get() sets no timeout. See _fetch_payload.
 #
 # The exception *types* are also the only reliable way to classify failures:
 # the library raises them bare (`raise AuthenticationError`), so `str(err)` is
 # always the empty string and message sniffing can never match.
-from cellartracker import cellartracker
+#
+# Imported at module scope: Home Assistant imports integration modules in an
+# executor, so this file I/O happens off the event loop.
+import aiohttp
+from cellartracker.const import BASE_URL, NOT_LOGGED_REPONSE
+from cellartracker.enum import CellarTrackerFormat, CellarTrackerTable
 from cellartracker.errors import AuthenticationError, CannotConnect
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -34,11 +42,13 @@ _LOGGER = logging.getLogger(__name__)
 # the first such poll to protect the statistics, then believe a repeat.
 TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
 
-# The library calls requests.get() without a timeout, so a server that accepts
-# the connection and never replies holds the worker until TCP keepalive expires
-# (~2h by default). This bounds what Home Assistant waits for; it cannot cancel
-# the blocked thread, which needs timeout= upstream in cellartracker.
+# Enforced by asyncio.timeout around an aiohttp request, so it genuinely
+# cancels. The library's own requests.get() sets no timeout, which is why the
+# transport is no longer routed through it.
 REQUEST_TIMEOUT = 60
+
+TABLE_INVENTORY = CellarTrackerTable.Inventory.value
+FORMAT_TAB = CellarTrackerFormat.tab.value
 
 # Columns that identify a physical bottle. Volatile columns are deliberately
 # excluded: Valuation moves whenever CellarTracker re-prices a wine, and an id
@@ -100,8 +110,6 @@ class WineCellarData(DataUpdateCoordinator):
             update_interval=scan_interval,
             always_update=False,
         )
-
-        self._client = cellartracker.CellarTracker(self._username, self._password)
 
         # Consecutive polls that reported an empty cellar after it held stock.
         self._suspicious_empty_polls = 0
@@ -219,13 +227,46 @@ class WineCellarData(DataUpdateCoordinator):
             "bottles": processed_bottles,
         }
 
+    async def _fetch_payload(self) -> str:
+        """Fetch the raw inventory export.
+
+        Home Assistant's shared aiohttp session replaces the library's
+        ``requests.get()``, which sets no timeout: an ``asyncio.timeout`` around
+        an executor job bounds the wait but cannot interrupt a worker already
+        blocked in ``recv()``. Cancelling an aiohttp request actually cancels it,
+        and no thread is involved.
+
+        Raises:
+            AuthenticationError: CellarTracker rejected the credentials.
+            CannotConnect: the export could not be retrieved.
+        """
+        session = async_get_clientsession(self._hass)
+        params = {
+            "User": self._username,
+            "Password": self._password,
+            "Table": TABLE_INVENTORY,
+            "Format": FORMAT_TAB,
+            "Location": "1",
+        }
+
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                async with session.get(BASE_URL, params=params) as response:
+                    response.raise_for_status()
+                    payload = await response.text()
+        except aiohttp.ClientError as err:
+            raise CannotConnect from err
+
+        # An auth failure arrives as HTTP 200 with a marker in the body.
+        if NOT_LOGGED_REPONSE in payload:
+            raise AuthenticationError
+
+        return payload
+
     async def _async_update_data(self) -> dict:
         """Fetch inventory from CellarTracker."""
         try:
-            async with asyncio.timeout(REQUEST_TIMEOUT):
-                inventory_list = await self._hass.async_add_executor_job(
-                    self._client.get_inventory
-                )
+            payload = await self._fetch_payload()
         except AuthenticationError as err:
             # Surfaces as a reauth flow (see async_step_reauth in config_flow).
             raise ConfigEntryAuthFailed(
@@ -238,9 +279,14 @@ class WineCellarData(DataUpdateCoordinator):
             _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
             raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
 
-        # Parsing a large cellar means hashing every row and copying every dict,
-        # so keep it off the event loop. self.data is the last successful
-        # result, or None on the first poll.
+        # I/O no longer needs a thread, but parsing still does: a large cellar
+        # means splitting 66 columns per row, hashing each one and copying every
+        # dict. self.data is the last successful result, or None on first poll.
         return await self._hass.async_add_executor_job(
-            self._process_inventory, inventory_list, self.data
+            self._parse_and_process, payload, self.data
         )
+
+    def _parse_and_process(self, payload: str, previous: dict | None) -> dict:
+        """Parse the tab-separated export, then summarise it. Runs in an executor."""
+        rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
+        return self._process_inventory(rows, previous=previous)

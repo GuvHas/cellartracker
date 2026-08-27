@@ -30,10 +30,12 @@ HACS = json.loads((COMPONENT.parent.parent / "hacs.json").read_text())
 # --------------------------------------------------------------------------
 # F-07: imports must not happen on the event loop
 # --------------------------------------------------------------------------
-def test_client_library_is_imported_at_module_level():
-    assert hasattr(cellar_data, "cellartracker"), (
-        "the client library must be imported at module scope, not in __init__"
-    )
+def test_library_symbols_are_imported_at_module_level():
+    """The transport is ours now, but the endpoint contract is still the library's."""
+    for symbol in ("BASE_URL", "NOT_LOGGED_REPONSE", "AuthenticationError", "CannotConnect"):
+        assert hasattr(cellar_data, symbol), (
+            f"{symbol} must be imported at module scope, not inside a function"
+        )
 
 
 def test_coordinator_init_performs_no_import():
@@ -127,9 +129,9 @@ def test_config_flow_is_declared():
     assert MANIFEST["config_flow"] is True
 
 
-def test_integration_owns_its_logger():
-    """Lets Home Assistant attribute library log records to this integration."""
-    assert "cellartracker" in MANIFEST.get("loggers", [])
+def test_no_logger_is_claimed_that_cannot_emit():
+    """The library's HTTP layer is no longer called, so its logger never fires."""
+    assert "cellartracker" not in MANIFEST.get("loggers", [])
 
 
 @pytest.mark.parametrize("field", ["documentation", "issue_tracker"])

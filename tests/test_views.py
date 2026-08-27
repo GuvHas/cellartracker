@@ -12,6 +12,7 @@ the previous release keep working unchanged.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 import pytest
@@ -30,7 +31,13 @@ def build(entries):
 
 
 def get(view, **query):
+    """Return the real aiohttp Response the view produced."""
     return asyncio.run(view.get(FakeRequest(**query)))
+
+
+def body(response):
+    """Decode a real aiohttp json response."""
+    return json.loads(response.body)
 
 
 # --------------------------------------------------------------------------
@@ -38,20 +45,20 @@ def get(view, **query):
 # --------------------------------------------------------------------------
 def test_inventory_serves_the_configured_account():
     inventory, _ = build({"a": FakeCoordinator(bottles=BOTTLES)})
-    assert get(inventory).payload == BOTTLES
+    assert body(get(inventory)) == BOTTLES
 
 
 def test_settings_serves_the_configured_currency():
     _, settings = build({"a": FakeCoordinator(currency="SEK")})
-    payload = get(settings).payload
+    payload = body(get(settings))
     assert payload["currency"] == "SEK"
     assert payload["currency_symbol"] == "kr"
 
 
 def test_an_entry_with_no_data_yet_returns_empty():
     inventory, settings = build({"a": FakeCoordinator(currency="GBP", data=False)})
-    assert get(inventory).payload == []
-    assert get(settings).payload["currency"] == "GBP", "currency is known before data is"
+    assert body(get(inventory)) == []
+    assert body(get(settings))["currency"] == "GBP", "currency is known before data is"
 
 
 # --------------------------------------------------------------------------
@@ -59,14 +66,14 @@ def test_an_entry_with_no_data_yet_returns_empty():
 # --------------------------------------------------------------------------
 def test_no_entry_configured():
     inventory, settings = build({})
-    assert get(inventory).payload == []
-    assert get(settings).payload["currency"] == "USD"
+    assert body(get(inventory)) == []
+    assert body(get(settings))["currency"] == "USD"
 
 
 def test_domain_absent_entirely():
     hass = ViewHass({})
-    assert get(CellarTrackerInventoryView(hass)).payload == []
-    assert get(CellarTrackerSettingsView(hass)).payload["currency"] == "USD"
+    assert body(get(CellarTrackerInventoryView(hass))) == []
+    assert body(get(CellarTrackerSettingsView(hass)))["currency"] == "USD"
 
 
 # --------------------------------------------------------------------------
@@ -75,8 +82,8 @@ def test_domain_absent_entirely():
 @pytest.mark.parametrize("entry_id", ["a", "stale-id-from-an-old-card", "", "   "])
 def test_entry_id_is_accepted_and_ignored(entry_id):
     inventory, settings = build({"a": FakeCoordinator(currency="EUR", bottles=BOTTLES)})
-    assert get(inventory, entry_id=entry_id).payload == BOTTLES
-    assert get(settings, entry_id=entry_id).payload["currency"] == "EUR"
+    assert body(get(inventory, entry_id=entry_id)) == BOTTLES
+    assert body(get(settings, entry_id=entry_id))["currency"] == "EUR"
 
 
 def test_no_error_statuses_remain():
@@ -97,10 +104,10 @@ def test_a_legacy_second_entry_is_served_deterministically(caplog):
     inventory, settings = build(entries)
 
     with caplog.at_level(logging.WARNING, logger="cellar_tracker.views"):
-        payload = get(inventory).payload
+        payload = body(get(inventory))
 
     assert payload == BOTTLES, "must pick the lowest entry id, not dict order"
-    assert get(settings).payload["currency"] == "USD", "both views must agree"
+    assert body(get(settings))["currency"] == "USD", "both views must agree"
     assert "more than one" in caplog.text.lower()
 
 
@@ -111,5 +118,5 @@ def test_the_two_views_never_disagree():
         "bbb": FakeCoordinator(currency="SEK", bottles=OTHER),
     }
     inventory, settings = build(entries)
-    assert get(inventory).payload == BOTTLES
-    assert get(settings).payload["currency"] == "USD"
+    assert body(get(inventory)) == BOTTLES
+    assert body(get(settings))["currency"] == "USD"
