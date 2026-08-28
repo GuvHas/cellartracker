@@ -20,7 +20,7 @@ import re
 
 import pytest
 
-from cellar_tracker import cellar_data, config_flow
+from cellar_tracker import cellar_data
 
 COMPONENT = pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
 MANIFEST = json.loads((COMPONENT / "manifest.json").read_text())
@@ -30,10 +30,12 @@ HACS = json.loads((COMPONENT.parent.parent / "hacs.json").read_text())
 # --------------------------------------------------------------------------
 # F-07: imports must not happen on the event loop
 # --------------------------------------------------------------------------
-def test_client_library_is_imported_at_module_level():
-    assert hasattr(cellar_data, "cellartracker"), (
-        "the client library must be imported at module scope, not in __init__"
-    )
+def test_library_symbols_are_imported_at_module_level():
+    """The transport is ours now, but the endpoint contract is still the library's."""
+    for symbol in ("BASE_URL", "NOT_LOGGED_REPONSE", "AuthenticationError", "CannotConnect"):
+        assert hasattr(cellar_data, symbol), (
+            f"{symbol} must be imported at module scope, not inside a function"
+        )
 
 
 def test_coordinator_init_performs_no_import():
@@ -53,8 +55,9 @@ def test_hot_paths_perform_no_import(func):
     assert "import " not in inspect.getsource(func)
 
 
-def test_config_flow_validator_performs_no_import():
-    source = inspect.getsource(config_flow._validate_credentials)
+def test_the_shared_fetch_performs_no_import():
+    """Used by both the coordinator and the config flow's credential check."""
+    source = inspect.getsource(cellar_data.async_fetch_inventory_payload)
     assert "import " not in source
 
 
@@ -127,9 +130,9 @@ def test_config_flow_is_declared():
     assert MANIFEST["config_flow"] is True
 
 
-def test_integration_owns_its_logger():
-    """Lets Home Assistant attribute library log records to this integration."""
-    assert "cellartracker" in MANIFEST.get("loggers", [])
+def test_no_logger_is_claimed_that_cannot_emit():
+    """The library's HTTP layer is no longer called, so its logger never fires."""
+    assert "cellartracker" not in MANIFEST.get("loggers", [])
 
 
 @pytest.mark.parametrize("field", ["documentation", "issue_tracker"])

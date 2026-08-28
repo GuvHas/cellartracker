@@ -12,6 +12,7 @@ separate integration-test suite (see F-19 in the review).
 
 from __future__ import annotations
 
+import asyncio
 import pathlib
 import sys
 import types
@@ -73,6 +74,10 @@ class ConfigEntry:
         return listener
 
 
+class _Aborted(Exception):
+    """Raised by the stub when a flow helper would abort."""
+
+
 class _FlowBase:
     """Shared fake for ConfigFlow/OptionsFlow result helpers.
 
@@ -107,7 +112,15 @@ class _FlowBase:
         self.unique_id = unique_id
 
     def _abort_if_unique_id_configured(self):
+        if any(getattr(e, "unique_id", None) == self.unique_id for e in self._existing_entries):
+            raise _Aborted("already_configured")
         return None
+
+    # Entries Home Assistant already has for this domain.
+    _existing_entries: list = []
+
+    def _async_current_entries(self, include_ignore=False):
+        return list(self._existing_entries)
 
     # --- reauth helpers (HA >= 2024.11) ---
     def _get_reauth_entry(self):
@@ -162,18 +175,6 @@ _module(
 )
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 
-class FakeResponse:
-    """Stand-in for aiohttp's json response."""
-
-    def __init__(self, payload, status=200):
-        self.payload = payload
-        self.status = status
-
-
-def _json_response(payload, *, status=200, **kwargs):
-    return FakeResponse(payload, status)
-
-
 class FakeRequest:
     """Minimal aiohttp request exposing only the query string."""
 
@@ -195,9 +196,8 @@ def _config_entry_only_config_schema(domain):
     return domain
 
 
-# views.py imports aiohttp; stub it so the package __init__ is importable.
-_module("aiohttp")
-_module("aiohttp.web", json_response=_json_response)
+# aiohttp is the real library: views.py builds real responses, and
+# cellar_data catches real aiohttp.ClientError.
 _module("homeassistant.components")
 _module(
     "homeassistant.components.http",
@@ -289,3 +289,69 @@ class _FakeEntryManager:
 
     def async_get_entry(self, entry_id):
         return self._entries.get(entry_id)
+
+
+# --- homeassistant.helpers.aiohttp_client -------------------------------------
+class FakeClientResponse:
+    """Stand-in for an aiohttp ClientResponse used as an async context manager."""
+
+    def __init__(self, text="", status=200, raise_for_status=None):
+        self._text = text
+        self.status = status
+        self._raise_for_status = raise_for_status
+
+    async def text(self):
+        return self._text
+
+    def raise_for_status(self):
+        if self._raise_for_status is not None:
+            raise self._raise_for_status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class _RequestContext:
+    def __init__(self, session, response, error, delay):
+        self._session = session
+        self._response = response
+        self._error = error
+        self._delay = delay
+
+    async def __aenter__(self):
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return await self._response.__aenter__()
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class FakeSession:
+    """Records what was requested and returns a scripted response."""
+
+    def __init__(self, *, text="", status=200, error=None, delay=0, raise_for_status=None):
+        self.text = text
+        self.status = status
+        self.error = error
+        self.delay = delay
+        self.raise_for_status = raise_for_status
+        self.requests = []
+
+    def get(self, url, params=None, **kwargs):
+        self.requests.append({"url": url, "params": dict(params or {})})
+        response = FakeClientResponse(
+            text=self.text, status=self.status, raise_for_status=self.raise_for_status
+        )
+        return _RequestContext(self, response, self.error, self.delay)
+
+
+_module(
+    "homeassistant.helpers.aiohttp_client",
+    async_get_clientsession=lambda hass, *a, **kw: getattr(hass, "session", FakeSession()),
+)

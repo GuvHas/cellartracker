@@ -9,15 +9,15 @@ UI shows "Config flow could not be loaded: 500 Internal Server Error".
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
 
+import aiohttp
 import pytest
-from cellartracker.errors import AuthenticationError, CannotConnect
+from cellartracker.const import NOT_LOGGED_REPONSE
 
 from cellar_tracker.config_flow import CellarTrackerConfigFlow
-from conftest import ConfigEntry, FakeHass
+from conftest import ConfigEntry, FakeHass, FakeSession
 
-GET_INVENTORY = "cellartracker.cellartracker.CellarTracker.get_inventory"
+ROWS = "iWine\tValuation\n1\t12.50"
 
 USER_INPUT = {
     "username": "alice",
@@ -27,10 +27,11 @@ USER_INPUT = {
 }
 
 
-def build_flow(entry: ConfigEntry | None = None) -> CellarTrackerConfigFlow:
+def build_flow(entry: ConfigEntry | None = None, **session_kwargs) -> CellarTrackerConfigFlow:
     entries = {entry.entry_id: entry} if entry else {}
     flow = CellarTrackerConfigFlow()
     flow.hass = FakeHass(entries)
+    flow.hass.session = FakeSession(**(session_kwargs or {"text": ROWS}))
     if entry:
         flow.context = {"source": "reauth", "entry_id": entry.entry_id}
     return flow
@@ -40,30 +41,26 @@ def build_flow(entry: ConfigEntry | None = None) -> CellarTrackerConfigFlow:
 # F-01: initial setup must distinguish auth failures from everything else
 # --------------------------------------------------------------------------
 def test_wrong_password_reports_invalid_auth():
-    flow = build_flow()
-    with patch(GET_INVENTORY, side_effect=AuthenticationError()):
-        result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
+    flow = build_flow(text=f"<html>{NOT_LOGGED_REPONSE}</html>")
+    result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
     assert result["errors"] == {"base": "invalid_auth"}
 
 
 def test_network_failure_reports_cannot_connect():
-    flow = build_flow()
-    with patch(GET_INVENTORY, side_effect=CannotConnect()):
-        result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
+    flow = build_flow(error=aiohttp.ClientConnectionError("boom"))
+    result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
     assert result["errors"] == {"base": "cannot_connect"}
 
 
 def test_unexpected_error_reports_unknown():
-    flow = build_flow()
-    with patch(GET_INVENTORY, side_effect=RuntimeError("boom")):
-        result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
+    flow = build_flow(error=RuntimeError("boom"))
+    result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
     assert result["errors"] == {"base": "unknown"}
 
 
 def test_valid_credentials_create_the_entry():
     flow = build_flow()
-    with patch(GET_INVENTORY, return_value=[]):
-        result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
+    result = asyncio.run(flow.async_step_user(dict(USER_INPUT)))
     assert result["type"] == "create_entry"
     assert result["data"]["username"] == "alice"
 
@@ -87,8 +84,7 @@ def test_reauth_shows_a_password_form():
 def test_reauth_with_a_valid_password_updates_the_entry():
     entry = ConfigEntry(data={"username": "alice", "password": "old"})
     flow = build_flow(entry)
-    with patch(GET_INVENTORY, return_value=[]):
-        result = asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
+    result = asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
     assert result["type"] == "abort"
     assert result["reason"] == "reauth_successful"
     assert entry.data["password"] == "new-pw"
@@ -98,8 +94,8 @@ def test_reauth_with_a_valid_password_updates_the_entry():
 def test_reauth_with_a_still_wrong_password_re_prompts():
     entry = ConfigEntry(data={"username": "alice", "password": "old"})
     flow = build_flow(entry)
-    with patch(GET_INVENTORY, side_effect=AuthenticationError()):
-        result = asyncio.run(flow.async_step_reauth_confirm({"password": "nope"}))
+    flow.hass.session = FakeSession(text=f"<html>{NOT_LOGGED_REPONSE}</html>")
+    result = asyncio.run(flow.async_step_reauth_confirm({"password": "nope"}))
     assert result["type"] == "form"
     assert result["errors"] == {"base": "invalid_auth"}
     assert entry.data["password"] == "old", "entry must not be updated on failure"
@@ -107,17 +103,12 @@ def test_reauth_with_a_still_wrong_password_re_prompts():
 
 def test_reauth_validates_against_the_stored_username():
     """Reauth only asks for a password; the username comes from the entry."""
-    entry = ConfigEntry(data={"username": "alice", "password": "old"})
+    entry = ConfigEntry(entry_id="a", data={"username": "alice", "password": "old"})
     flow = build_flow(entry)
-    seen = {}
 
-    def _capture(self):
-        seen["user"] = self.client._username
-        return []
+    asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
 
-    with patch(GET_INVENTORY, autospec=True, side_effect=_capture):
-        asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
-    assert seen["user"] == "alice"
+    assert flow.hass.session.requests[0]["params"]["User"] == "alice"
 
 
 @pytest.mark.parametrize("step", ["async_step_reauth", "async_step_reauth_confirm"])

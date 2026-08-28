@@ -26,7 +26,8 @@
     },
     "abort": {
       "already_configured": "This CellarTracker account is already configured.",
-      "reauth_successful": "CellarTracker was re-authenticated successfully."
+      "reauth_successful": "CellarTracker was re-authenticated successfully.",
+      "single_instance_allowed": "CellarTracker is already configured. Only one account is supported per Home Assistant installation."
     }
   },
   "options": {

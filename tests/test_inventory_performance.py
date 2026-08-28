@@ -21,19 +21,24 @@ import time
 import pytest
 
 from cellar_tracker.cellar_data import WineCellarData
-from conftest import ConfigEntry, FakeHass
+from conftest import ConfigEntry, FakeHass, FakeSession
+
+
+def as_tsv(rows: list[dict]) -> str:
+    """Render rows the way CellarTracker's export does."""
+    if not rows:
+        return ""
+    columns = list(rows[0])
+    lines = ["\t".join(columns)]
+    lines += ["\t".join(str(row.get(c, "")) for c in columns) for row in rows]
+    return "\n".join(lines)
 
 
 def build_coordinator(*, returns=None) -> WineCellarData:
     entry = ConfigEntry(data={"username": "alice", "password": "secret"})
-    coordinator = WineCellarData(FakeHass(), entry)
-
-    class _Client:
-        def get_inventory(self):
-            return returns
-
-    coordinator._client = _Client()
-    return coordinator
+    hass = FakeHass()
+    hass.session = FakeSession(text=as_tsv(returns or []))
+    return WineCellarData(hass, entry)
 
 
 def identical_bottles(count: int) -> list[dict]:
@@ -115,8 +120,8 @@ def test_totals_are_unaffected_by_the_refactor():
 def test_parsing_is_handed_to_the_executor():
     coordinator = build_coordinator(returns=identical_bottles(10))
     asyncio.run(coordinator._async_update_data())
-    assert "_process_inventory" in coordinator._hass.executor_jobs, (
-        "parsing ran on the event loop; only get_inventory was offloaded"
+    assert "_parse_and_process" in coordinator._hass.executor_jobs, (
+        "parsing ran on the event loop"
     )
 
 

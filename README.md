@@ -33,11 +33,13 @@ sensors for bottle count and cellar value, plus a searchable, sortable dashboard
 The integration is a standard modern custom component: UI config flow, a
 `DataUpdateCoordinator` for polling, and entities grouped under a device per account.
 
-**How it fetches data.** It uses the [`cellartracker`](https://pypi.org/project/cellartracker/)
-library, which calls CellarTracker's `xlquery.asp` export endpoint and requests the **`Inventory`
-table in tab-separated format**. One HTTP request per refresh returns every bottle you own, with
-66 columns each. The blocking call runs in an executor with a 60-second bound, and parsing runs
-in an executor too, so neither touches Home Assistant's event loop.
+**How it fetches data.** One request per refresh to CellarTracker's `xlquery.asp` export
+endpoint for the **`Inventory` table in tab-separated format**, returning every bottle you own
+with 66 columns each. The request uses Home Assistant's shared `aiohttp` session under a
+60-second `asyncio.timeout`, so a hung server is cancelled cleanly rather than parking a
+worker thread. Parsing runs in an executor, so the event loop is never blocked. The
+[`cellartracker`](https://pypi.org/project/cellartracker/) library supplies the endpoint URL
+and error semantics; its own `requests`-based transport sets no timeout and is not used.
 
 **Features**
 
@@ -50,7 +52,8 @@ in an executor too, so neither touches Home Assistant's event loop.
   the integration and is served from it, so there is nothing to copy into `<config>/www`.
 - Reauthentication: if your password changes, Home Assistant prompts you to re-enter it rather
   than silently failing.
-- Multiple CellarTracker accounts, each as its own device.
+- One account per installation, enforced by the config flow, so there is no ambiguity
+  about which cellar an entity or endpoint refers to.
 - Upstream error pages are rejected rather than being recorded as a genuine zero, so an outage
   cannot punch a hole in your cellar-value history.
 
@@ -224,11 +227,10 @@ and history all stay as they were.
 There is no proactive "change my password now" form. If you would rather not wait for the next
 refresh to notice, use **⋮ → Reload** on the integration to trigger one immediately.
 
-### Multiple accounts
+### One account per installation
 
-Add the integration more than once. Each account becomes its own device, named after that
-account. When more than one is configured, the REST endpoints require you to say which one you
-mean (see below); with a single account nothing changes.
+The config flow allows a single CellarTracker account. Adding it a second time aborts rather
+than creating a duplicate. To switch accounts, delete the existing entry and add it again.
 
 ### A note on the refresh interval
 
@@ -257,18 +259,9 @@ It gives you search across wine name, location and bin; sortable columns; bottle
 in your configured currency; links to each wine on CellarTracker; drink-window colouring (green =
 ready, red = too early or past); and light/dark theme following your Home Assistant theme.
 
-**With more than one account configured**, name the one you want:
-
-```yaml
-type: iframe
-url: /cellartracker/cellar.html?entry_id=YOUR_ENTRY_ID
-aspect_ratio: 100%
-title: Alice's Cellar
-```
-
-The entry ID is the last path segment of the URL when you open the integration under
-**Settings → Devices & Services**. If you omit it with several accounts configured, the page
-tells you which IDs exist rather than guessing.
+The card needs no account parameter — one account is supported per installation, so the
+endpoints have nothing to disambiguate. A stale `?entry_id=...` left over from a card configured
+against v0.0.16 is accepted and ignored, so those cards keep working unchanged.
 
 **Upgrading from before v0.0.16?** You once had to copy the page into `<config>/www` yourself.
 That copy still works — `/local/cellar.html` is Home Assistant's own static mount and this change
@@ -471,10 +464,11 @@ standalone browser tab rather than embedded in an iframe card. Use the card desc
 [The dashboard](#the-dashboard). The page is deliberately unauthenticated static content; the data
 behind it is not, so the API calls it makes need your session.
 
-### The dashboard says several accounts are configured
+### Can I add a second CellarTracker account?
 
-Expected with more than one account. Add `?entry_id=...` to the iframe URL. The error message
-lists the available IDs.
+No. One account per installation is enforced: a second attempt aborts with "CellarTracker
+is already configured". Remove the existing entry under **Settings → Devices & Services**
+first if you want to switch accounts.
 
 ### Passing `?token=` in the dashboard URL
 
@@ -541,12 +535,34 @@ Tags are bare version numbers with no `v` prefix, optionally with a single-lette
 already exists is safe: the workflow checks that tag out and validates it, rather than validating
 the branch and publishing the tag.
 
-### Known limitation
+### Why the library's transport is not used
 
-The upstream `cellartracker` library calls `requests.get()` without a `timeout`. This integration
-bounds how long Home Assistant waits, so a hung request fails cleanly and retries on schedule, but
-it cannot cancel a worker thread already blocked in the library. A fully robust fix needs
-`timeout=` upstream.
+The `cellartracker` library calls `requests.get(url, params)` with no `timeout=`
+([`api.py`](https://github.com/mathroule/cellartracker/blob/master/cellartracker/api.py)), so the
+socket has no deadline. Running that on an executor thread means an application-level timeout can
+stop Home Assistant *waiting*, but cannot interrupt the worker: `concurrent.futures` has no way to
+cancel a thread that is already running, so it stays in `recv()` until the OS gives up. For a
+server that accepts a connection and then never replies, that is the TCP keepalive interval —
+7200 seconds by default — with the account password sitting in the thread's stack frame.
+
+So the integration does its own HTTP with Home Assistant's shared `aiohttp` session, where
+cancellation genuinely cancels and no thread is involved. The library still supplies the endpoint
+URL, the not-logged-in marker, the table and format enums, and the exception types: it owns the
+contract, just not the transport.
+
+**Possible future contribution.** Adding `timeout=` to `cellartracker`'s `api.py` would fix this
+at the root for every consumer — roughly:
+
+```python
+DEFAULT_TIMEOUT = 60
+
+def execute(self, url=BASE_URL, params={}, timeout=DEFAULT_TIMEOUT):
+    ...
+    reponse = requests.get(url, params, timeout=timeout)
+```
+
+That is worth submitting upstream if anyone feels like it, but **this integration does not depend
+on it** — it no longer calls that code path at all. Noted here so the reasoning is not lost.
 
 ---
 

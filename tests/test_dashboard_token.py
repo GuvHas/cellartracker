@@ -169,12 +169,11 @@ def test_legacy_token_is_kept_for_the_session():
 
 def test_stripping_preserves_other_query_parameters():
     run_scenario(
-        search="?token=SECRET&entry_id=abc123",
+        search="?token=SECRET&keep=me",
         checks=assert_js(
-            'replaceStateCalls[0].indexOf("entry_id=abc123") !== -1',
-            "entry_id was lost when the token was stripped",
-        )
-        + assert_js("entryId === 'abc123'", "entry_id no longer reaches the API"),
+            'replaceStateCalls[0].indexOf("keep=me") !== -1',
+            "an unrelated query parameter was lost when the token was stripped",
+        ),
     )
 
 

@@ -13,11 +13,5 @@ title: My Wine Collection
 # deprecated - a long-lived token is full-account and never expires, so a URL
 # carrying one leaks it into history and server logs.
 #
-# With more than one CellarTracker account configured, name the account
-# explicitly - the API will not guess which cellar to show:
-#
-#   url: /cellartracker/cellar.html?entry_id=YOUR_ENTRY_ID
-#
-# The entry id is the last path segment of the integration's URL under
-# Settings / Devices & Services, and is also listed in the error message the
-# dashboard shows when the account is ambiguous.
+# One CellarTracker account is supported per Home Assistant installation,
+# so the card needs no account parameter.
