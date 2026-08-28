@@ -33,11 +33,17 @@ class _CellarTrackerView(HomeAssistantView):
         """Initialize the view."""
         self.hass = hass
 
-    def _coordinator(self):
-        """Return the configured coordinator, or None if there is none yet.
+    def _coordinator(self, request):
+        """Return the coordinator to serve, or None if there is none yet.
 
-        ``?entry_id=`` is accepted and ignored so dashboards configured against
-        the multi-account release keep working unchanged.
+        With the single account this integration now allows, ``?entry_id=`` is
+        accepted and ignored, so dashboards configured against the
+        multi-account release keep working unchanged.
+
+        It is honoured only where ignoring it would be wrong: a legacy install
+        still holding two entries, whose dashboard was copied to ``/local/``
+        and so still forwards the parameter. Serving the lowest entry id there
+        would answer for an account the caller did not ask for.
         """
         coordinators = self.hass.data.get(DOMAIN, {})
         if not coordinators:
@@ -45,8 +51,13 @@ class _CellarTrackerView(HomeAssistantView):
 
         if len(coordinators) > 1:
             # Only reachable on an install that added a second account before
-            # single-instance was enforced. Pick deterministically so both
-            # endpoints agree, and say so rather than silently choosing.
+            # single-instance was enforced.
+            entry_id = (request.query.get("entry_id") or "").strip()
+            if entry_id in coordinators:
+                return coordinators[entry_id]
+
+            # Nothing usable to disambiguate with: pick deterministically so
+            # both endpoints agree, and say so rather than silently choosing.
             _LOGGER.warning(
                 "More than one CellarTracker account is configured (%s). Only one "
                 "is supported; serving %s. Remove the others in Settings > "
@@ -67,7 +78,7 @@ class CellarTrackerInventoryView(_CellarTrackerView):
 
     async def get(self, request):
         """Handle GET request for inventory."""
-        coordinator = self._coordinator()
+        coordinator = self._coordinator(request)
         if coordinator is None or not coordinator.data:
             return web.json_response([])
 
@@ -82,6 +93,6 @@ class CellarTrackerSettingsView(_CellarTrackerView):
 
     async def get(self, request):
         """Handle GET request for settings."""
-        coordinator = self._coordinator()
+        coordinator = self._coordinator(request)
         currency = DEFAULT_CURRENCY if coordinator is None else coordinator.currency
         return web.json_response(_currency_payload(currency))

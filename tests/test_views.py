@@ -5,8 +5,10 @@ These replace the entry-scoping suite. That machinery - ``?entry_id=``,
 disambiguate between several accounts. The config flow now allows exactly one,
 so there is nothing to disambiguate and the endpoints just serve it.
 
-``?entry_id=`` is still accepted and ignored, so dashboards configured against
-the previous release keep working unchanged.
+``?entry_id=`` is still accepted and ignored for that single account, so
+dashboards configured against the previous release keep working unchanged. It
+is honoured only on a legacy install that still holds two entries, where
+ignoring it would answer for an account the caller did not ask for.
 """
 
 from __future__ import annotations
@@ -120,3 +122,40 @@ def test_the_two_views_never_disagree():
     inventory, settings = build(entries)
     assert body(get(inventory)) == BOTTLES
     assert body(get(settings))["currency"] == "USD"
+
+
+def test_a_legacy_second_entry_is_reachable_by_entry_id(caplog):
+    """A /local/ dashboard still forwards ?entry_id=; it must not be ignored.
+
+    Ignoring it here served the lowest entry id to every card, so a
+    secondary-account dashboard silently showed another cellar's bottles
+    priced in another cellar's currency.
+    """
+    entries = {
+        "aaa": FakeCoordinator(currency="USD", bottles=BOTTLES),
+        "bbb": FakeCoordinator(currency="SEK", bottles=OTHER),
+    }
+    inventory, settings = build(entries)
+
+    with caplog.at_level(logging.WARNING, logger="cellar_tracker.views"):
+        payload = body(get(inventory, entry_id="bbb"))
+
+    assert payload == OTHER, "must serve the account that was asked for"
+    assert body(get(settings, entry_id="bbb"))["currency"] == "SEK", "views must agree"
+    assert caplog.text == "", "an unambiguous request is not worth warning about"
+
+
+@pytest.mark.parametrize("entry_id", ["", "   ", "stale-id-from-an-old-card"])
+def test_an_unusable_entry_id_still_falls_back_deterministically(entry_id, caplog):
+    """Absent or stale ids keep the documented lowest-entry-id behaviour."""
+    entries = {
+        "bbb": FakeCoordinator(currency="SEK", bottles=OTHER),
+        "aaa": FakeCoordinator(currency="USD", bottles=BOTTLES),
+    }
+    inventory, _ = build(entries)
+
+    with caplog.at_level(logging.WARNING, logger="cellar_tracker.views"):
+        payload = body(get(inventory, entry_id=entry_id))
+
+    assert payload == BOTTLES
+    assert "more than one" in caplog.text.lower()
