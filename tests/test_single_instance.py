@@ -12,15 +12,14 @@ duplicate regardless of which account it names.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
 
 import pytest
 
 from cellar_tracker.config_flow import CellarTrackerConfigFlow
 from cellar_tracker.const import DOMAIN
-from conftest import ConfigEntry, FakeHass
+from conftest import ConfigEntry, FakeHass, FakeSession
 
-GET_INVENTORY = "cellartracker.cellartracker.CellarTracker.get_inventory"
+ROWS = "iWine\tValuation\n1\t12.50"
 
 USER_INPUT = {
     "username": "alice",
@@ -30,9 +29,10 @@ USER_INPUT = {
 }
 
 
-def build_flow(existing=()):
+def build_flow(existing=(), **session_kwargs):
     flow = CellarTrackerConfigFlow()
     flow.hass = FakeHass()
+    flow.hass.session = FakeSession(**(session_kwargs or {"text": ROWS}))
     flow._existing_entries = list(existing)
     return flow
 
@@ -46,8 +46,7 @@ def run_user_step(flow, user_input=None):
 # --------------------------------------------------------------------------
 def test_the_first_account_is_accepted():
     flow = build_flow()
-    with patch(GET_INVENTORY, return_value=[]):
-        result = run_user_step(flow)
+    result = run_user_step(flow)
     assert result["type"] == "create_entry"
     assert result["data"]["username"] == "alice"
 
@@ -55,8 +54,7 @@ def test_the_first_account_is_accepted():
 def test_the_unique_id_is_the_domain_not_the_username():
     """Keying on the username let a second, different account through."""
     flow = build_flow()
-    with patch(GET_INVENTORY, return_value=[]):
-        run_user_step(flow)
+    run_user_step(flow)
     assert flow.unique_id == DOMAIN
     assert flow.unique_id != "alice"
 
@@ -101,9 +99,9 @@ def test_the_refusal_happens_before_any_network_call():
     existing.unique_id = DOMAIN
     flow = build_flow([existing])
 
-    with patch(GET_INVENTORY, side_effect=AssertionError("must not be called")):
-        result = run_user_step(flow)
+    result = run_user_step(flow)
     assert result["reason"] == "single_instance_allowed"
+    assert flow.hass.session.requests == [], "a duplicate must not be validated upstream"
 
 
 # --------------------------------------------------------------------------
@@ -134,8 +132,8 @@ def test_reauth_is_not_blocked_by_the_single_instance_guard():
     flow._existing_entries = [entry]
     flow.context = {"source": "reauth", "entry_id": entry.entry_id}
 
-    with patch(GET_INVENTORY, return_value=[]):
-        result = asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
+    flow.hass.session = FakeSession(text=ROWS)
+    result = asyncio.run(flow.async_step_reauth_confirm({"password": "new-pw"}))
 
     assert result["type"] == "abort"
     assert result["reason"] == "reauth_successful"

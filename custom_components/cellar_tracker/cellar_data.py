@@ -84,6 +84,46 @@ def _row_fingerprint(bottle: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+async def async_fetch_inventory_payload(hass, username: str, password: str) -> str:
+    """Fetch the raw inventory export for an account.
+
+    Shared by the coordinator and by the config flow's credential check, so the
+    two cannot drift apart on transport or on what counts as an auth failure.
+
+    Home Assistant's shared aiohttp session replaces the library's
+    ``requests.get()``, which sets no timeout: an ``asyncio.timeout`` around an
+    executor job bounds the wait but cannot interrupt a worker already blocked
+    in ``recv()``. Cancelling an aiohttp request actually cancels it, and no
+    thread is involved.
+
+    Raises:
+        AuthenticationError: CellarTracker rejected the credentials.
+        CannotConnect: the export could not be retrieved.
+    """
+    session = async_get_clientsession(hass)
+    params = {
+        "User": username,
+        "Password": password,
+        "Table": TABLE_INVENTORY,
+        "Format": FORMAT_TAB,
+        "Location": "1",
+    }
+
+    try:
+        async with asyncio.timeout(REQUEST_TIMEOUT):
+            async with session.get(BASE_URL, params=params) as response:
+                response.raise_for_status()
+                payload = await response.text()
+    except aiohttp.ClientError as err:
+        raise CannotConnect from err
+
+    # An auth failure arrives as HTTP 200 with a marker in the body.
+    if NOT_LOGGED_REPONSE in payload:
+        raise AuthenticationError
+
+    return payload
+
+
 class WineCellarData(DataUpdateCoordinator):
     """Fetch and process CellarTracker inventory data."""
 
@@ -228,40 +268,10 @@ class WineCellarData(DataUpdateCoordinator):
         }
 
     async def _fetch_payload(self) -> str:
-        """Fetch the raw inventory export.
-
-        Home Assistant's shared aiohttp session replaces the library's
-        ``requests.get()``, which sets no timeout: an ``asyncio.timeout`` around
-        an executor job bounds the wait but cannot interrupt a worker already
-        blocked in ``recv()``. Cancelling an aiohttp request actually cancels it,
-        and no thread is involved.
-
-        Raises:
-            AuthenticationError: CellarTracker rejected the credentials.
-            CannotConnect: the export could not be retrieved.
-        """
-        session = async_get_clientsession(self._hass)
-        params = {
-            "User": self._username,
-            "Password": self._password,
-            "Table": TABLE_INVENTORY,
-            "Format": FORMAT_TAB,
-            "Location": "1",
-        }
-
-        try:
-            async with asyncio.timeout(REQUEST_TIMEOUT):
-                async with session.get(BASE_URL, params=params) as response:
-                    response.raise_for_status()
-                    payload = await response.text()
-        except aiohttp.ClientError as err:
-            raise CannotConnect from err
-
-        # An auth failure arrives as HTTP 200 with a marker in the body.
-        if NOT_LOGGED_REPONSE in payload:
-            raise AuthenticationError
-
-        return payload
+        """Fetch the raw inventory export for this entry's account."""
+        return await async_fetch_inventory_payload(
+            self._hass, self._username, self._password
+        )
 
     async def _async_update_data(self) -> dict:
         """Fetch inventory from CellarTracker."""

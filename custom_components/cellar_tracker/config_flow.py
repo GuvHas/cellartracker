@@ -6,12 +6,12 @@ import voluptuous as vol
 
 # Classify failures by exception type: the library raises these bare, so
 # `str(err)` is always "" and message sniffing can never match.
-from cellartracker import cellartracker
 from cellartracker.errors import AuthenticationError, CannotConnect
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
 
+from .cellar_data import async_fetch_inventory_payload
 from .const import (
     CONF_CURRENCY,
     CURRENCY_OPTIONS,
@@ -38,16 +38,6 @@ DATA_SCHEMA = vol.Schema(
 REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
 
-def _validate_credentials(username: str, password: str) -> None:
-    """Authenticate against CellarTracker. Blocking - run in an executor.
-
-    Raises:
-        AuthenticationError: the username/password pair was rejected.
-        CannotConnect: CellarTracker was unreachable.
-    """
-    cellartracker.CellarTracker(username, password).get_inventory()
-
-
 class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for CellarTracker."""
 
@@ -56,9 +46,9 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_check_credentials(self, username: str, password: str) -> dict:
         """Return a form-errors dict; empty means the credentials are valid."""
         try:
-            await self.hass.async_add_executor_job(
-                _validate_credentials, username, password
-            )
+            # The same non-blocking fetch the coordinator uses, so a hung
+            # server cannot stall setup on a worker thread.
+            await async_fetch_inventory_payload(self.hass, username, password)
         except AuthenticationError:
             _LOGGER.warning("CellarTracker rejected the credentials for %s", username)
             return {"base": "invalid_auth"}

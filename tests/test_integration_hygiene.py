@@ -20,7 +20,7 @@ import re
 
 import pytest
 
-from cellar_tracker import cellar_data, config_flow
+from cellar_tracker import cellar_data
 
 COMPONENT = pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
 MANIFEST = json.loads((COMPONENT / "manifest.json").read_text())
@@ -55,8 +55,9 @@ def test_hot_paths_perform_no_import(func):
     assert "import " not in inspect.getsource(func)
 
 
-def test_config_flow_validator_performs_no_import():
-    source = inspect.getsource(config_flow._validate_credentials)
+def test_the_shared_fetch_performs_no_import():
+    """Used by both the coordinator and the config flow's credential check."""
+    source = inspect.getsource(cellar_data.async_fetch_inventory_payload)
     assert "import " not in source
 
 
