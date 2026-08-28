@@ -237,11 +237,20 @@
             }
             : { credentials: 'same-origin' };
 
-        // One CellarTracker account per installation, so the endpoints need no
-        // account parameter. A stale ?entry_id= on an old card URL is harmless:
-        // the API ignores it.
+        // One CellarTracker account per installation, so this is normally absent
+        // and the endpoints need no account parameter. It is forwarded for the
+        // install that still holds a second entry from before single-instance
+        // was enforced: there the API selects on it, and dropping it would serve
+        // the other account's cellar. With one account configured the API
+        // ignores it, so a stale value on an old card URL stays harmless.
+        //   url: /cellartracker/cellar.html?entry_id=abc123
+        // Read after the token strip, which rebuilds the query from the
+        // remaining parameters and so preserves this one.
+        const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
+
         function apiUrl(path) {
-            return '/api/cellartracker/' + path;
+            const base = '/api/cellartracker/' + path;
+            return entryId ? base + '?entry_id=' + encodeURIComponent(entryId) : base;
         }
 
         async function fetchJson(path) {
