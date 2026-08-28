@@ -248,12 +248,9 @@
             const response = await fetch(apiUrl(path), fetchOpts);
             if (response.ok) return response.json();
 
-            let body = null;
-            try { body = await response.json(); } catch (e) { /* not JSON */ }
-
-            if (body && Array.isArray(body.entries)) {
-                throw new Error(body.detail + ' Available: ' + body.entries.join(', '));
-            }
+            // The endpoints answer 200 or an auth status and nothing else. The
+            // 400/404 disambiguation bodies this used to decode are gone with
+            // the multi-account API.
             if (response.status === 401 || response.status === 403) {
                 throw new Error(
                     'Not authorised (' + response.status + '). Open this page from ' +
