@@ -535,12 +535,34 @@ Tags are bare version numbers with no `v` prefix, optionally with a single-lette
 already exists is safe: the workflow checks that tag out and validates it, rather than validating
 the branch and publishing the tag.
 
-### Known limitation
+### Why the library's transport is not used
 
-The upstream `cellartracker` library calls `requests.get()` without a `timeout`. This integration
-bounds how long Home Assistant waits, so a hung request fails cleanly and retries on schedule, but
-it cannot cancel a worker thread already blocked in the library. A fully robust fix needs
-`timeout=` upstream.
+The `cellartracker` library calls `requests.get(url, params)` with no `timeout=`
+([`api.py`](https://github.com/mathroule/cellartracker/blob/master/cellartracker/api.py)), so the
+socket has no deadline. Running that on an executor thread means an application-level timeout can
+stop Home Assistant *waiting*, but cannot interrupt the worker: `concurrent.futures` has no way to
+cancel a thread that is already running, so it stays in `recv()` until the OS gives up. For a
+server that accepts a connection and then never replies, that is the TCP keepalive interval —
+7200 seconds by default — with the account password sitting in the thread's stack frame.
+
+So the integration does its own HTTP with Home Assistant's shared `aiohttp` session, where
+cancellation genuinely cancels and no thread is involved. The library still supplies the endpoint
+URL, the not-logged-in marker, the table and format enums, and the exception types: it owns the
+contract, just not the transport.
+
+**Possible future contribution.** Adding `timeout=` to `cellartracker`'s `api.py` would fix this
+at the root for every consumer — roughly:
+
+```python
+DEFAULT_TIMEOUT = 60
+
+def execute(self, url=BASE_URL, params={}, timeout=DEFAULT_TIMEOUT):
+    ...
+    reponse = requests.get(url, params, timeout=timeout)
+```
+
+That is worth submitting upstream if anyone feels like it, but **this integration does not depend
+on it** — it no longer calls that code path at all. Noted here so the reasoning is not lost.
 
 ---
 
