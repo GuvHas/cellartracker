@@ -37,20 +37,23 @@ async def async_setup_entry(
     sensors = [
         TotalBottlesSensor(coordinator, device_info, entry.entry_id),
         TotalValueSensor(coordinator, device_info, entry.entry_id, currency),
-        CellarInventorySensor(coordinator, device_info, entry.entry_id),
+        CellarLastSyncSensor(coordinator, device_info, entry.entry_id),
     ]
 
     async_add_entities(sensors)
 
 
 class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
+    """How many bottles the cellar currently holds."""
+
     # Home Assistant composes the friendly name as "<device> <entity>", so the
-    # entity name must not repeat the integration's own name.
+    # entity name must not repeat the integration's own name. The name itself
+    # comes from strings.json via the translation key, not from a literal here.
     _attr_has_entity_name = True
+    _attr_translation_key = "total_bottles"
 
     def __init__(self, coordinator, device_info, entry_id):
         super().__init__(coordinator)
-        self._attr_name = "Total bottles"
         self._attr_unique_id = f"{entry_id}_total_bottles"
         self._attr_icon = "mdi:bottle-wine"
         self._attr_device_info = device_info
@@ -64,11 +67,19 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
 
 
 class TotalValueSensor(CoordinatorEntity, SensorEntity):
+    """What the cellar is worth, in the configured currency.
+
+    MONETARY with state_class TOTAL, so Home Assistant keeps a long-term
+    statistic - cellar value over time being the reason to have the sensor.
+    That also means the unit cannot change without invalidating the existing
+    statistic, which is why the options flow warns before letting it happen.
+    """
+
     _attr_has_entity_name = True
+    _attr_translation_key = "total_value"
 
     def __init__(self, coordinator, device_info, entry_id, currency=DEFAULT_CURRENCY):
         super().__init__(coordinator)
-        self._attr_name = "Total value"
         self._attr_unique_id = f"{entry_id}_total_value"
         self._attr_device_info = device_info
         self._attr_device_class = SensorDeviceClass.MONETARY
@@ -81,29 +92,35 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
         return (self.coordinator.data or {}).get("total_value", 0.0)
 
 
-class CellarInventorySensor(CoordinatorEntity, SensorEntity):
+class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):
+    """When the cellar last synchronised with CellarTracker.
+
+    This replaces a status sensor that reported "Connected" or "Empty". After
+    the first refresh ``coordinator.data`` is always a non-empty dict - an
+    empty cellar still yields ``{"total_bottles": 0, ...}`` - and before it the
+    entity is unavailable anyway, so "Empty" was unreachable and "Connected"
+    only restated the availability the entity already reports.
+
+    It keeps the old unique id, so the existing entity is repurposed rather
+    than orphaned and a second one is not created. Nothing could have been
+    triggering on the old value, which never changed.
+
+    A timestamp is what a user actually needs from a diagnostic entity here: it
+    is how you tell that an integration polling every six hours is still alive.
     """
-    Master sensor indicating status.
-    NOTE: Detailed bottle list is exposed via API, not attributes, to avoid DB crash.
-    """
+
     _attr_has_entity_name = True
+    _attr_translation_key = "last_synchronised"
 
     def __init__(self, coordinator, device_info, entry_id):
         super().__init__(coordinator)
-        self._attr_name = "Status"
         self._attr_unique_id = f"{entry_id}_inventory_status"
-        self._attr_icon = "mdi:api"
+        self._attr_icon = "mdi:cloud-check-outline"
         self._attr_device_info = device_info
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def native_value(self):
-        return "Connected" if self.coordinator.data else "Empty"
-
-    @property
-    def extra_state_attributes(self):
-        # We purposely do NOT include 'bottles' here.
-        return {
-            "api_endpoint": "/api/cellartracker/inventory",
-            "info": "Configure Flex Table Card with 'url: /api/cellartracker/inventory'"
-        }
+        """The last successful refresh, or None if none has happened yet."""
+        return self.coordinator.last_success

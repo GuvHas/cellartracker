@@ -27,6 +27,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import json_bytes
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CURRENCY,
@@ -228,6 +229,10 @@ class WineCellarData(DataUpdateCoordinator):
         # one refresh runs at a time - so the loop can read it without a lock.
         self._inventory_body: bytes = b"[]"
 
+        # When the cellar last synchronised. None until the first success, so
+        # the sensor can report "unknown" rather than invent a time.
+        self._last_success = None
+
     @property
     def currency(self) -> str:
         """Return the configured currency symbol."""
@@ -244,6 +249,16 @@ class WineCellarData(DataUpdateCoordinator):
         instead, so the view only ever hands over bytes.
         """
         return self._inventory_body
+
+    @property
+    def last_success(self):
+        """When the last poll succeeded, or None if none has yet.
+
+        ``last_update_success`` says whether the most recent attempt worked;
+        this says when the data was last actually refreshed, which is what
+        tells a user that a six-hourly integration is still alive.
+        """
+        return self._last_success
 
     def _backoff_for(self, retry_after: int | None) -> timedelta:
         """How long to wait after being throttled.
@@ -420,6 +435,7 @@ class WineCellarData(DataUpdateCoordinator):
             # than leaving the coordinator to log a traceback.
             raise UpdateFailed(f"Malformed CellarTracker export: {err}") from err
 
+        self._last_success = dt_util.utcnow()
         self._restore_interval()
         return data
 

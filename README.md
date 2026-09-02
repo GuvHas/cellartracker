@@ -69,7 +69,11 @@ reach that data.
 |---|---|---|---|---|
 | Total bottles | `142` | `bottles` | — | `measurement` |
 | Total value | `9812.50` | your chosen currency | `monetary` | `total` |
-| Status | `Connected` | — | — | diagnostic |
+| Last synchronised | `2026-08-28 09:30:00` | — | `timestamp` | diagnostic |
+
+Upgrading from 0.0.17 or earlier: the diagnostic entity that reported `Connected` now reports
+when the cellar last synchronised. It keeps its entity ID, so nothing has to be repointed. Its old
+value never changed once the integration was running, so nothing could have been triggering on it.
 
 ### Entity IDs
 
@@ -78,8 +82,12 @@ The device is named after the account, so entity IDs follow the account name:
 ```
 sensor.<account>_total_bottles
 sensor.<account>_total_value
-sensor.<account>_status
+sensor.<account>_last_synchronised
 ```
+
+That third ID is what a **fresh install** gets. An install that predates 0.0.18 keeps
+`sensor.<account>_status`, because Home Assistant assigns an entity ID once, at first
+registration, and never rewrites it. Both point at the same entity; only the name differs.
 
 **If you installed before v0.0.15**, your entity IDs were generated when the entities were first
 registered and Home Assistant keeps them — they will still be `sensor.cellartracker_total_bottles`

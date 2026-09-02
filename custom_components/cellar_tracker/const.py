@@ -1,5 +1,9 @@
 """Constants for the CellarTracker integration."""
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 DOMAIN = "cellar_tracker"
 PLATFORMS = ["sensor"]
 
@@ -73,4 +77,16 @@ def normalize_currency(value: str | None) -> str:
     if value_upper in CURRENCY_OPTIONS:
         return value_upper
 
-    return LEGACY_CURRENCY_MAP.get(value, DEFAULT_CURRENCY)
+    if value in LEGACY_CURRENCY_MAP:
+        return LEGACY_CURRENCY_MAP[value]
+
+    # Only reachable from entry data written before the flows constrained the
+    # choice - which is exactly where labelling someone's cellar in the wrong
+    # currency would go unnoticed.
+    _LOGGER.warning(
+        "Unrecognised CellarTracker currency %r; falling back to %s. Set the "
+        "currency again in the integration options to correct it.",
+        value,
+        DEFAULT_CURRENCY,
+    )
+    return DEFAULT_CURRENCY
