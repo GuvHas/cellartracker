@@ -84,6 +84,7 @@ function makeElement(tag) {
         querySelectorAll() { return []; },
         closest() { return null; },
         focus() {},
+        select() { el.selected = true; },
     };
     return el;
 }
@@ -114,9 +115,44 @@ globalThis.document = {
     createDocumentFragment: () => makeElement('#fragment'),
     addEventListener() {},
     body: makeElement('body'),
+    // The legacy path, and the only one that works without a secure context.
+    execCommand(command) {
+        if (fixture.execCommand === false) return false;
+        if (command === 'copy') copied.push('exec');
+        return fixture.execCommand !== false;
+    },
 };
 
-globalThis.navigator = { clipboard: { writeText: async () => {} } };
+// Home Assistant is very often served over plain http on a LAN address, which
+// is not a secure context - so navigator.clipboard is frequently absent
+// entirely. The fixture picks which world the page is running in.
+const copied = [];
+const clipboard = fixture.clipboard || 'async';
+// defineProperty, not assignment: node 21+ ships its own `navigator` as a
+// getter-only global, so `globalThis.navigator = ...` silently does nothing
+// and every clipboard fixture would quietly test the same world.
+Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    writable: true,
+    value: clipboard === 'missing'
+        ? {}
+        : {
+            clipboard: {
+                writeText: (text) => clipboard === 'rejects'
+                    ? Promise.reject(new Error('denied'))
+                    : (copied.push(text), Promise.resolve()),
+            },
+        },
+});
+
+// The stubs above are worthless if the runtime refused one of them, and a
+// refusal is silent outside strict mode. Fail loudly instead.
+if (clipboard === 'missing' && navigator.clipboard) {
+    throw new Error('the navigator stub did not take effect');
+}
+if (clipboard !== 'missing' && !navigator.clipboard) {
+    throw new Error('the navigator stub did not take effect');
+}
 
 // The page fetches at load. Answer with the fixture so the render path runs;
 // an empty fixture answers 401, which is the existing tests' scenario.
@@ -138,9 +174,13 @@ let failures = 0;
 """
 
 
-def run_js(checks: str, *, wines=None, search="") -> str:
+def run_js(checks: str, *, wines=None, search="", clipboard="async",
+           exec_command=True) -> str:
     """Load the page script, then run `checks`. Non-zero exit means a failure."""
-    fixture = json.dumps({"wines": wines, "search": search})
+    fixture = json.dumps(
+        {"wines": wines, "search": search,
+         "clipboard": clipboard, "execCommand": exec_command}
+    )
     source = "\n".join(
         [
             PRELUDE % fixture,

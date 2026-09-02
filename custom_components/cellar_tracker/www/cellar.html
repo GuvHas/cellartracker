@@ -461,6 +461,19 @@
         return value == null || value === '';
     }
 
+    // normaliseWine collapses an unrecorded year to 0, and 0 is smaller than
+    // every real one - so sorting by vintage ascending led with every NV
+    // bottle in the cellar. There is no year zero, so 0 means "not recorded"
+    // for these three and nothing else. A *valuation* of 0 is left alone: a
+    // bottle really can be worth nothing recorded, and cheapest-first should
+    // still show it.
+    const UNRECORDED_AS_ZERO = { Vintage: true, BeginConsume: true, EndConsume: true };
+
+    function isMissing(value, key) {
+        if (isBlank(value)) return true;
+        return UNRECORDED_AS_ZERO[key] === true && Number(value) === 0;
+    }
+
     // Decorated with the arrival index and compared on it last, so ties keep
     // the order they came in whichever way the column is pointing. A cellar
     // holds six identical bottles of the same wine; they should not shuffle
@@ -475,9 +488,11 @@
 
                 // A bin nobody filled in sorts last in both directions rather
                 // than heading the list because "" precedes every letter.
-                if (isBlank(left) || isBlank(right)) {
-                    if (isBlank(left) && isBlank(right)) return a.index - b.index;
-                    return isBlank(left) ? 1 : -1;
+                const leftMissing = isMissing(left, key);
+                const rightMissing = isMissing(right, key);
+                if (leftMissing || rightMissing) {
+                    if (leftMissing && rightMissing) return a.index - b.index;
+                    return leftMissing ? 1 : -1;
                 }
 
                 if (typeof left === 'string') left = left.toLowerCase();
@@ -695,16 +710,45 @@
         return drawer;
     }
 
-    function copyText(text, button, original) {
-        const done = () => {
-            button.textContent = 'Copied';
-            setTimeout(() => { button.textContent = original; }, 1200);
-        };
+    // execCommand is deprecated, and it is also the only thing that works
+    // without a secure context. A great many Home Assistant installs are
+    // reached over plain http on a LAN address, where navigator.clipboard does
+    // not exist at all - so this is the common path here, not the fallback.
+    function legacyCopy(text) {
         try {
-            const written = navigator.clipboard && navigator.clipboard.writeText(text);
-            if (written && written.then) written.then(done, () => {});
-            else done();
-        } catch (e) { /* no clipboard permission; the bin is on screen anyway */ }
+            const field = document.createElement('textarea');
+            field.value = text;
+            field.setAttribute('readonly', '');
+            field.style.position = 'fixed';
+            field.style.opacity = '0';
+            document.body.appendChild(field);
+            field.select();
+            const copied = document.execCommand('copy') === true;
+            document.body.removeChild(field);
+            return copied;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Resolves to whether the text actually reached a clipboard. Saying
+    // "Copied" when nothing was copied is worse than saying nothing: the user
+    // walks to the rack and pastes whatever was there before.
+    function writeToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+                return Promise.resolve(navigator.clipboard.writeText(text))
+                    .then(() => true, () => legacyCopy(text));
+            } catch (e) { /* fall through to the legacy path */ }
+        }
+        return Promise.resolve(legacyCopy(text));
+    }
+
+    function copyText(text, button, original) {
+        writeToClipboard(text).then((copied) => {
+            button.textContent = copied ? 'Copied' : 'Could not copy';
+            setTimeout(() => { button.textContent = original; }, copied ? 1200 : 2000);
+        });
     }
 
     function buildBottle(wine) {

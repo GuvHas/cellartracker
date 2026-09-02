@@ -216,3 +216,61 @@ def test_an_empty_result_says_so_instead_of_showing_nothing():
         + check("document.getElementById('status').textContent.length > 0",
                 "an empty list with no explanation reads as a broken page")
     )
+
+
+# --------------------------------------------------------------------------
+# Reported by Codex on #22
+# --------------------------------------------------------------------------
+def copy_scenario(clipboard: str, exec_command: bool) -> dict:
+    """Open a drawer, press Copy bin, and report the label and what was copied."""
+    output = run_js(
+        f"{PREAMBLE}\n{FIND}\n"
+        f"loadWines({json.dumps(cellar())});\n"
+        f"const bottle = {card('Ready Red')};\n"
+        "bottle.children[0].dispatch('click');\n"
+        "const copy = bottle.children[1].children[1].children[0];\n"
+        "copy.dispatch('click', {stopPropagation() {}});\n"
+        # Report the label and what actually reached a clipboard, so a test can
+        # tell "said Copied" apart from "copied something".
+        "setTimeout(() => {\n"
+        "  console.log(JSON.stringify({label: copy.textContent, copied: copied}));\n"
+        "}, 10);\n",
+        wines=None,
+        clipboard=clipboard,
+        exec_command=exec_command,
+    )
+    return json.loads(output.strip())
+
+
+def test_copying_says_so_when_it_worked():
+    result = copy_scenario("async", True)
+    assert result["label"] == "Copied"
+    assert "A1" in result["copied"], "the bin never reached the clipboard"
+
+
+def test_a_missing_clipboard_api_falls_back_rather_than_failing():
+    """Home Assistant on plain http is not a secure context, so there is no
+    navigator.clipboard at all - the common case here, not an edge one."""
+    result = copy_scenario("missing", True)
+    assert result["label"] == "Copied"
+    assert result["copied"], "claimed success without using the fallback"
+
+
+def test_a_rejected_clipboard_write_still_falls_back():
+    result = copy_scenario("rejects", True)
+    assert result["label"] == "Copied"
+    assert result["copied"], "gave up instead of trying the legacy path"
+
+
+def test_the_button_does_not_claim_success_when_nothing_was_copied():
+    """It used to say "Copied" whenever the clipboard API was absent."""
+    result = copy_scenario("missing", False)
+    assert not result["copied"], "the fixture should model a copy that fails"
+    assert result["label"] != "Copied"
+
+
+def test_a_failed_copy_says_what_happened():
+    label = copy_scenario("missing", False)["label"]
+    assert label and label != "Copy bin", (
+        "a copy that silently did nothing leaves the user believing it worked"
+    )

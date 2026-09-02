@@ -328,3 +328,43 @@ def test_rows_missing_the_sort_key_sort_last_in_both_directions():
         + equals("sortWines(rows, 'Bin', 'desc').map((w) => w.Wine)",
                  ["A", "C", "B"], "a missing bin should sort last descending too")
     )
+
+
+# --------------------------------------------------------------------------
+# Reported by Codex on #22
+# --------------------------------------------------------------------------
+UNRECORDED = (
+    "[{Wine: 'Real Vintage', Vintage: 2019, EndConsume: 2030},"
+    " {Wine: 'No Vintage', Vintage: 0, EndConsume: 0},"
+    " {Wine: 'Older', Vintage: 2010, EndConsume: 2020}]"
+)
+
+
+@pytest.mark.parametrize("key", ["Vintage", "EndConsume"])
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_an_unrecorded_year_sorts_last_whichever_way_the_column_points(key, direction):
+    """normaliseWine collapses a missing year to 0, and 0 is smaller than 2010.
+
+    So an ascending sort by vintage led with every NV bottle in the cellar -
+    the exact thing the missing-value rule was written to prevent, slipping
+    through because the rule only recognised null and "".
+    """
+    run_js(
+        equals(
+            f"sortWines({UNRECORDED}, '{key}', '{direction}').slice(-1)[0].Wine",
+            "No Vintage",
+            f"a bottle with no recorded {key} should sort last, not first",
+        )
+    )
+
+
+def test_a_valuation_of_zero_is_still_a_value():
+    """Unlike a year: there is no year 0, but a bottle really can be worth 0."""
+    run_js(
+        equals(
+            "sortWines([{Wine: 'Free', Valuation: 0}, {Wine: 'Costly', Valuation: 99}],"
+            " 'Valuation', 'asc').map((w) => w.Wine)",
+            ["Free", "Costly"],
+            "a zero valuation was treated as missing rather than as cheap",
+        )
+    )
