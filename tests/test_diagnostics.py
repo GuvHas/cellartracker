@@ -6,9 +6,10 @@ exposure into a live one. It lands only now that transport errors no longer
 carry the request URL.
 
 What must never appear: the password, obviously, but also the username - it is
-half of a credential pair and identifies a real CellarTracker account. Nor the
-per-bottle Barcode, Location and Bin, which describe someone's home and are not
-ours to publish.
+half of a credential pair and identifies a real CellarTracker account - and the
+entry title, which *is* the username. Per bottle, anything outside a fixed
+allowlist: a denylist would have to be right about every column CellarTracker
+adds in future, and the export carries free-form notes that can say anything.
 
 What must appear: enough to diagnose the failures this integration actually
 has. The column list is the important one - it tells us whether CellarTracker
