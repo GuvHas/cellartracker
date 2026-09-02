@@ -25,6 +25,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.json import json_bytes
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -109,13 +110,32 @@ async def async_fetch_inventory_payload(hass, username: str, password: str) -> s
         "Location": "1",
     }
 
+    # The password is a query parameter, so it travels in the request URL - and
+    # aiohttp's ClientResponseError renders that URL in both str() and repr().
+    # Nothing derived from the failed request may escape this function except a
+    # description we build ourselves.
+    failure: str | None = None
+
     try:
         async with asyncio.timeout(REQUEST_TIMEOUT):
             async with session.get(BASE_URL, params=params) as response:
                 response.raise_for_status()
                 payload = await response.text()
+    except aiohttp.ClientResponseError as err:
+        # The status is the diagnostic part and carries nothing sensitive.
+        failure = f"HTTP {err.status} from CellarTracker"
     except aiohttp.ClientError as err:
-        raise CannotConnect from err
+        # Connector and payload errors name the host rather than the query
+        # string, but the same rule applies: name the failure, copy nothing.
+        failure = type(err).__name__
+
+    if failure is not None:
+        # Raised outside the handler deliberately. `raise ... from None` would
+        # clear __cause__ but leave the original on __context__, where a
+        # traceback would not print it but a diagnostics dump walking the chain
+        # still could. Once the except block has exited the exception is no
+        # longer being handled, so nothing is attached at all.
+        raise CannotConnect(failure)
 
     # An auth failure arrives as HTTP 200 with a marker in the body.
     if NOT_LOGGED_REPONSE in payload:
@@ -147,6 +167,10 @@ class WineCellarData(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
+            # Mandatory from a future Home Assistant release, and deprecated
+            # without it since 2024.11. It also ties the refresh task to the
+            # entry, so unloading cancels a poll still in flight.
+            config_entry=entry,
             update_interval=scan_interval,
             always_update=False,
         )
@@ -154,10 +178,26 @@ class WineCellarData(DataUpdateCoordinator):
         # Consecutive polls that reported an empty cellar after it held stock.
         self._suspicious_empty_polls = 0
 
+        # Replaced wholesale by each refresh, never mutated in place, and only
+        # one refresh runs at a time - so the loop can read it without a lock.
+        self._inventory_body: bytes = b"[]"
+
     @property
     def currency(self) -> str:
         """Return the configured currency symbol."""
         return self._currency
+
+    @property
+    def inventory_body(self) -> bytes:
+        """The bottle list as a JSON body, rendered ahead of any request.
+
+        Serialising a large cellar costs real time - tens of milliseconds at a
+        few thousand bottles, more on the hardware Home Assistant usually runs
+        on - and doing it inside a request handler spends that time on the
+        event loop. It is rendered in the executor that already runs the parse
+        instead, so the view only ever hands over bytes.
+        """
+        return self._inventory_body
 
     def _process_inventory(self, inventory: list, previous: dict | None = None) -> dict:
         """Process the raw inventory list into a structured dictionary.
@@ -299,4 +339,7 @@ class WineCellarData(DataUpdateCoordinator):
     def _parse_and_process(self, payload: str, previous: dict | None) -> dict:
         """Parse the tab-separated export, then summarise it. Runs in an executor."""
         rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
-        return self._process_inventory(rows, previous=previous)
+        result = self._process_inventory(rows, previous=previous)
+        # Rendered here, on the executor thread, for the HTTP views to serve.
+        self._inventory_body = json_bytes(result["bottles"])
+        return result

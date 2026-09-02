@@ -13,6 +13,7 @@ separate integration-test suite (see F-19 in the review).
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import pathlib
 import sys
 import types
@@ -45,13 +46,22 @@ class UpdateFailed(Exception):
 
 # --- homeassistant.helpers.update_coordinator ---------------------------------
 class DataUpdateCoordinator:
-    """Minimal stand-in that records what the real base class would receive."""
+    """Minimal stand-in that records what the real base class would receive.
 
-    def __init__(self, hass, logger, *, name=None, update_interval=None, **kwargs):
+    ``config_entry`` is captured explicitly rather than absorbed into
+    ``**kwargs``: Home Assistant 2024.11 added it and is making it mandatory,
+    so a test has to be able to see whether we passed it.
+    """
+
+    def __init__(
+        self, hass, logger, *, name=None, config_entry=None, update_interval=None, **kwargs
+    ):
         self.hass = hass
         self.logger = logger
         self.name = name
+        self.config_entry = config_entry
         self.update_interval = update_interval
+        self.init_kwargs = kwargs
         self.data = None
 
 
@@ -174,6 +184,12 @@ _module(
     EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+_module(
+    "homeassistant.helpers.json",
+    # The real helper is orjson-backed; stdlib json is equivalent for our
+    # payload, which is only str/int/float.
+    json_bytes=lambda data: _json.dumps(data).encode("utf-8"),
+)
 
 class FakeRequest:
     """Minimal aiohttp request exposing only the query string."""
@@ -231,12 +247,19 @@ sys.modules["homeassistant.helpers.update_coordinator"].CoordinatorEntity = Coor
 
 
 class FakeCoordinator:
-    """Stands in for WineCellarData in view tests."""
+    """Stands in for WineCellarData in view tests.
+
+    Renders ``inventory_body`` the same way the real coordinator does: the
+    views serve those bytes directly rather than encoding per request, so a
+    double without them would not exercise the code path that runs in
+    production.
+    """
 
     def __init__(self, *, currency="USD", bottles=None, data=True):
         self.currency = currency
         if not data:
             self.data = None
+            self.inventory_body = b"[]"
         else:
             bottles = bottles or []
             self.data = {
@@ -244,6 +267,7 @@ class FakeCoordinator:
                 "total_value": 0.0,
                 "bottles": bottles,
             }
+            self.inventory_body = _json.dumps(bottles).encode("utf-8")
 
 
 class FakeHttp:

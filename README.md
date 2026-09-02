@@ -135,8 +135,9 @@ The response contains all 66 columns CellarTracker returns; the table above is t
 
 ## Installation via HACS
 
-**Requires Home Assistant 2024.7 or newer** — that is the release that added the static-path API
-the integration uses to serve its dashboard page.
+**Requires Home Assistant 2024.11 or newer** — 2024.7 added the static-path API the integration
+uses to serve its dashboard page, and 2024.11 added the `config_entry` argument its data
+coordinator now passes.
 
 1. Open **HACS** in Home Assistant.
 2. Click the **⋮** menu (top right) → **Custom repositories**.

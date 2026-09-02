@@ -77,12 +77,19 @@ class CellarTrackerInventoryView(_CellarTrackerView):
     name = "api:cellartracker:inventory"
 
     async def get(self, request):
-        """Handle GET request for inventory."""
+        """Handle GET request for inventory.
+
+        The body was rendered by the coordinator when it last refreshed, so a
+        thousand-bottle cellar costs this handler nothing: serialising it here
+        would block the event loop for every dashboard load.
+        """
         coordinator = self._coordinator(request)
         if coordinator is None or not coordinator.data:
             return web.json_response([])
 
-        return web.json_response(coordinator.data.get("bottles", []))
+        return web.Response(
+            body=coordinator.inventory_body, content_type="application/json"
+        )
 
 
 class CellarTrackerSettingsView(_CellarTrackerView):

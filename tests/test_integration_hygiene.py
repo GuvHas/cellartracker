@@ -115,8 +115,16 @@ def test_the_version_is_declared_once_in_the_manifest():
 
 
 def test_hacs_declares_the_minimum_home_assistant_version():
-    """async_register_static_paths landed in 2024.7."""
-    assert HACS["homeassistant"] >= "2024.7.0"
+    """async_register_static_paths landed in 2024.7; config_entry in 2024.11.
+
+    Compared as numbers. As text "2024.11.0" sorts *below* "2024.7.0", so a
+    string comparison here would have rejected every release from 2024.10 on.
+    """
+
+    def version(value: str) -> tuple[int, ...]:
+        return tuple(int(part) for part in value.split("."))
+
+    assert version(HACS["homeassistant"]) >= (2024, 11, 0)
 
 
 def test_the_repository_is_licensed():
