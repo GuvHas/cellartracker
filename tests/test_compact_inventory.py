@@ -29,10 +29,11 @@ from cellar_tracker.const import COMPACT_FIELDS, DOMAIN
 from cellar_tracker.views import CellarTrackerInventoryView
 from conftest import ConfigEntry, FakeHass, FakeRequest, FakeSession, ViewHass
 
-NAMED = ["iWine", "Wine", "Vintage", "Valuation", "Location", "Bin",
+NAMED = ["iWine", "Wine", "Vintage", "Valuation", "Location", "Bin", "Barcode",
          "BeginConsume", "EndConsume", "Producer", "Country", "Region",
          "Varietal", "Size", "Notes"]
-VALUES = ["1", "Barolo", "2016", "45.50", "Rack", "A", "2022", "2035",
+VALUES = ["1", "Barolo", "2016", "45.50", "Rack", "A", "7350012345678",
+          "2022", "2035",
           "Giacosa", "Italy", "Piedmont", "Nebbiolo", "750ml",
           "a long tasting note that nobody reading a bottle table needs"]
 
@@ -137,4 +138,36 @@ def test_the_dashboard_asks_for_the_compact_view():
     ).read_text()
     assert "'view', 'compact'" in page, (
         "the page must request the compact projection"
+    )
+
+
+# --------------------------------------------------------------------------
+# The page and the projection have to agree on which fields exist
+# --------------------------------------------------------------------------
+def test_every_field_the_page_searches_is_actually_served():
+    """Otherwise a search field is dead code that tests can still satisfy.
+
+    The dashboard's own tests hand it whatever row they like, so a field the
+    compact projection never sends looks searchable in the suite and is always
+    blank in a real cellar. This reads the field list out of the page itself.
+    """
+    import pathlib
+    import re
+
+    page = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "cellar_tracker"
+        / "www"
+        / "cellar.html"
+    ).read_text()
+
+    declared = re.search(r"const SEARCH_FIELDS = \[(.*?)\];", page, re.S)
+    assert declared, "cellar.html no longer declares SEARCH_FIELDS"
+    fields = re.findall(r"'([^']+)'", declared.group(1))
+    assert fields, "SEARCH_FIELDS parsed as empty"
+
+    missing = [field for field in fields if field not in COMPACT_FIELDS]
+    assert not missing, (
+        f"the page searches {missing}, which the compact view never sends"
     )

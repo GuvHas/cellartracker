@@ -4,7 +4,8 @@
 # CellarTracker for Home Assistant
 
 Brings your [CellarTracker](https://cellartracker.com) wine cellar into Home Assistant: summary
-sensors for bottle count and cellar value, plus a searchable, sortable dashboard of every bottle.
+sensors for bottle count, cellar value and drinking windows, plus a dashboard that filters every
+bottle down to the ones you can drink tonight.
 
 > **Disclaimer**
 > This is a personal project. It is not affiliated with, connected to, or endorsed by
@@ -45,11 +46,14 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
 
 - Two summary sensors — total bottle count and total cellar value — with proper device classes,
   units and state classes, so both feed Home Assistant's long-term statistics.
+- Two drink-window sensors — how many bottles are ready to drink, and how many are past their
+  window — derived at poll time, so they cost nothing and add no entity per bottle.
 - A selectable currency, so the value sensor is denominated correctly.
-- A diagnostic status sensor.
+- A diagnostic sensor reporting when the cellar last synchronised.
 - A REST endpoint exposing full per-bottle detail, and a self-contained dashboard page that
-  renders it as a searchable, sortable table with drink-window highlighting. The page ships with
-  the integration and is served from it, so there is nothing to copy into `<config>/www`.
+  filters it by drinking window, searches it across five fields and shows each bottle's position
+  in its window. The page ships with the integration and is served from it, so there is nothing
+  to copy into `<config>/www`.
 - Reauthentication: if your password changes, Home Assistant prompts you to re-enter it rather
   than silently failing.
 - One account per installation, enforced by the config flow, so there is no ambiguity
@@ -108,7 +112,7 @@ state attributes:
 
 ```
 GET /api/cellartracker/inventory                # every bottle, as JSON
-GET /api/cellartracker/inventory?view=compact   # the same bottles, nine columns
+GET /api/cellartracker/inventory?view=compact   # the same bottles, ten columns
 GET /api/cellartracker/settings      # the configured currency and its symbol
 ```
 
@@ -127,6 +131,7 @@ Each bottle in the response carries CellarTracker's own column names. The ones t
 | `Vintage` | Vintage year, `0` for non-vintage |
 | `Producer` | Producer name |
 | `Location` / `Bin` | Where the bottle is stored |
+| `Barcode` | The bottle's barcode, if you have scanned one |
 | `Size` | Bottle size, e.g. `750ml` |
 | `Valuation` | Current value, coerced to a float (`0.0` if unparseable) |
 | `Price` | What you paid |
@@ -269,9 +274,41 @@ title: My Wine Collection
 The page reads your live Home Assistant session from the parent frame, so it needs no token or
 credential of its own. Open it embedded in a dashboard, not as a standalone browser tab.
 
-It gives you search across wine name, location and bin; sortable columns; bottle values formatted
-in your configured currency; links to each wine on CellarTracker; drink-window colouring (green =
-ready, red = too early or past); and light/dark theme following your Home Assistant theme.
+### What it gives you
+
+**Four filter chips**, each carrying its count, so a 150-bottle cellar becomes a short list:
+
+| Chip | Shows |
+|---|---|
+| **All wines** | Everything, including bottles with no recorded window |
+| **Ready to drink** | The current year falls inside the drinking window |
+| **Past window** | The window ended before this year |
+| **Needs aging** | The window has not opened yet |
+
+The Ready and Past counts are the same numbers the sensors report — they are checked against each
+other by the test suite, so the chip and the sensor card beside it cannot disagree.
+
+**Search** across wine name, vintage, location, bin and barcode. Every word has to match, so
+`chianti 2023` narrows rather than finding nothing.
+
+**Sort** by wine, vintage, value, drink-by year, bin or location, in either direction. Bottles
+with nothing recorded for the chosen column sort last rather than heading the list.
+
+**Each bottle** shows its name, vintage, location and bin, its value in your configured currency,
+and a bar showing where this year sits inside its drinking window:
+
+| Label | Meaning |
+|---|---|
+| **Ready** (green) | Inside the drinking window |
+| **Drink this year** (amber) | The final year of the window — urgent, not expired |
+| **Past window** (red) | The window ended before this year |
+| **Needs aging** (blue) | Not open yet |
+| **No window** (grey) | CellarTracker has no recommendation for this bottle |
+
+Tapping a bottle opens a drawer with its barcode, full window, value, a **Copy bin** button and a
+link to the wine on CellarTracker.
+
+The page follows your Home Assistant light/dark theme, and every control is sized for a thumb.
 
 The card needs no account parameter — one account is supported per installation, so the
 endpoints have nothing to disambiguate. A stale `?entry_id=...` left over from a card configured
@@ -300,8 +337,10 @@ entities:
     name: Bottles
   - entity: sensor.<account>_total_value
     name: Cellar value
-  - entity: sensor.<account>_status
-    name: Connection
+  - entity: sensor.<account>_ready_to_drink
+    name: Ready to drink
+  - entity: sensor.<account>_last_synchronised
+    name: Last synchronised
 ```
 
 ### Markdown card with an average
@@ -419,13 +458,18 @@ window. **That is not possible with the entities this integration creates**, bec
 per-bottle entities to filter — `auto-entities` works over the entity registry, and bottles are
 not in it.
 
-Drink-window filtering happens in the dashboard page instead, which colours `BeginConsume` and
-`EndConsume` per bottle: green when the year is in range, red when the bottle is too young or
-past its window. Sort by either column to bring the relevant bottles together.
+There are two answers that do not need per-bottle entities.
 
-If you want drink-window data in Lovelace proper, the missing piece is per-bottle entities — see
-[Bottle-level data](#bottle-level-data) for why they are not created by default. Please open an
-issue if this matters to you; it is a reasonable feature to add behind an opt-in, given the
+**For a count**, use the sensors: `sensor.<account>_ready_to_drink` and
+`sensor.<account>_past_drinking_window` are ordinary numeric entities, so they work in any card,
+template or automation.
+
+**For the actual list**, use the dashboard page and its **Ready to drink** chip. That is what the
+chips are for, and the counts match the sensors exactly.
+
+If you want the bottles themselves in Lovelace proper, the missing piece is per-bottle entities —
+see [Bottle-level data](#bottle-level-data) for why they are not created by default. Please open
+an issue if this matters to you; it is a reasonable feature to add behind an opt-in, given the
 recorder cost is the user's to accept.
 
 ---
@@ -519,16 +563,28 @@ logger:
 
 ```bash
 pip install -r requirements_test.txt
-python -m pytest          # 149 tests
+python -m pytest
 ruff check .
 ```
 
 The test suite stubs the handful of `homeassistant` symbols the integration imports rather than
-depending on `pytest-homeassistant-custom-component`, so it installs in seconds and runs in under
-a second. The dashboard tests execute `cellar.html`'s real script under Node, so install Node to
-run them — they skip if it is absent.
+depending on `pytest-homeassistant-custom-component`, so it installs in seconds and runs in a few.
+The dashboard tests execute `cellar.html`'s real script under Node, so install Node to run them —
+they skip if it is absent.
 
-CI runs the suite on Python 3.12 and 3.13, plus `ruff`, `hassfest` and HACS validation.
+Type checking needs Home Assistant itself, which the test suite deliberately does not install:
+
+```bash
+python3.13 -m venv .typecheck
+.typecheck/bin/pip install -r requirements_mypy.txt
+.typecheck/bin/python -m mypy
+```
+
+Running `mypy` against an interpreter without Home Assistant is worse than not running it: every
+`homeassistant.*` import resolves to `Any`, and the check passes over code it never looked at.
+The configuration refuses to do that, so it will fail loudly rather than mislead you.
+
+CI runs the suite on Python 3.12 and 3.13, plus `ruff`, `mypy`, `hassfest` and HACS validation.
 
 ### Cutting a release
 
