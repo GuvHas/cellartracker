@@ -13,3 +13,24 @@ testpaths = ["tests"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["cellar_tracker", "conftest"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["custom_components/cellar_tracker"]
+# Home Assistant itself is not installed here - pytest-homeassistant-custom-component
+# cannot build its wheels in this environment - so its imports are unresolved by
+# design. Everything about *our* code is still checked.
+ignore_missing_imports = true
+follow_imports = "silent"
+
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+strict_equality = true
+
+# The point of the exercise: nothing in this integration may be implicitly Any,
+# and every function must declare what it returns.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true

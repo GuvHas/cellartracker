@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import asyncio
 import csv
 import hashlib
 import io
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from collections.abc import Mapping
+from datetime import datetime, timedelta
+from typing import Any, NotRequired, TypedDict
 
 # The library still owns the endpoint contract - its URL, the marker that
 # signals a rejected login, and the exception types - but not the transport:
@@ -55,6 +59,24 @@ REQUEST_TIMEOUT = 60
 MAX_BACKOFF = 21600
 
 
+class CellarData(TypedDict):
+    """What one successful poll produces.
+
+    Named once here because five sensors, two HTTP views and the diagnostics
+    module all read it. Untyped, every one of those call sites saw ``Any`` and
+    a mistyped key would have gone unnoticed until runtime.
+    """
+
+    total_bottles: int
+    total_value: float
+    bottles: list[dict[str, Any]]
+    ready_to_drink: int
+    past_drink_window: int
+    # Attached after the parse returns, so it is absent from the executor's
+    # own result for the moment between the two.
+    last_success: NotRequired[datetime]
+
+
 class RateLimited(CannotConnect):
     """CellarTracker answered 429.
 
@@ -68,7 +90,7 @@ class RateLimited(CannotConnect):
         self.retry_after = retry_after
 
 
-def _retry_after_seconds(headers) -> int | None:
+def _retry_after_seconds(headers: Mapping[str, str] | None) -> int | None:
     """Read Retry-After as a whole number of seconds, or None.
 
     The header also has an HTTP-date form. It is not read here: the fallback
@@ -97,7 +119,7 @@ IDENTITY_FIELDS = ("iWine", "PurchaseDate", "Barcode", "Location", "Bin")
 _FIELD_SEPARATOR = "\x1f"
 
 
-def _consume_year(value) -> int | None:
+def _consume_year(value: object) -> int | None:
     """Read a BeginConsume/EndConsume cell as a year, or None if absent.
 
     CellarTracker gives these as plain years, and cellar.html already reads
@@ -161,7 +183,9 @@ def _row_fingerprint(bottle: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-async def async_fetch_inventory_payload(hass, username: str, password: str) -> str:
+async def async_fetch_inventory_payload(
+    hass: HomeAssistant, username: str, password: str
+) -> str:
     """Fetch the raw inventory export for an account.
 
     Shared by the coordinator and by the config flow's credential check, so the
@@ -229,10 +253,10 @@ async def async_fetch_inventory_payload(hass, username: str, password: str) -> s
     return payload
 
 
-class WineCellarData(DataUpdateCoordinator):
+class WineCellarData(DataUpdateCoordinator[CellarData]):
     """Fetch and process CellarTracker inventory data."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the data coordinator."""
         self._hass = hass
         self._username = entry.data[CONF_USERNAME]
@@ -276,7 +300,7 @@ class WineCellarData(DataUpdateCoordinator):
 
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
-        self._last_success = None
+        self._last_success: datetime | None = None
 
     @property
     def currency(self) -> str:
@@ -306,7 +330,7 @@ class WineCellarData(DataUpdateCoordinator):
         return dt_util.utcnow().year
 
     @property
-    def last_success(self):
+    def last_success(self) -> datetime | None:
         """When the last poll succeeded, or None if none has yet.
 
         ``last_update_success`` says whether the most recent attempt worked;
@@ -325,6 +349,10 @@ class WineCellarData(DataUpdateCoordinator):
         list - an arbitrary one could not be rendered ahead of time.
         """
         return self._compact_body
+
+    # Declared because the base class is unresolved without Home Assistant
+    # installed, so mypy has nothing to infer this from.
+    update_interval: timedelta | None
 
     def _backoff_for(self, retry_after: int | None) -> timedelta:
         """How long to wait after being throttled.
@@ -352,7 +380,9 @@ class WineCellarData(DataUpdateCoordinator):
             )
             self.update_interval = self._scan_interval
 
-    def _process_inventory(self, inventory: list, previous: dict | None = None) -> dict:
+    def _process_inventory(
+        self, inventory: list[dict[str, Any]], previous: CellarData | None = None
+    ) -> CellarData:
         """Process the raw inventory list into a structured dictionary.
 
         Args:
@@ -363,7 +393,11 @@ class WineCellarData(DataUpdateCoordinator):
         Raises:
             UpdateFailed: the response does not look like inventory data.
         """
-        had_bottles = bool(previous and previous.get("total_bottles"))
+        # Narrowed once here so the branches below can index it: `previous`
+        # is only ever read when it actually held stock.
+        stocked: CellarData | None = (
+            previous if previous and previous.get("total_bottles") else None
+        )
 
         if not inventory:
             # An error page that parses to zero rows is indistinguishable from
@@ -371,19 +405,19 @@ class WineCellarData(DataUpdateCoordinator):
             # itself between two polls - but a one-bottle cellar can. Reject the
             # first suspicious zero, then accept it so the sensor recovers
             # instead of being stranded as unavailable.
-            if had_bottles:
+            if stocked is not None:
                 self._suspicious_empty_polls += 1
                 if self._suspicious_empty_polls <= TOLERATED_SUSPICIOUS_EMPTY_POLLS:
                     raise UpdateFailed(
                         "CellarTracker returned no inventory rows but the cellar "
-                        f"previously held {previous['total_bottles']} bottles; "
+                        f"previously held {stocked['total_bottles']} bottles; "
                         "treating as an upstream error"
                     )
                 _LOGGER.warning(
                     "CellarTracker has reported an empty cellar for %s consecutive "
                     "polls (previously %s bottles); accepting it as correct",
                     self._suspicious_empty_polls,
-                    previous["total_bottles"],
+                    stocked["total_bottles"],
                 )
             return {
                 "total_bottles": 0,
@@ -450,13 +484,13 @@ class WineCellarData(DataUpdateCoordinator):
         # Real inventory came back; any earlier suspicion is resolved.
         self._suspicious_empty_polls = 0
 
-        if had_bottles and len(processed_bottles) < previous["total_bottles"] // 2:
+        if stocked is not None and len(processed_bottles) < stocked["total_bottles"] // 2:
             # A truncated response can still yield some valid rows. We cannot
             # know whether the drop is real, so publish it but leave a trace.
             _LOGGER.warning(
                 "CellarTracker inventory dropped from %s to %s bottles in a "
                 "single poll; verify the data is correct",
-                previous["total_bottles"],
+                stocked["total_bottles"],
                 len(processed_bottles),
             )
 
@@ -476,7 +510,7 @@ class WineCellarData(DataUpdateCoordinator):
             self._hass, self._username, self._password
         )
 
-    async def _async_update_data(self) -> dict:
+    async def _async_update_data(self) -> CellarData:
         """Fetch inventory from CellarTracker."""
         try:
             payload = await self._fetch_payload()
@@ -528,7 +562,7 @@ class WineCellarData(DataUpdateCoordinator):
         self._restore_interval()
         return data
 
-    def _parse_and_process(self, payload: str, previous: dict | None) -> dict:
+    def _parse_and_process(self, payload: str, previous: CellarData | None) -> CellarData:
         """Parse the tab-separated export, then summarise it. Runs in an executor."""
         rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
         result = self._process_inventory(rows, previous=previous)
@@ -542,3 +576,8 @@ class WineCellarData(DataUpdateCoordinator):
             ]
         )
         return result
+
+
+# Carries the coordinator's type on the entry, so `entry.runtime_data` is
+# checked rather than `Any` in __init__, sensor.py, views.py and diagnostics.
+CellarTrackerConfigEntry = ConfigEntry[WineCellarData]
