@@ -129,3 +129,40 @@ def test_docs_do_not_ask_users_to_copy_a_file_hacs_never_installed(name):
     assert "custom_components/www" not in DOCS[name], (
         f"{name} still points at a path that does not exist after an install"
     )
+
+
+# --------------------------------------------------------------------------
+# Claims that go stale silently
+# --------------------------------------------------------------------------
+def test_the_readme_counts_the_compact_columns_correctly():
+    """It said nine for as long as there were nine, and then Barcode arrived."""
+    from cellar_tracker.const import COMPACT_FIELDS
+
+    words = {
+        9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+        14: "fourteen", 15: "fifteen",
+    }
+    expected = words.get(len(COMPACT_FIELDS))
+    assert expected, f"add {len(COMPACT_FIELDS)} to this table"
+    assert f"the same bottles, {expected} columns" in DOCS["README.md"], (
+        f"the README should say the compact view has {expected} columns"
+    )
+
+
+def test_the_readme_describes_the_states_the_page_actually_shows():
+    """The colouring changed in 0.0.20 and the README described the old one.
+
+    Read out of the page rather than restated here, so the two cannot drift:
+    a label renamed in cellar.html has to be renamed in the README too.
+    """
+    import re
+
+    page = (COMPONENT / "www" / "cellar.html").read_text()
+    labels = re.search(r"const STATE_LABEL = \{(.*?)\};", page, re.S)
+    assert labels, "cellar.html no longer declares STATE_LABEL"
+
+    described = set(re.findall(r"'([^']+)'", labels.group(1)))
+    described.add("Drink this year")  # the urgent label, set inline
+
+    missing = sorted(label for label in described if label not in DOCS["README.md"])
+    assert not missing, f"the README never mentions the state(s) {missing}"
