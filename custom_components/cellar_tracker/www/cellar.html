@@ -1,417 +1,844 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wine Cellar</title>
-    <style>
-        /* 1. DEFINE VARIABLES (Theme Engine) */
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Wine Cellar</title>
+<style>
+    :root {
+        --app-bg: #ffffff;
+        --card-bg: #f5f5f5;
+        --card-raised: #ffffff;
+        --input-bg: #ffffff;
+        --text-primary: #212121;
+        --text-secondary: #757575;
+        --divider: #e0e0e0;
+        --accent-color: #03a9f4;
+        --accent-contrast: #ffffff;
+        --row-hover: #f0f0f0;
+        --track: #e0e0e0;
+
+        --status-green: #2e7d32;
+        --status-amber: #ef6c00;
+        --status-red: #d32f2f;
+        --status-grey: #9e9e9e;
+
+        /* Tap targets. Home Assistant's own rows sit at 48px and the Companion
+           app is used one-handed, so nothing interactive goes below this. */
+        --touch: 48px;
+        --radius: 12px;
+    }
+
+    @media (prefers-color-scheme: dark) {
         :root {
-            /* --- Light Mode Defaults --- */
-            --app-bg: #ffffff;
-            --card-bg: #f5f5f5;
-            --input-bg: #ffffff;
-            --text-primary: #212121;
-            --text-secondary: #757575;
-            --divider: #e0e0e0;
-            --accent-color: #03a9f4;
-            --row-hover: #f0f0f0;
-            
-            --status-green: #2e7d32;
-            --status-red: #d32f2f;
-        }
+            --app-bg: #111111;
+            --card-bg: #1c1c1c;
+            --card-raised: #242424;
+            --input-bg: #2c2c2c;
+            --text-primary: #e1e1e1;
+            --text-secondary: #b0b0b0;
+            --divider: #3a3a3a;
+            --accent-color: #29b6f6;
+            --accent-contrast: #06232e;
+            --row-hover: #292929;
+            --track: #3a3a3a;
 
-        /* --- Dark Mode Overrides --- */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --app-bg: #111111;
-                --card-bg: #1c1c1c;
-                --input-bg: #2c2c2c;
-                --text-primary: #e1e1e1;
-                --text-secondary: #b0b0b0;
-                --divider: #444444;
-                --accent-color: #29b6f6;
-                --row-hover: #292929;
-                
-                --status-green: #66bb6a;
-                --status-red: #ef5350;
-            }
+            --status-green: #66bb6a;
+            --status-amber: #ffa726;
+            --status-red: #ef5350;
+            --status-grey: #8a8a8a;
         }
+    }
 
-        /* 2. APPLY VARIABLES */
-        body {
-            font-family: 'Roboto', 'Segoe UI', Helvetica, Arial, sans-serif;
-            background-color: var(--app-bg);
-            color: var(--text-primary);
-            margin: 0;
-            padding: 16px;
-            transition: background-color 0.3s, color 0.3s;
-        }
+    * { box-sizing: border-box; }
 
-        /* Search Bar */
-        #search-container { margin-bottom: 20px; }
-        input#search {
-            width: 100%;
-            padding: 12px 16px;
-            font-size: 16px;
-            background-color: var(--input-bg);
-            border: 1px solid var(--divider);
-            color: var(--text-primary);
-            border-radius: 8px;
-            box-sizing: border-box;
-            transition: border-color 0.2s;
-        }
-        input#search:focus { 
-            outline: none; 
-            border-color: var(--accent-color); 
-            box-shadow: 0 0 0 1px var(--accent-color);
-        }
+    body {
+        font-family: 'Roboto', 'Segoe UI', Helvetica, Arial, sans-serif;
+        background-color: var(--app-bg);
+        color: var(--text-primary);
+        margin: 0;
+        padding: 12px 12px calc(24px + env(safe-area-inset-bottom));
+        -webkit-text-size-adjust: 100%;
+    }
 
-        /* Table Styling */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-        
-        th {
-            text-align: left;
-            padding: 12px;
-            border-bottom: 2px solid var(--divider);
-            color: var(--accent-color);
-            position: sticky;
-            top: 0;
-            background-color: var(--app-bg);
-            cursor: pointer;
-            user-select: none;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.85rem;
-            letter-spacing: 0.05em;
-        }
-        
-        th:hover { background-color: var(--row-hover); }
+    /* ---------------------------------------------------------------- *
+     * Controls: sticky, because a 150-bottle list is a long scroll and
+     * losing the filter row at the top of it is what made this painful.
+     * ---------------------------------------------------------------- */
+    #controls {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background-color: var(--app-bg);
+        padding-bottom: 8px;
+        margin-bottom: 4px;
+    }
 
-        td {
-            padding: 12px;
-            border-bottom: 1px solid var(--divider);
-        }
+    input#search {
+        width: 100%;
+        height: var(--touch);
+        padding: 0 14px;
+        /* 16px exactly: anything smaller makes iOS Safari zoom on focus. */
+        font-size: 16px;
+        background-color: var(--input-bg);
+        border: 1px solid var(--divider);
+        color: var(--text-primary);
+        border-radius: var(--radius);
+    }
+    input#search:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 1px var(--accent-color);
+    }
 
-        tr { transition: background-color 0.1s; }
-        tr:hover { background-color: var(--row-hover); }
+    /* Chips scroll sideways rather than wrapping: one predictable row, and
+       the fourth chip stays reachable on a narrow phone. */
+    #chips {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+    #chips::-webkit-scrollbar { display: none; }
 
-        /* Links */
-        a { 
-            color: var(--text-primary); 
-            text-decoration: none; 
-            font-weight: 600; 
-        }
-        a:hover { 
-            text-decoration: underline; 
-            color: var(--accent-color); 
-        }
-        
-        /* Typography utils */
-        .vintage { color: var(--text-secondary); }
-        .price { 
-            color: var(--status-green); 
-            font-family: 'Roboto Mono', monospace; 
-            font-weight: bold; 
-            text-align: right; 
-        }
-        
-        /* Status Colors */
-        .window-red { color: var(--status-red); font-weight: bold; }
-        .window-green { color: var(--status-green); font-weight: bold; }
-        
-        /* Sort Icons */
-        th span.sort-icon { font-size: 0.8em; margin-left: 5px; opacity: 0.5; }
-        th.asc span.sort-icon::after { content: "▲"; color: var(--accent-color); }
-        th.desc span.sort-icon::after { content: "▼"; color: var(--accent-color); }
+    .chip {
+        flex: 0 0 auto;
+        min-height: 40px;
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font: inherit;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        background-color: var(--card-bg);
+        border: 1px solid var(--divider);
+        border-radius: 999px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .chip[aria-pressed="true"] {
+        background-color: var(--accent-color);
+        border-color: var(--accent-color);
+        color: var(--accent-contrast);
+        font-weight: 600;
+    }
+    .chip .count {
+        font-variant-numeric: tabular-nums;
+        opacity: 0.75;
+        font-size: 0.8125rem;
+    }
+    .chip[aria-pressed="true"] .count { opacity: 0.9; }
 
-        /* Mobile Responsive */
-        @media (max-width: 600px) {
-            .hide-mobile { display: none; }
-            td, th { padding: 10px 8px; }
-            body { padding: 10px; }
+    #sortbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    #sortbar label { flex: 0 0 auto; }
+    #sort {
+        flex: 1 1 auto;
+        height: 36px;
+        font: inherit;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+        background-color: var(--input-bg);
+        border: 1px solid var(--divider);
+        border-radius: 8px;
+        padding: 0 8px;
+    }
+    #direction {
+        flex: 0 0 auto;
+        min-width: 40px;
+        height: 36px;
+        font: inherit;
+        color: var(--text-primary);
+        background-color: var(--input-bg);
+        border: 1px solid var(--divider);
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    /* ---------------------------------------------------------------- *
+     * The list
+     * ---------------------------------------------------------------- */
+    #list { display: flex; flex-direction: column; gap: 6px; }
+
+    .bottle {
+        background-color: var(--card-bg);
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+    .bottle[data-open="true"] {
+        background-color: var(--card-raised);
+        border-color: var(--divider);
+    }
+
+    .summary {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 12px;
+        width: 100%;
+        min-height: var(--touch);
+        padding: 10px 12px;
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        text-align: left;
+        cursor: pointer;
+    }
+    .summary:hover { background-color: var(--row-hover); }
+    .summary:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+
+    .name {
+        font-weight: 600;
+        font-size: 0.9375rem;
+        line-height: 1.3;
+    }
+    .price {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        font-size: 0.9375rem;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .meta {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    .meta .dot { opacity: 0.5; }
+
+    /* The drink window, as a position rather than two numbers. The bar says
+       "where in its life is this bottle"; the pill says what to do about it. */
+    .window { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    .track {
+        position: relative;
+        flex: 1 1 auto;
+        height: 4px;
+        border-radius: 2px;
+        background-color: var(--track);
+        overflow: hidden;
+    }
+    .fill { height: 100%; border-radius: 2px; }
+    .pill {
+        flex: 0 0 auto;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+    .years {
+        flex: 0 0 auto;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .state-ready .fill { background-color: var(--status-green); }
+    .state-ready .pill { background-color: var(--status-green); color: #fff; }
+    .state-urgent .fill { background-color: var(--status-amber); }
+    .state-urgent .pill { background-color: var(--status-amber); color: #241300; }
+    .state-past .fill { background-color: var(--status-red); }
+    .state-past .pill { background-color: var(--status-red); color: #fff; }
+    .state-aging .fill { background-color: var(--accent-color); }
+    .state-aging .pill { background-color: var(--accent-color); color: var(--accent-contrast); }
+    .state-unknown .pill { background-color: var(--track); color: var(--text-secondary); }
+
+    /* Drawer */
+    .drawer {
+        padding: 4px 12px 12px;
+        border-top: 1px solid var(--divider);
+        font-size: 0.8125rem;
+    }
+    .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 12px; }
+    .facts dt { color: var(--text-secondary); }
+    .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .action {
+        min-height: 40px;
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        font: inherit;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+        background-color: var(--input-bg);
+        border: 1px solid var(--divider);
+        border-radius: 8px;
+        cursor: pointer;
+        text-decoration: none;
+    }
+    .action:hover { border-color: var(--accent-color); color: var(--accent-color); }
+
+    #status { padding: 32px 12px; text-align: center; color: var(--text-secondary); }
+
+    /* Desktop earns one dense line per bottle: the four blocks sit side by
+       side rather than stacking, so a screenful shows twice as many. Each is
+       placed explicitly - relying on source order here is what put the name
+       in the middle of the row with a hole beside it. */
+    @media (min-width: 720px) {
+        body { padding: 20px; max-width: 1100px; margin: 0 auto; }
+        .summary {
+            grid-template-columns:
+                minmax(0, 3fr) minmax(0, 1.4fr) minmax(160px, 2fr) auto;
+            align-items: center;
+            gap: 0 16px;
         }
-        
-        #loading { text-align: center; margin-top: 50px; font-style: italic; color: var(--text-secondary); }
-    </style>
+        .name { grid-column: 1; grid-row: 1; }
+        .meta { grid-column: 2; grid-row: 1; }
+        .window { grid-column: 3; grid-row: 1; margin-top: 0; }
+        .price { grid-column: 4; grid-row: 1; }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        .chip, .summary, .action { transition: background-color .15s, border-color .15s, color .15s; }
+    }
+</style>
 </head>
 <body>
 
-    <div id="search-container">
-        <input type="text" id="search" placeholder="Search wines...">
+<div id="controls">
+    <input type="text" id="search" placeholder="Search wines, vintage, bin…"
+           autocomplete="off" autocorrect="off" spellcheck="false"
+           aria-label="Search the cellar">
+
+    <!-- Static markup rather than generated: the chips are the page's primary
+         navigation, so they paint before any data arrives. Only the counts are
+         filled in later. -->
+    <div id="chips" role="group" aria-label="Filter by drinking window">
+        <button type="button" class="chip" data-filter="all" aria-pressed="true">
+            All wines <span class="count" data-count="all"></span>
+        </button>
+        <button type="button" class="chip" data-filter="ready" aria-pressed="false">
+            Ready to drink <span class="count" data-count="ready"></span>
+        </button>
+        <button type="button" class="chip" data-filter="past" aria-pressed="false">
+            Past window <span class="count" data-count="past"></span>
+        </button>
+        <button type="button" class="chip" data-filter="aging" aria-pressed="false">
+            Needs aging <span class="count" data-count="aging"></span>
+        </button>
     </div>
 
-    <div id="loading">Loading Cellar...</div>
+    <div id="sortbar">
+        <label for="sort">Sort</label>
+        <select id="sort">
+            <option value="Wine">Wine</option>
+            <option value="Vintage">Vintage</option>
+            <option value="Valuation">Value</option>
+            <option value="EndConsume">Drink by</option>
+            <option value="Bin">Bin</option>
+            <option value="Location">Location</option>
+        </select>
+        <button type="button" id="direction" aria-label="Reverse sort order">▲</button>
+    </div>
+</div>
 
-    <table id="wineTable" style="display:none;">
-        <thead>
-            <tr>
-                <th onclick="sortTable('Wine')">Wine<span class="sort-icon"></span></th>
-                <th onclick="sortTable('Vintage')">Vintage<span class="sort-icon"></span></th>
-                <th class="hide-mobile" onclick="sortTable('Location')">Loc<span class="sort-icon"></span></th>
-                <th class="hide-mobile" onclick="sortTable('Bin')">Bin<span class="sort-icon"></span></th>
-                <th onclick="sortTable('BeginConsume')">From<span class="sort-icon"></span></th>
-                <th onclick="sortTable('EndConsume')">To<span class="sort-icon"></span></th>
-                <th onclick="sortTable('Valuation')" style="text-align: right;">Price<span class="sort-icon"></span></th>
-            </tr>
-        </thead>
-        <tbody id="tableBody">
-            </tbody>
-    </table>
+<div id="status" role="status">Loading cellar…</div>
+<div id="list"></div>
 
-    <script>
-        let allWines = [];
-        let currentSort = { key: 'Wine', direction: 'asc' };
-        let currencySymbol = '$';
+<script>
+    // ------------------------------------------------------------------
+    // Pure logic.
+    //
+    // Everything below this comment and above "Page wiring" touches no DOM
+    // and no network, which is what lets the test suite call it directly
+    // under node (tests/test_dashboard_filters.py). Keep these as top-level
+    // declarations - wrapping them in an IIFE would make them untestable
+    // without adding a build step this page deliberately does not have.
+    // ------------------------------------------------------------------
 
-        // 1. Fetch Data
-        const TOKEN_STORAGE_KEY = 'cellartracker_token';
+    // A year, or 0 for "the export does not say". CellarTracker leaves these
+    // blank for most wines, and blanks arrive as "", null, or prose.
+    function toYear(value) {
+        const year = parseInt(value, 10);
+        return Number.isFinite(year) && year > 0 ? year : 0;
+    }
 
-        // A Home Assistant long-lived token is full-account and never expires,
-        // so it must not sit in the address bar, where it reaches browser
-        // history, reverse-proxy and Home Assistant access logs, and any shared
-        // screenshot. A ?token= is honoured once so existing bookmarks keep
-        // working, then moved into sessionStorage and removed from the URL.
-        function consumeLegacyUrlToken() {
-            const params = new URLSearchParams(window.location.search);
-            if (!params.has('token')) return;
+    function toNumber(value) {
+        const number = parseFloat(value);
+        return Number.isFinite(number) ? number : 0;
+    }
 
-            const legacy = params.get('token');
-            console.warn(
-                'cellar.html: passing ?token= in the URL is deprecated - it leaks the ' +
-                'token into browser history and server logs. Embed this page with an ' +
-                'iframe card instead so it can use your Home Assistant session.'
-            );
+    // Returns a copy: the fetched payload is not ours to rewrite in place.
+    function normaliseWine(raw) {
+        const wine = Object.assign({}, raw);
+        wine.Vintage = toYear(raw && raw.Vintage);
+        wine.BeginConsume = toYear(raw && raw.BeginConsume);
+        wine.EndConsume = toYear(raw && raw.EndConsume);
+        wine.Valuation = toNumber(raw && raw.Valuation);
+        return wine;
+    }
+
+    // The same rule as _drink_window_counts in cellar_data.py, which is what
+    // the sensors report. tests/test_dashboard_agrees_with_sensors.py runs
+    // both over one cellar and compares, because two implementations of one
+    // rule is exactly what drifts.
+    function drinkWindowState(wine, year) {
+        const begin = toYear(wine && wine.BeginConsume);
+        const end = toYear(wine && wine.EndConsume);
+
+        if (!begin && !end) return 'unknown';
+        // Checked first, so an inverted window (from 2030, by 2020) reads as
+        // already over rather than as still laying down.
+        if (end && end < year) return 'past';
+        if (begin && begin > year) return 'aging';
+        return 'ready';
+    }
+
+    // Where this year sits inside the window, 0 to 1, or null if the window
+    // has no width to speak of. Only drawn when both bounds are given: half a
+    // window cannot be a position.
+    function windowProgress(wine, year) {
+        const begin = toYear(wine && wine.BeginConsume);
+        const end = toYear(wine && wine.EndConsume);
+        if (!begin || !end) return null;
+        if (end <= begin) return 1;
+        const position = (year - begin) / (end - begin);
+        return Math.min(1, Math.max(0, position));
+    }
+
+    // The final year of a window: still ready, but worth saying out loud. This
+    // is what the old page painted red - the urgency was real, the "expired"
+    // reading was not.
+    function isUrgent(wine, year) {
+        return drinkWindowState(wine, year) === 'ready'
+            && toYear(wine && wine.EndConsume) === year;
+    }
+
+    const SEARCH_FIELDS = ['Wine', 'Vintage', 'Location', 'Bin', 'Barcode'];
+
+    // Every token has to appear somewhere, so "bindi 2023" narrows rather than
+    // finding nothing. The old page concatenated three fields and did one
+    // substring test, which meant a vintage could not be searched at all.
+    function matchesSearch(wine, term) {
+        const tokens = String(term == null ? '' : term).toLowerCase().split(/\s+/)
+            .filter((token) => token.length > 0);
+        if (tokens.length === 0) return true;
+
+        const haystack = SEARCH_FIELDS
+            .map((field) => (wine && wine[field] != null ? String(wine[field]) : ''))
+            .join(' ')
+            .toLowerCase();
+
+        return tokens.every((token) => haystack.indexOf(token) !== -1);
+    }
+
+    function filterCounts(wines, year) {
+        const counts = { all: wines.length, ready: 0, past: 0, aging: 0 };
+        wines.forEach((wine) => {
+            const state = drinkWindowState(wine, year);
+            if (state in counts) counts[state] += 1;
+        });
+        return counts;
+    }
+
+    function selectWines(wines, options) {
+        const filter = (options && options.filter) || 'all';
+        const term = (options && options.term) || '';
+        const year = (options && options.year) || new Date().getFullYear();
+        const wanted = ['ready', 'past', 'aging'].indexOf(filter) === -1 ? null : filter;
+
+        return wines.filter((wine) => {
+            if (wanted && drinkWindowState(wine, year) !== wanted) return false;
+            return matchesSearch(wine, term);
+        });
+    }
+
+    function isBlank(value) {
+        return value == null || value === '';
+    }
+
+    // Decorated with the arrival index and compared on it last, so ties keep
+    // the order they came in whichever way the column is pointing. A cellar
+    // holds six identical bottles of the same wine; they should not shuffle
+    // every time the sort is toggled.
+    function sortWines(wines, key, direction) {
+        const sign = direction === 'desc' ? -1 : 1;
+        return wines
+            .map((wine, index) => ({ wine, index }))
+            .sort((a, b) => {
+                let left = a.wine[key];
+                let right = b.wine[key];
+
+                // A bin nobody filled in sorts last in both directions rather
+                // than heading the list because "" precedes every letter.
+                if (isBlank(left) || isBlank(right)) {
+                    if (isBlank(left) && isBlank(right)) return a.index - b.index;
+                    return isBlank(left) ? 1 : -1;
+                }
+
+                if (typeof left === 'string') left = left.toLowerCase();
+                if (typeof right === 'string') right = right.toLowerCase();
+
+                if (left < right) return -1 * sign;
+                if (left > right) return 1 * sign;
+                return a.index - b.index;
+            })
+            .map((entry) => entry.wine);
+    }
+
+    // ------------------------------------------------------------------
+    // Page wiring
+    // ------------------------------------------------------------------
+    const TOKEN_STORAGE_KEY = 'cellartracker_token';
+
+    // A Home Assistant long-lived token is full-account and never expires,
+    // so it must not sit in the address bar, where it reaches browser
+    // history, reverse-proxy and Home Assistant access logs, and any shared
+    // screenshot. A ?token= is honoured once so existing bookmarks keep
+    // working, then moved into sessionStorage and removed from the URL.
+    function consumeLegacyUrlToken() {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has('token')) return;
+
+        const legacy = params.get('token');
+        console.warn(
+            'cellar.html: passing ?token= in the URL is deprecated - it leaks the ' +
+            'token into browser history and server logs. Embed this page with an ' +
+            'iframe card instead so it can use your Home Assistant session.'
+        );
+        try {
+            sessionStorage.setItem(TOKEN_STORAGE_KEY, legacy);
+        } catch (e) { /* storage unavailable in private mode */ }
+
+        params.delete('token');
+        const query = params.toString();
+        window.history.replaceState(
+            null, '', window.location.pathname + (query ? '?' + query : '')
+        );
+    }
+
+    function tokenFromHomeAssistant() {
+        // Try the embedding page first, then this document. Each lookup is
+        // guarded: reading a cross-origin parent throws.
+        const sources = [
+            () => window.parent && window.parent.document,
+            () => document
+        ];
+        for (const source of sources) {
             try {
-                sessionStorage.setItem(TOKEN_STORAGE_KEY, legacy);
-            } catch (e) { /* storage unavailable in private mode */ }
-
-            params.delete('token');
-            const query = params.toString();
-            window.history.replaceState(
-                null, '', window.location.pathname + (query ? '?' + query : '')
-            );
+                const found = source()
+                    ?.querySelector('home-assistant')
+                    ?.hass?.auth?.data?.access_token;
+                if (found) return found;
+            } catch (e) { /* cross-origin or not embedded */ }
         }
+        return null;
+    }
 
-        function tokenFromHomeAssistant() {
-            // Try the embedding page first, then this document. Each lookup is
-            // guarded: reading a cross-origin parent throws.
-            const sources = [
-                () => window.parent && window.parent.document,
-                () => document
-            ];
-            for (const source of sources) {
-                try {
-                    const found = source()
-                        ?.querySelector('home-assistant')
-                        ?.hass?.auth?.data?.access_token;
-                    if (found) return found;
-                } catch (e) { /* cross-origin or not embedded */ }
-            }
+    function storedToken() {
+        try {
+            return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+        } catch (e) {
             return null;
         }
+    }
 
-        function storedToken() {
-            try {
-                return sessionStorage.getItem(TOKEN_STORAGE_KEY);
-            } catch (e) {
-                return null;
-            }
+    function getHassToken() {
+        consumeLegacyUrlToken();
+        // Prefer the live session: it requires no stored secret at all.
+        return tokenFromHomeAssistant() || storedToken();
+    }
+
+    const token = getHassToken();
+    const fetchOpts = token
+        ? {
+            credentials: 'same-origin',
+            headers: { Authorization: 'Bearer ' + token }
+        }
+        : { credentials: 'same-origin' };
+
+    // One CellarTracker account per installation, so this is normally absent
+    // and the endpoints need no account parameter. It is forwarded for the
+    // install that still holds a second entry from before single-instance
+    // was enforced: there the API selects on it, and dropping it would serve
+    // the other account's cellar. With one account configured the API
+    // ignores it, so a stale value on an old card URL stays harmless.
+    //   url: /cellartracker/cellar.html?entry_id=abc123
+    // Read after the token strip, which rebuilds the query from the
+    // remaining parameters and so preserves this one.
+    const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
+
+    // The inventory endpoint serves all 66 export columns by default, for
+    // the sake of cards people built against it. This page renders a handful,
+    // so it asks for the compact projection instead - roughly a tenth of
+    // the bytes on a large cellar.
+    const COMPACT_PATHS = { inventory: true };
+
+    function apiUrl(path) {
+        const params = new URLSearchParams();
+        if (entryId) params.set('entry_id', entryId);
+        if (COMPACT_PATHS[path]) params.set('view', 'compact');
+        const query = params.toString();
+        return '/api/cellartracker/' + path + (query ? '?' + query : '');
+    }
+
+    async function fetchJson(path) {
+        const response = await fetch(apiUrl(path), fetchOpts);
+        if (response.ok) return response.json();
+
+        // The endpoints answer 200 or an auth status and nothing else. The
+        // 400/404 disambiguation bodies this used to decode are gone with
+        // the multi-account API.
+        if (response.status === 401 || response.status === 403) {
+            throw new Error(
+                'Not authorised (' + response.status + '). Open this page from ' +
+                'Home Assistant so it can use your session.'
+            );
+        }
+        throw new Error('Could not load data (HTTP ' + response.status + ').');
+    }
+
+    // What the user has chosen. Held apart from the data so a refresh replaces
+    // the cellar without disturbing the view of it.
+    const view = { filter: 'all', term: '', sort: 'Wine', direction: 'asc' };
+    let allWines = [];
+    let currencySymbol = '$';
+    let currentYear = new Date().getFullYear();
+
+    const STATE_LABEL = {
+        ready: 'Ready', past: 'Past window', aging: 'Needs aging', unknown: 'No window',
+    };
+
+    function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        // textContent throughout: every string here is server data.
+        if (text != null) node.textContent = text;
+        return node;
+    }
+
+    function formatPrice(value) {
+        return currencySymbol + ' ' + Math.round(value);
+    }
+
+    function yearsLabel(wine) {
+        const begin = wine.BeginConsume ? String(wine.BeginConsume) : '';
+        const end = wine.EndConsume ? String(wine.EndConsume) : '';
+        if (begin && end) return begin + '–' + end;
+        if (end) return 'by ' + end;
+        if (begin) return 'from ' + begin;
+        return '';
+    }
+
+    function buildWindow(wine) {
+        const state = drinkWindowState(wine, currentYear);
+        const urgent = isUrgent(wine, currentYear);
+        const row = element('div', 'window state-' + (urgent ? 'urgent' : state));
+
+        const progress = windowProgress(wine, currentYear);
+        if (progress !== null) {
+            const track = element('div', 'track');
+            const fill = element('div', 'fill');
+            fill.style.width = Math.round(progress * 100) + '%';
+            track.appendChild(fill);
+            row.appendChild(track);
         }
 
-        function getHassToken() {
-            consumeLegacyUrlToken();
-            // Prefer the live session: it requires no stored secret at all.
-            return tokenFromHomeAssistant() || storedToken();
-        }
+        const years = yearsLabel(wine);
+        if (years) row.appendChild(element('span', 'years', years));
+        row.appendChild(element('span', 'pill', urgent ? 'Drink this year' : STATE_LABEL[state]));
+        return row;
+    }
 
-        const token = getHassToken();
-        const fetchOpts = token
-            ? {
-                credentials: 'same-origin',
-                headers: { Authorization: 'Bearer ' + token }
-            }
-            : { credentials: 'same-origin' };
+    function buildDrawer(wine) {
+        const drawer = element('div', 'drawer');
 
-        // One CellarTracker account per installation, so this is normally absent
-        // and the endpoints need no account parameter. It is forwarded for the
-        // install that still holds a second entry from before single-instance
-        // was enforced: there the API selects on it, and dropping it would serve
-        // the other account's cellar. With one account configured the API
-        // ignores it, so a stale value on an old card URL stays harmless.
-        //   url: /cellartracker/cellar.html?entry_id=abc123
-        // Read after the token strip, which rebuilds the query from the
-        // remaining parameters and so preserves this one.
-        const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
+        const facts = element('dl', 'facts');
+        const rows = [
+            ['Location', wine.Location],
+            ['Bin', wine.Bin],
+            ['Barcode', wine.Barcode],
+            ['Drink window', yearsLabel(wine) || 'Not recorded'],
+            ['Value', formatPrice(wine.Valuation)],
+        ];
+        rows.forEach(([label, value]) => {
+            if (isBlank(value)) return;
+            facts.appendChild(element('dt', null, label));
+            facts.appendChild(element('dd', null, String(value)));
+        });
+        drawer.appendChild(facts);
 
-        // The inventory endpoint serves all 66 export columns by default, for
-        // the sake of cards people built against it. This page renders seven,
-        // so it asks for the compact projection instead - roughly a tenth of
-        // the bytes on a large cellar.
-        const COMPACT_PATHS = { inventory: true };
-
-        function apiUrl(path) {
-            const params = new URLSearchParams();
-            if (entryId) params.set('entry_id', entryId);
-            if (COMPACT_PATHS[path]) params.set('view', 'compact');
-            const query = params.toString();
-            return '/api/cellartracker/' + path + (query ? '?' + query : '');
-        }
-
-        async function fetchJson(path) {
-            const response = await fetch(apiUrl(path), fetchOpts);
-            if (response.ok) return response.json();
-
-            // The endpoints answer 200 or an auth status and nothing else. The
-            // 400/404 disambiguation bodies this used to decode are gone with
-            // the multi-account API.
-            if (response.status === 401 || response.status === 403) {
-                throw new Error(
-                    'Not authorised (' + response.status + '). Open this page from ' +
-                    'Home Assistant so it can use your session.'
-                );
-            }
-            throw new Error('Could not load data (HTTP ' + response.status + ').');
-        }
-
-        Promise.all([
-            fetchJson('inventory'),
-            fetchJson('settings').catch(() => ({ currency: 'USD', currency_symbol: '$' }))
-        ])
-            .then(([data, settings]) => {
-                currencySymbol = settings.currency_symbol || settings.currency || '$';
-                allWines = data;
-                // Normalize numbers for sorting
-                allWines.forEach(w => {
-                    w.Valuation = parseFloat(w.Valuation) || 0;
-                    w.Vintage = parseInt(w.Vintage) || 0;
-                    w.BeginConsume = parseInt(w.BeginConsume) || 0;
-                    w.EndConsume = parseInt(w.EndConsume) || 0;
-                });
-
-                sortData('Wine');
-                renderTable(allWines);
-
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('wineTable').style.display = 'table';
-            })
-            .catch(err => {
-                // textContent, never innerHTML: the message embeds server data.
-                document.getElementById('loading').textContent =
-                    err.message || 'Error loading data.';
-                console.error(err);
+        const actions = element('div', 'actions');
+        if (!isBlank(wine.Bin)) {
+            const copy = element('button', 'action', 'Copy bin');
+            copy.type = 'button';
+            copy.addEventListener('click', (event) => {
+                event.stopPropagation();
+                copyText(String(wine.Bin), copy, 'Copy bin');
             });
-
-        // 2. Render Table
-        function createCell(text, className, hideMobile) {
-            const td = document.createElement('td');
-            td.textContent = text;
-            if (className) td.className = className;
-            if (hideMobile) td.classList.add('hide-mobile');
-            return td;
+            actions.appendChild(copy);
         }
-
-        function renderTable(data) {
-            const tbody = document.getElementById('tableBody');
-            tbody.innerHTML = '';
-            const currentYear = new Date().getFullYear();
-
-            data.forEach(wine => {
-                const tr = document.createElement('tr');
-
-                const name = wine.Wine || 'Unknown';
-                const vintage = wine.Vintage === 0 ? 'NV' : String(wine.Vintage);
-                const location = wine.Location || '';
-                const bin = wine.Bin || '';
-                const price = currencySymbol + ' ' + wine.Valuation.toFixed(0);
-                const iWine = encodeURIComponent(wine.iWine || '');
-                const link = `https://www.cellartracker.com/wine.asp?iWine=${iWine}`;
-
-                // Wine name cell with link
-                const nameTd = document.createElement('td');
-                const anchor = document.createElement('a');
-                anchor.href = link;
-                anchor.target = '_blank';
-                anchor.rel = 'noopener noreferrer';
-                anchor.textContent = name;
-                nameTd.appendChild(anchor);
-                tr.appendChild(nameTd);
-
-                tr.appendChild(createCell(vintage, 'vintage'));
-                tr.appendChild(createCell(location, null, true));
-                tr.appendChild(createCell(bin, null, true));
-
-                // Logic: Drink From
-                let fromClass = '';
-                let fromText = '\u2014';
-                if (wine.BeginConsume > 0) {
-                    fromText = String(wine.BeginConsume);
-                    fromClass = wine.BeginConsume > currentYear ? 'window-red' : 'window-green';
-                }
-                tr.appendChild(createCell(fromText, fromClass));
-
-                // Logic: Drink By
-                let toClass = '';
-                let toText = '\u2014';
-                if (wine.EndConsume > 0) {
-                    toText = String(wine.EndConsume);
-                    toClass = wine.EndConsume > currentYear ? 'window-green' : 'window-red';
-                }
-                tr.appendChild(createCell(toText, toClass));
-
-                tr.appendChild(createCell(price, 'price'));
-                tbody.appendChild(tr);
-            });
-            updateHeaderIcons();
+        if (wine.iWine) {
+            const open = element('a', 'action', 'Open in CellarTracker');
+            open.href = 'https://www.cellartracker.com/wine.asp?iWine='
+                + encodeURIComponent(wine.iWine);
+            open.target = '_blank';
+            open.rel = 'noopener noreferrer';
+            open.addEventListener('click', (event) => event.stopPropagation());
+            actions.appendChild(open);
         }
+        drawer.appendChild(actions);
+        return drawer;
+    }
 
-        // 3. Sorting
-        function sortTable(key) {
-            if (currentSort.key === key) {
-                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    function copyText(text, button, original) {
+        const done = () => {
+            button.textContent = 'Copied';
+            setTimeout(() => { button.textContent = original; }, 1200);
+        };
+        try {
+            const written = navigator.clipboard && navigator.clipboard.writeText(text);
+            if (written && written.then) written.then(done, () => {});
+            else done();
+        } catch (e) { /* no clipboard permission; the bin is on screen anyway */ }
+    }
+
+    function buildBottle(wine) {
+        const card = element('div', 'bottle');
+        card.setAttribute('data-open', 'false');
+
+        const summary = element('button', 'summary');
+        summary.type = 'button';
+        summary.setAttribute('aria-expanded', 'false');
+
+        summary.appendChild(element('div', 'name', wine.Wine || 'Unknown'));
+        summary.appendChild(element('div', 'price', formatPrice(wine.Valuation)));
+
+        const meta = element('div', 'meta');
+        const parts = [wine.Vintage ? String(wine.Vintage) : 'NV'];
+        if (!isBlank(wine.Location)) parts.push(String(wine.Location));
+        if (!isBlank(wine.Bin)) parts.push(String(wine.Bin));
+        parts.forEach((part, index) => {
+            if (index > 0) meta.appendChild(element('span', 'dot', '·'));
+            meta.appendChild(element('span', null, part));
+        });
+        summary.appendChild(meta);
+        summary.appendChild(buildWindow(wine));
+
+        let drawer = null;
+        summary.addEventListener('click', () => {
+            const open = card.getAttribute('data-open') === 'true';
+            if (open) {
+                if (drawer) card.removeChild(drawer);
+                drawer = null;
             } else {
-                currentSort.key = key;
-                currentSort.direction = 'asc';
+                drawer = buildDrawer(wine);
+                card.appendChild(drawer);
             }
-            sortData(key);
-            filterTable(); 
-        }
+            card.setAttribute('data-open', open ? 'false' : 'true');
+            summary.setAttribute('aria-expanded', open ? 'false' : 'true');
+        });
 
-        function sortData(key) {
-            const dir = currentSort.direction === 'asc' ? 1 : -1;
-            allWines.sort((a, b) => {
-                let valA = a[key];
-                let valB = b[key];
-                if (typeof valA === 'string') valA = valA.toLowerCase();
-                if (typeof valB === 'string') valB = valB.toLowerCase();
-                if (valA < valB) return -1 * dir;
-                if (valA > valB) return 1 * dir;
-                return 0;
+        card.appendChild(summary);
+        return card;
+    }
+
+    function render() {
+        const list = document.getElementById('list');
+        const status = document.getElementById('status');
+        const shown = sortWines(
+            selectWines(allWines, { filter: view.filter, term: view.term, year: currentYear }),
+            view.sort,
+            view.direction
+        );
+
+        // One fragment, one insertion: a 1,000-bottle cellar reflows once.
+        const fragment = document.createDocumentFragment();
+        shown.forEach((wine) => fragment.appendChild(buildBottle(wine)));
+        list.replaceChildren(fragment);
+
+        if (status) {
+            status.textContent = shown.length ? '' : 'No wines match this filter.';
+            status.style.display = shown.length ? 'none' : 'block';
+        }
+    }
+
+    function renderCounts() {
+        const counts = filterCounts(allWines, currentYear);
+        document.querySelectorAll('#chips .count').forEach((node) => {
+            const key = node.getAttribute('data-count');
+            node.textContent = key in counts ? String(counts[key]) : '';
+        });
+    }
+
+    function setFilter(name) {
+        view.filter = name;
+        document.querySelectorAll('#chips .chip').forEach((chip) => {
+            chip.setAttribute(
+                'aria-pressed', chip.getAttribute('data-filter') === name ? 'true' : 'false'
+            );
+        });
+        render();
+    }
+
+    function wire() {
+        const search = document.getElementById('search');
+        if (search) {
+            search.addEventListener('input', () => {
+                view.term = search.value;
+                render();
             });
         }
 
-        function updateHeaderIcons() {
-            document.querySelectorAll('th').forEach(th => th.classList.remove('asc', 'desc'));
-            const headers = Array.from(document.querySelectorAll('th'));
-            const activeHeader = headers.find(th => th.getAttribute('onclick').includes(`'${currentSort.key}'`));
-            if (activeHeader) activeHeader.classList.add(currentSort.direction);
+        document.querySelectorAll('#chips .chip').forEach((chip) => {
+            chip.addEventListener('click', () => setFilter(chip.getAttribute('data-filter')));
+        });
+
+        const sort = document.getElementById('sort');
+        if (sort) {
+            sort.addEventListener('change', () => { view.sort = sort.value; render(); });
         }
 
-        // 4. Filtering
-        function filterTable() {
-            const term = document.getElementById('search').value.toLowerCase();
-            const filtered = allWines.filter(wine => {
-                const combined = `${wine.Wine || ''} ${wine.Location || ''} ${wine.Bin || ''}`.toLowerCase();
-                return combined.includes(term);
+        const direction = document.getElementById('direction');
+        if (direction) {
+            direction.addEventListener('click', () => {
+                view.direction = view.direction === 'asc' ? 'desc' : 'asc';
+                direction.textContent = view.direction === 'asc' ? '▲' : '▼';
+                render();
             });
-            renderTable(filtered);
         }
+    }
 
-        document.getElementById('search').addEventListener('input', filterTable);
-    </script>
+    // Replaces the cellar and redraws, leaving `view` alone - so a refresh
+    // keeps the chip, the search term and the sort the user had chosen.
+    function loadWines(rows) {
+        allWines = (rows || []).map(normaliseWine);
+        renderCounts();
+        render();
+    }
+
+    wire();
+
+    Promise.all([
+        fetchJson('inventory'),
+        fetchJson('settings').catch(() => ({ currency: 'USD', currency_symbol: '$' }))
+    ])
+        .then(([data, settings]) => {
+            currencySymbol = settings.currency_symbol || settings.currency || '$';
+            loadWines(data);
+        })
+        .catch((err) => {
+            const status = document.getElementById('status');
+            if (status) {
+                // textContent, never innerHTML: the message embeds server data.
+                status.textContent = err.message || 'Error loading data.';
+            }
+            console.error(err);
+        });
+</script>
 </body>
 </html>

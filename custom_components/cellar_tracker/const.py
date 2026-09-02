@@ -25,6 +25,10 @@ COMPACT_FIELDS = (
     "Vintage",
     "Location",
     "Bin",
+    # The dashboard searches it and shows it in a bottle's drawer, which is
+    # what a phone at the rack is for. It is one short string per row, and it
+    # already identifies a bottle to the coordinator (IDENTITY_FIELDS).
+    "Barcode",
     "BeginConsume",
     "EndConsume",
     "Valuation",
