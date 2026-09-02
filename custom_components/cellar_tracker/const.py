@@ -15,6 +15,21 @@ PLATFORMS = ["sensor"]
 DASHBOARD_FILENAME = "cellar.html"
 DASHBOARD_URL = f"/cellartracker/{DASHBOARD_FILENAME}"
 
+# The columns the bundled dashboard renders. ``?view=compact`` on the inventory
+# endpoint serves only these, which is roughly a tenth of the bytes: the export
+# carries 66 columns and the page shows seven of them.
+COMPACT_FIELDS = (
+    "unique_bottle_id",
+    "iWine",
+    "Wine",
+    "Vintage",
+    "Location",
+    "Bin",
+    "BeginConsume",
+    "EndConsume",
+    "Valuation",
+)
+
 CONF_CURRENCY = "currency"
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600

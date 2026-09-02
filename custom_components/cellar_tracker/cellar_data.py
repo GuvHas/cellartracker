@@ -30,6 +30,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    COMPACT_FIELDS,
     CONF_CURRENCY,
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
@@ -94,6 +95,46 @@ IDENTITY_FIELDS = ("iWine", "PurchaseDate", "Barcode", "Location", "Bin")
 # Unit separator: cannot occur in CellarTracker's tab-separated payload, so it
 # cannot be forged by field contents to collide with another row's identity.
 _FIELD_SEPARATOR = "\x1f"
+
+
+def _consume_year(value) -> int | None:
+    """Read a BeginConsume/EndConsume cell as a year, or None if absent.
+
+    CellarTracker gives these as plain years, and cellar.html already reads
+    them that way - ``parseInt`` compared against the current year, with a
+    blank collapsing to 0. Anything that is not a whole positive number means
+    "no window given" rather than an error: a cellar is full of wines nobody
+    has assigned a drinking window to.
+    """
+    try:
+        year = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return year if year > 0 else None
+
+
+def _drink_window_counts(bottles: list, year: int) -> tuple[int, int]:
+    """Count bottles drinkable now, and bottles past their window.
+
+    A bottle with no window at all is counted in neither: the export does not
+    say, and guessing would be worse than reporting nothing.
+
+    The last year of a window counts as ready, not past - it is still inside
+    the window. The dashboard paints that year red, but that is urgency rather
+    than expiry.
+    """
+    ready = past = 0
+    for bottle in bottles:
+        begin = _consume_year(bottle.get("BeginConsume"))
+        end = _consume_year(bottle.get("EndConsume"))
+
+        if end is not None and end < year:
+            past += 1
+        elif (begin is not None or end is not None) and (
+            (begin is None or begin <= year) and (end is None or end >= year)
+        ):
+            ready += 1
+    return ready, past
 
 
 def _bottle_identity(bottle: dict) -> str:
@@ -228,6 +269,7 @@ class WineCellarData(DataUpdateCoordinator):
         # Replaced wholesale by each refresh, never mutated in place, and only
         # one refresh runs at a time - so the loop can read it without a lock.
         self._inventory_body: bytes = b"[]"
+        self._compact_body: bytes = b"[]"
 
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
@@ -250,6 +292,16 @@ class WineCellarData(DataUpdateCoordinator):
         """
         return self._inventory_body
 
+    def _current_year(self) -> int:
+        """This year, read once per poll.
+
+        A method rather than an inline call so a test can pin it: the counts
+        would otherwise change meaning every January. It also means the counts
+        are as stale as the poll interval across a year boundary, which for a
+        six-hourly integration is not worth a separate timer.
+        """
+        return dt_util.utcnow().year
+
     @property
     def last_success(self):
         """When the last poll succeeded, or None if none has yet.
@@ -259,6 +311,17 @@ class WineCellarData(DataUpdateCoordinator):
         tells a user that a six-hourly integration is still alive.
         """
         return self._last_success
+
+    @property
+    def compact_body(self) -> bytes:
+        """The bottle list reduced to the columns the dashboard renders.
+
+        Rendered here rather than per request for the same reason as the full
+        body: encoding on the event loop is what P0-2 removed. That is also why
+        the projection is a fixed named set rather than an arbitrary field
+        list - an arbitrary one could not be rendered ahead of time.
+        """
+        return self._compact_body
 
     def _backoff_for(self, retry_after: int | None) -> timedelta:
         """How long to wait after being throttled.
@@ -313,7 +376,13 @@ class WineCellarData(DataUpdateCoordinator):
                     self._suspicious_empty_polls,
                     previous["total_bottles"],
                 )
-            return {"total_bottles": 0, "total_value": 0.0, "bottles": []}
+            return {
+                "total_bottles": 0,
+                "total_value": 0.0,
+                "bottles": [],
+                "ready_to_drink": 0,
+                "past_drink_window": 0,
+            }
 
         total_value = 0.0
         processed_bottles = []
@@ -382,10 +451,14 @@ class WineCellarData(DataUpdateCoordinator):
                 len(processed_bottles),
             )
 
+        ready, past = _drink_window_counts(processed_bottles, self._current_year())
+
         return {
             "total_bottles": len(processed_bottles),
             "total_value": round(total_value, 2),
             "bottles": processed_bottles,
+            "ready_to_drink": ready,
+            "past_drink_window": past,
         }
 
     async def _fetch_payload(self) -> str:
@@ -444,5 +517,12 @@ class WineCellarData(DataUpdateCoordinator):
         rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
         result = self._process_inventory(rows, previous=previous)
         # Rendered here, on the executor thread, for the HTTP views to serve.
-        self._inventory_body = json_bytes(result["bottles"])
+        bottles = result["bottles"]
+        self._inventory_body = json_bytes(bottles)
+        self._compact_body = json_bytes(
+            [
+                {field: b[field] for field in COMPACT_FIELDS if field in b}
+                for b in bottles
+            ]
+        )
         return result

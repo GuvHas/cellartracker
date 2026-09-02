@@ -22,6 +22,8 @@ import pytest
 
 from cellar_tracker.sensor import (
     CellarLastSyncSensor,
+    PastDrinkWindowSensor,
+    ReadyToDrinkSensor,
     TotalBottlesSensor,
     TotalValueSensor,
 )
@@ -30,8 +32,20 @@ COMPONENT = pathlib.Path(__file__).resolve().parent.parent / "custom_components"
 STRINGS = json.loads((COMPONENT / "strings.json").read_text())
 EN = json.loads((COMPONENT / "translations" / "en.json").read_text())
 
-SENSOR_CLASSES = [TotalBottlesSensor, TotalValueSensor, CellarLastSyncSensor]
-EXPECTED_KEYS = {"total_bottles", "total_value", "last_synchronised"}
+SENSOR_CLASSES = [
+    TotalBottlesSensor,
+    TotalValueSensor,
+    ReadyToDrinkSensor,
+    PastDrinkWindowSensor,
+    CellarLastSyncSensor,
+]
+EXPECTED_KEYS = {
+    "total_bottles",
+    "total_value",
+    "ready_to_drink",
+    "past_drink_window",
+    "last_synchronised",
+}
 
 
 def entity_names(document: dict) -> dict:

@@ -88,14 +88,23 @@ class CellarTrackerInventoryView(_CellarTrackerView):
         The body was rendered by the coordinator when it last refreshed, so a
         thousand-bottle cellar costs this handler nothing: serialising it here
         would block the event loop for every dashboard load.
+
+        ``?view=compact`` serves only the columns the dashboard renders. The
+        default is unchanged, because this endpoint is a public surface that
+        users read from their own cards.
         """
         coordinator = self._coordinator(request)
         if coordinator is None or not coordinator.data:
             return web.json_response([])
 
-        return web.Response(
-            body=coordinator.inventory_body, content_type="application/json"
-        )
+        # Anything other than the one name we recognise gets everything. A typo
+        # must not quietly hand back fewer fields than the caller expected.
+        if request.query.get("view") == "compact":
+            body = coordinator.compact_body
+        else:
+            body = coordinator.inventory_body
+
+        return web.Response(body=body, content_type="application/json")
 
 
 class CellarTrackerSettingsView(_CellarTrackerView):

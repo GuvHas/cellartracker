@@ -61,7 +61,7 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
 
 ## What gets created
 
-Adding the integration creates **one device per account** with **three entities**. It does not
+Adding the integration creates **one device per account** with **five entities**. It does not
 create an entity per bottle — see [Bottle-level data](#bottle-level-data) for why, and for how to
 reach that data.
 
@@ -69,6 +69,8 @@ reach that data.
 |---|---|---|---|---|
 | Total bottles | `142` | `bottles` | — | `measurement` |
 | Total value | `9812.50` | your chosen currency | `monetary` | `total` |
+| Ready to drink | `37` | `bottles` | — | `measurement` |
+| Past drinking window | `4` | `bottles` | — | `measurement` |
 | Last synchronised | `2026-08-28 09:30:00` | — | `timestamp` | diagnostic |
 
 Upgrading from 0.0.17 or earlier: the diagnostic entity that reported `Connected` now reports
@@ -82,6 +84,8 @@ The device is named after the account, so entity IDs follow the account name:
 ```
 sensor.<account>_total_bottles
 sensor.<account>_total_value
+sensor.<account>_ready_to_drink
+sensor.<account>_past_drinking_window
 sensor.<account>_last_synchronised
 ```
 
@@ -103,7 +107,8 @@ Per-bottle detail is exposed through an authenticated REST endpoint rather than 
 state attributes:
 
 ```
-GET /api/cellartracker/inventory     # every bottle, as JSON
+GET /api/cellartracker/inventory                # every bottle, as JSON
+GET /api/cellartracker/inventory?view=compact   # the same bottles, nine columns
 GET /api/cellartracker/settings      # the configured currency and its symbol
 ```
 

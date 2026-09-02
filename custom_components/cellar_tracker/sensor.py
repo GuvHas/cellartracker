@@ -37,6 +37,8 @@ async def async_setup_entry(
     sensors = [
         TotalBottlesSensor(coordinator, device_info, entry.entry_id),
         TotalValueSensor(coordinator, device_info, entry.entry_id, currency),
+        ReadyToDrinkSensor(coordinator, device_info, entry.entry_id),
+        PastDrinkWindowSensor(coordinator, device_info, entry.entry_id),
         CellarLastSyncSensor(coordinator, device_info, entry.entry_id),
     ]
 
@@ -90,6 +92,49 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self):
         return (self.coordinator.data or {}).get("total_value", 0.0)
+
+
+class _BottleCountSensor(CoordinatorEntity, SensorEntity):
+    """Shared shape for the drink-window counters.
+
+    Both are plain counts the coordinator computed during the parse, so they
+    add no work at read time and - importantly - no entity per bottle. That is
+    the property that keeps a 1,000-bottle cellar cheap, and these counters
+    exist to give drink-window information without giving it up.
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "bottles"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _data_key: str
+
+    def __init__(self, coordinator, device_info, entry_id):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_{self._data_key}"
+        self._attr_device_info = device_info
+
+    @property
+    def native_value(self):
+        # Defaulted rather than indexed: coordinator.data is None before the
+        # first refresh, and a payload cached by an older version has no such
+        # key at all.
+        return (self.coordinator.data or {}).get(self._data_key, 0)
+
+
+class ReadyToDrinkSensor(_BottleCountSensor):
+    """Bottles whose drinking window includes this year."""
+
+    _attr_translation_key = "ready_to_drink"
+    _attr_icon = "mdi:glass-wine"
+    _data_key = "ready_to_drink"
+
+
+class PastDrinkWindowSensor(_BottleCountSensor):
+    """Bottles whose drinking window ended before this year."""
+
+    _attr_translation_key = "past_drink_window"
+    _attr_icon = "mdi:clock-alert-outline"
+    _data_key = "past_drink_window"
 
 
 class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):

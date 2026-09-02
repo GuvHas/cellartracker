@@ -58,7 +58,13 @@ def build_sensors(*, title="alice", entry_id="entry1", data=None):
     return {type(sensor).__name__: sensor for sensor in added}
 
 
-ALL_SENSORS = ["TotalBottlesSensor", "TotalValueSensor", "CellarLastSyncSensor"]
+ALL_SENSORS = [
+    "TotalBottlesSensor",
+    "TotalValueSensor",
+    "ReadyToDrinkSensor",
+    "PastDrinkWindowSensor",
+    "CellarLastSyncSensor",
+]
 
 
 # --------------------------------------------------------------------------
@@ -94,6 +100,8 @@ def test_entity_names_are_the_expected_short_labels():
     assert labels == {
         "TotalBottlesSensor": "Total bottles",
         "TotalValueSensor": "Total value",
+        "ReadyToDrinkSensor": "Ready to drink",
+        "PastDrinkWindowSensor": "Past drinking window",
         "CellarLastSyncSensor": "Last synchronised",
     }
 

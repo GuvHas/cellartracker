@@ -29,7 +29,15 @@ MULTILINE_ERROR_PAGE = (
 SINGLE_LINE_ERROR_PAGE = "<html><title>503 Service Unavailable</title></html>"
 
 STOCKED = {"total_bottles": 412, "total_value": 9000.0, "bottles": []}
-EMPTY = {"total_bottles": 0, "total_value": 0.0, "bottles": []}
+EMPTY = {
+    "total_bottles": 0,
+    "total_value": 0.0,
+    "bottles": [],
+    # An empty cellar has nothing ready and nothing overdue; the counters are
+    # present rather than absent so consumers never have to guess.
+    "ready_to_drink": 0,
+    "past_drink_window": 0,
+}
 
 REAL_ROWS = [
     {"iWine": "1", "Valuation": "12.50"},

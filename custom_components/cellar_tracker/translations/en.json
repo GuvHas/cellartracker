@@ -52,6 +52,12 @@
       },
       "last_synchronised": {
         "name": "Last synchronised"
+      },
+      "ready_to_drink": {
+        "name": "Ready to drink"
+      },
+      "past_drink_window": {
+        "name": "Past drinking window"
       }
     }
   }
