@@ -94,7 +94,7 @@ def test_the_interval_is_restored_after_a_successful_poll():
     refresh(coordinator)
     assert coordinator.update_interval == timedelta(seconds=1800)
 
-    coordinator._hass.session = FakeSession(text=GOOD)
+    coordinator.hass.session = FakeSession(text=GOOD)
     asyncio.run(coordinator._async_update_data())
 
     assert coordinator.update_interval == timedelta(seconds=SCAN_INTERVAL)
