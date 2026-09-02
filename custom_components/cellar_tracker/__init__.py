@@ -3,11 +3,11 @@ import logging
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
-from .cellar_data import WineCellarData
+from .cellar_data import CellarTrackerConfigEntry, WineCellarData
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
 from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 
@@ -21,7 +21,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # integration was installed - HACS or a manual copy - the page is present.
 DASHBOARD_FILE = Path(__file__).parent / "www" / DASHBOARD_FILENAME
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the component.
 
     Home Assistant calls this once, before the first config entry. The views
@@ -62,7 +62,7 @@ async def _async_register_dashboard(hass: HomeAssistant) -> None:
         [StaticPathConfig(DASHBOARD_URL, str(DASHBOARD_FILE), False)]
     )
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Set up CellarTracker from a config entry."""
     coordinator = WineCellarData(hass, entry)
     await coordinator.async_config_entry_first_refresh()
@@ -78,14 +78,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return True
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         # Cleared so the views stop seeing this entry immediately, and so a
         # setup that failed before assigning it unloads without a KeyError.
-        entry.runtime_data = None
+        # The ignore is the price of the alias: runtime_data is typed as the
+        # coordinator because that is what every reader wants it to be, and
+        # this is the one line where it is deliberately not one. Home Assistant
+        # deletes the attribute itself once unload returns, so this only
+        # narrows the window in which a request could still find the entry.
+        entry.runtime_data = None  # type: ignore[assignment]
     return unload_ok
 
-async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def update_listener(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)

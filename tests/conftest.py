@@ -1,5 +1,10 @@
 """Test harness for the CellarTracker integration.
 
+Generics here use ``typing.Generic`` with a UP046 suppression rather than PEP
+695 type parameters. CI runs 3.12 and 3.13 where the modern form is valid, but
+the development container runs 3.11, and a harness that cannot be imported
+locally is a harness nobody runs before pushing.
+
 Home Assistant is a very heavy test dependency (``pytest-homeassistant-custom-component``
 pulls in the full HA core). These unit tests exercise *our* logic - error
 classification, the reauth flow, inventory parsing - none of which needs a running
@@ -13,10 +18,13 @@ separate integration-test suite (see F-19 in the review).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import enum
 import json as _json
 import pathlib
 import sys
 import types
+import typing
 from datetime import UTC
 from datetime import datetime as _datetime
 
@@ -47,7 +55,12 @@ class UpdateFailed(Exception):
 
 
 # --- homeassistant.helpers.update_coordinator ---------------------------------
-class DataUpdateCoordinator:
+_DataT = typing.TypeVar("_DataT")
+_RuntimeT = typing.TypeVar("_RuntimeT")
+_CoordinatorT = typing.TypeVar("_CoordinatorT")
+
+
+class DataUpdateCoordinator(typing.Generic[_DataT]):  # noqa: UP046
     """Minimal stand-in that records what the real base class would receive.
 
     ``config_entry`` is captured explicitly rather than absorbed into
@@ -68,12 +81,16 @@ class DataUpdateCoordinator:
 
     async def async_config_entry_first_refresh(self):
         """No-op: tests that want data drive _async_update_data directly."""
-        return None
+        return
 
 
 # --- homeassistant.config_entries --------------------------------------------
-class ConfigEntry:
-    """Lightweight config entry double."""
+class ConfigEntry(typing.Generic[_RuntimeT]):  # noqa: UP046
+    """Lightweight config entry double.
+
+    Generic like the real one since 2024.11, so ConfigEntry[WineCellarData]
+    is a usable annotation rather than a TypeError at import.
+    """
 
     def __init__(self, *, entry_id="test_entry", data=None, options=None, title="alice"):
         self.entry_id = entry_id
@@ -141,7 +158,6 @@ class _FlowBase:
     def _abort_if_unique_id_configured(self):
         if any(getattr(e, "unique_id", None) == self.unique_id for e in self._existing_entries):
             raise _Aborted("already_configured")
-        return None
 
     # Entries Home Assistant already has for this domain.
     _existing_entries: list = []
@@ -200,7 +216,56 @@ _module(
     "homeassistant.helpers.entity",
     EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class EntityDescription:
+    """Stub of homeassistant.helpers.entity.EntityDescription."""
+
+    key: str
+    translation_key: str | None = None
+    device_class: object = None
+    entity_category: object = None
+    icon: str | None = None
+    name: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SensorEntityDescription(EntityDescription):
+    """Stub of homeassistant.components.sensor.SensorEntityDescription."""
+
+    native_unit_of_measurement: str | None = None
+    state_class: object = None
+    suggested_display_precision: int | None = None
+
+
+class DeviceEntryType(enum.StrEnum):
+    """Stub of homeassistant.helpers.device_registry.DeviceEntryType."""
+
+    SERVICE = "service"
+
+
+class DeviceInfo(dict):
+    """Stub of homeassistant.helpers.device_registry.DeviceInfo.
+
+    A TypedDict upstream, so a plain dict at runtime; subclassing dict keeps
+    the tests reading it exactly as Home Assistant would.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+# Attached after definition: the helpers.entity stub is registered above.
+sys.modules["homeassistant.helpers.entity"].EntityDescription = EntityDescription
+
+_module(
+    "homeassistant.helpers.device_registry",
+    DeviceEntryType=DeviceEntryType,
+    DeviceInfo=DeviceInfo,
+)
+
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+# The real ConfigType is dict[str, Any]; async_setup takes one.
+_module("homeassistant.helpers.typing", ConfigType=dict)
 _module("homeassistant.util")
 _module("homeassistant.util.dt", utcnow=lambda: _datetime.now(UTC))
 
@@ -285,11 +350,11 @@ class SensorEntity:
 
     @property
     def device_class(self):
-        return self._attr_device_class
+        return self._described("device_class")
 
     @property
     def entity_category(self):
-        return self._attr_entity_category
+        return self._described("entity_category")
 
     @property
     def extra_state_attributes(self):
@@ -297,31 +362,54 @@ class SensorEntity:
 
     @property
     def icon(self):
-        return self._attr_icon
+        return self._described("icon")
 
     @property
     def name(self):
-        return self._attr_name
+        return self._described("name")
 
     @property
     def native_unit_of_measurement(self):
-        return self._attr_native_unit_of_measurement
+        return self._described("native_unit_of_measurement")
 
     @property
     def state_class(self):
-        return self._attr_state_class
+        return self._described("state_class")
+
+    entity_description = None
+
+    def _described(self, attribute):
+        """Home Assistant's Entity resolution order: _attr_ then description.
+
+        Modelled here because the integration now carries device class, state
+        class, unit, icon and category on a SensorEntityDescription. A stub
+        that only read _attr_ would report None for all of them and the tests
+        would be measuring the double rather than the entity.
+        """
+        value = getattr(self, f"_attr_{attribute}", None)
+        if value is not None:
+            return value
+        if self.entity_description is not None:
+            return getattr(self.entity_description, attribute, None)
+        return None
 
     @property
     def translation_key(self):
-        return self._attr_translation_key
+        return self._described("translation_key")
 
     @property
     def unique_id(self):
         return self._attr_unique_id
 
 
-class CoordinatorEntity:
-    """Stub of the CoordinatorEntity mixin."""
+class CoordinatorEntity(typing.Generic[_CoordinatorT]):  # noqa: UP046
+    """Stub of the CoordinatorEntity mixin.
+
+    Generic like the real one, which has been parameterised by its coordinator
+    since 2023. Without that, ``CoordinatorEntity[WineCellarData]`` in
+    sensor.py is a TypeError at import - and a double that cannot express what
+    the real base class expresses is how a typing bug hides.
+    """
 
     def __init__(self, coordinator):
         self.coordinator = coordinator
@@ -331,6 +419,7 @@ _module(
     "homeassistant.components.sensor",
     SensorEntity=SensorEntity,
     SensorDeviceClass=types.SimpleNamespace(MONETARY="monetary", TIMESTAMP="timestamp"),
+    SensorEntityDescription=SensorEntityDescription,
     SensorStateClass=types.SimpleNamespace(MEASUREMENT="measurement", TOTAL="total"),
 )
 sys.modules["homeassistant.helpers.update_coordinator"].CoordinatorEntity = CoordinatorEntity

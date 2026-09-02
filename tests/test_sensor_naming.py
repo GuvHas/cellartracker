@@ -168,15 +168,15 @@ def test_value_sensor_keeps_its_currency_and_classes():
     sensor = build_sensors(data={"username": "a", "password": "b", "currency": "SEK"})[
         "TotalValueSensor"
     ]
-    assert sensor._attr_native_unit_of_measurement == "SEK"
-    assert sensor._attr_device_class == "monetary"
-    assert sensor._attr_state_class == "total"
+    assert sensor.native_unit_of_measurement == "SEK"
+    assert sensor.device_class == "monetary"
+    assert sensor.state_class == "total"
 
 
 def test_bottles_sensor_keeps_its_unit():
     sensor = build_sensors()["TotalBottlesSensor"]
-    assert sensor._attr_native_unit_of_measurement == "bottles"
-    assert sensor._attr_state_class == "measurement"
+    assert sensor.native_unit_of_measurement == "bottles"
+    assert sensor.state_class == "measurement"
 
 
 def test_sensors_still_read_from_the_coordinator():
@@ -188,4 +188,4 @@ def test_sensors_still_read_from_the_coordinator():
 
 def test_status_sensor_stays_diagnostic():
     sensor = build_sensors()["CellarLastSyncSensor"]
-    assert sensor._attr_entity_category == "diagnostic"
+    assert sensor.entity_category == "diagnostic"

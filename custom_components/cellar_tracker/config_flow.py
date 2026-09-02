@@ -1,6 +1,9 @@
 """Config and options flow for the CellarTracker integration."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 import voluptuous as vol
 
@@ -55,12 +58,14 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except (CannotConnect, TimeoutError, OSError) as err:
             _LOGGER.warning("Cannot reach CellarTracker while validating: %r", err)
             return {"base": "cannot_connect"}
-        except Exception:  # noqa: BLE001 - third-party library, unknown surface
+        except Exception:
             _LOGGER.exception("Unexpected error validating CellarTracker credentials")
             return {"base": "unknown"}
         return {}
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         """Handle the initial user step."""
         # One CellarTracker account per installation. Checked before anything
         # else so a duplicate is refused without a round trip to CellarTracker,
@@ -92,11 +97,13 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
         )
 
-    async def async_step_reauth(self, entry_data):
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> Any:
         """Entry point when the coordinator raises ConfigEntryAuthFailed."""
         return await self.async_step_reauth_confirm()
 
-    async def async_step_reauth_confirm(self, user_input=None):
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         """Ask for a new password for the existing account."""
         entry = self._get_reauth_entry()
         username = entry.data[CONF_USERNAME]
@@ -120,7 +127,9 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> CellarTrackerOptionsFlowHandler:
         """Return the options flow handler."""
         return CellarTrackerOptionsFlowHandler()
 
@@ -137,7 +146,9 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
             )
         )
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         """Manage the options."""
         if user_input is not None:
             previous = self._current_currency()

@@ -20,6 +20,7 @@ import pathlib
 
 import pytest
 
+from cellar_tracker.const import DOMAIN
 from cellar_tracker.sensor import (
     CellarLastSyncSensor,
     PastDrinkWindowSensor,
@@ -48,6 +49,27 @@ EXPECTED_KEYS = {
 }
 
 
+def _built() -> dict:
+    """One instance of each sensor, keyed by class."""
+    import asyncio
+
+    from cellar_tracker.sensor import async_setup_entry
+    from conftest import ConfigEntry, ViewHass
+
+    class _Coordinator:
+        currency = "USD"
+        last_success = None
+        data = {"total_bottles": 0, "total_value": 0.0, "bottles": []}
+
+    entry = ConfigEntry(entry_id="e1", data={"username": "a", "password": "b"})
+    entry.runtime_data = _Coordinator()
+    added: list = []
+    asyncio.run(
+        async_setup_entry(ViewHass({DOMAIN: {"e1": entry.runtime_data}}), entry, added.extend)
+    )
+    return {type(sensor): sensor for sensor in added}
+
+
 def entity_names(document: dict) -> dict:
     return document.get("entity", {}).get("sensor", {})
 
@@ -68,7 +90,12 @@ def test_every_declared_entity_has_a_name():
 
 @pytest.mark.parametrize("cls", SENSOR_CLASSES)
 def test_each_sensor_declares_a_translation_key(cls):
-    key = getattr(cls, "_attr_translation_key", None)
+    """Declared on the entity description now, not as a class attribute.
+
+    Read through the built entity rather than off the class, because that is
+    where Home Assistant resolves it and therefore what a user actually sees.
+    """
+    key = _built()[cls].translation_key
     assert key in EXPECTED_KEYS, f"{cls.__name__} has no usable translation key"
 
 
@@ -81,7 +108,7 @@ def test_no_sensor_hardcodes_an_english_name(cls):
 
 
 def test_the_translation_keys_are_unique():
-    keys = [cls._attr_translation_key for cls in SENSOR_CLASSES]
+    keys = [sensor.translation_key for sensor in _built().values()]
     assert len(set(keys)) == len(keys), "two sensors would share one name"
 
 

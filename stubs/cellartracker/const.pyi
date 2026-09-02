@@ -1,0 +1,2 @@
+BASE_URL: str
+NOT_LOGGED_REPONSE: str

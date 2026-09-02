@@ -1,17 +1,85 @@
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.config_entries import ConfigEntry
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .cellar_data import WineCellarData
+from .cellar_data import CellarData, CellarTrackerConfigEntry, WineCellarData
 from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
+
+# One typed place for what five constructors used to spell out. The key is
+# also the translation key and the unique-id suffix, so nothing can drift
+# between the registry, strings.json and the entity.
+SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key="total_bottles",
+        translation_key="total_bottles",
+        icon="mdi:bottle-wine",
+        native_unit_of_measurement="bottles",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="total_value",
+        translation_key="total_value",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key="ready_to_drink",
+        translation_key="ready_to_drink",
+        icon="mdi:glass-wine",
+        native_unit_of_measurement="bottles",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="past_drink_window",
+        translation_key="past_drink_window",
+        icon="mdi:clock-alert-outline",
+        native_unit_of_measurement="bottles",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="last_synchronised",
+        translation_key="last_synchronised",
+        icon="mdi:cloud-check-outline",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+)
+
+DESCRIPTIONS_BY_KEY = {description.key: description for description in SENSOR_DESCRIPTIONS}
+
+
+def _count(
+    data: CellarData | None,
+    key: Literal["total_bottles", "ready_to_drink", "past_drink_window"],
+) -> int:
+    """Read a count from the payload, defaulting rather than raising.
+
+    Both defences are deliberate and covered by F-15. ``data`` is None until
+    the first refresh succeeds, which is the state a sensor is in if its
+    entity is read during a failed setup; and a payload that predates a key -
+    the drink-window counters were added after the totals - has no such key at
+    all. Neither should turn a state read into a traceback.
+    """
+    return 0 if data is None else data.get(key, 0)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: CellarTrackerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
@@ -26,13 +94,15 @@ async def async_setup_entry(
     # rename of the config entry; a device the user renamed themselves keeps
     # their name regardless. The identifiers are unchanged, so this renames the
     # existing device rather than creating a second one.
-    device_info = {
-        "identifiers": {(DOMAIN, entry.entry_id)},
-        "name": entry.title or "CellarTracker",
-        "manufacturer": "CellarTracker",
-        "model": "Inventory",
-        "entry_type": "service",
-    }
+    device_info = DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title or "CellarTracker",
+        manufacturer="CellarTracker",
+        model="Inventory",
+        # The enum rather than the string it happens to equal: a typo in a
+        # bare "service" would silently produce a normal device.
+        entry_type=DeviceEntryType.SERVICE,
+    )
 
     sensors = [
         TotalBottlesSensor(coordinator, device_info, entry.entry_id),
@@ -45,30 +115,28 @@ async def async_setup_entry(
     async_add_entities(sensors)
 
 
-class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
+class TotalBottlesSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """How many bottles the cellar currently holds."""
 
     # Home Assistant composes the friendly name as "<device> <entity>", so the
     # entity name must not repeat the integration's own name. The name itself
     # comes from strings.json via the translation key, not from a literal here.
     _attr_has_entity_name = True
-    _attr_translation_key = "total_bottles"
 
-    def __init__(self, coordinator, device_info, entry_id):
+    def __init__(
+        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
+    ) -> None:
         super().__init__(coordinator)
+        self.entity_description = DESCRIPTIONS_BY_KEY["total_bottles"]
         self._attr_unique_id = f"{entry_id}_total_bottles"
-        self._attr_icon = "mdi:bottle-wine"
         self._attr_device_info = device_info
-        self._attr_native_unit_of_measurement = "bottles"
-        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
-    def native_value(self):
-        # `or {}`: coordinator.data is None until the first successful refresh.
-        return (self.coordinator.data or {}).get("total_bottles", 0)
+    def native_value(self) -> int:
+        return _count(self.coordinator.data, "total_bottles")
 
 
-class TotalValueSensor(CoordinatorEntity, SensorEntity):
+class TotalValueSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """What the cellar is worth, in the configured currency.
 
     MONETARY with state_class TOTAL, so Home Assistant keeps a long-term
@@ -78,23 +146,28 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_translation_key = "total_value"
 
-    def __init__(self, coordinator, device_info, entry_id, currency=DEFAULT_CURRENCY):
+    def __init__(
+        self,
+        coordinator: WineCellarData,
+        device_info: DeviceInfo,
+        entry_id: str,
+        currency: str = DEFAULT_CURRENCY,
+    ) -> None:
         super().__init__(coordinator)
+        self.entity_description = DESCRIPTIONS_BY_KEY["total_value"]
         self._attr_unique_id = f"{entry_id}_total_value"
         self._attr_device_info = device_info
-        self._attr_device_class = SensorDeviceClass.MONETARY
+        # The one field the description cannot hold: it is per-entry.
         self._attr_native_unit_of_measurement = currency
-        self._attr_state_class = SensorStateClass.TOTAL
-        self._attr_suggested_display_precision = 2
 
     @property
-    def native_value(self):
-        return (self.coordinator.data or {}).get("total_value", 0.0)
+    def native_value(self) -> float:
+        data = self.coordinator.data
+        return 0.0 if data is None else data.get("total_value", 0.0)
 
 
-class _BottleCountSensor(CoordinatorEntity, SensorEntity):
+class _BottleCountSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """Shared shape for the drink-window counters.
 
     Both are plain counts the coordinator computed during the parse, so they
@@ -104,40 +177,36 @@ class _BottleCountSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_native_unit_of_measurement = "bottles"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _data_key: str
+    # A literal union rather than a bare str: it is used to index CellarData,
+    # and only a literal lets the checker confirm the key exists at all.
+    _data_key: Literal["ready_to_drink", "past_drink_window"]
 
-    def __init__(self, coordinator, device_info, entry_id):
+    def __init__(
+        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
+    ) -> None:
         super().__init__(coordinator)
+        self.entity_description = DESCRIPTIONS_BY_KEY[self._data_key]
         self._attr_unique_id = f"{entry_id}_{self._data_key}"
         self._attr_device_info = device_info
 
     @property
-    def native_value(self):
-        # Defaulted rather than indexed: coordinator.data is None before the
-        # first refresh, and a payload cached by an older version has no such
-        # key at all.
-        return (self.coordinator.data or {}).get(self._data_key, 0)
+    def native_value(self) -> int:
+        return _count(self.coordinator.data, self._data_key)
 
 
 class ReadyToDrinkSensor(_BottleCountSensor):
     """Bottles whose drinking window includes this year."""
 
-    _attr_translation_key = "ready_to_drink"
-    _attr_icon = "mdi:glass-wine"
     _data_key = "ready_to_drink"
 
 
 class PastDrinkWindowSensor(_BottleCountSensor):
     """Bottles whose drinking window ended before this year."""
 
-    _attr_translation_key = "past_drink_window"
-    _attr_icon = "mdi:clock-alert-outline"
     _data_key = "past_drink_window"
 
 
-class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):
+class CellarLastSyncSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """When the cellar last synchronised with CellarTracker.
 
     This replaces a status sensor that reported "Connected" or "Empty". After
@@ -155,17 +224,16 @@ class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_translation_key = "last_synchronised"
 
-    def __init__(self, coordinator, device_info, entry_id):
+    def __init__(
+        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
+    ) -> None:
         super().__init__(coordinator)
+        self.entity_description = DESCRIPTIONS_BY_KEY["last_synchronised"]
         self._attr_unique_id = f"{entry_id}_inventory_status"
-        self._attr_icon = "mdi:cloud-check-outline"
         self._attr_device_info = device_info
-        self._attr_device_class = SensorDeviceClass.TIMESTAMP
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
-    def native_value(self):
+    def native_value(self) -> datetime | None:
         """The last successful refresh, or None if none has happened yet."""
         return self.coordinator.last_success

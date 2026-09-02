@@ -1,0 +1,15 @@
+# The type gate's dependencies, pinned and separate from requirements_test.txt.
+#
+# Home Assistant is here for one reason: without it installed, every
+# `homeassistant.*` import resolves to `Any`, subclassing `Any` makes every
+# inherited member `Any`, and the checker then accepts a misspelled coordinator
+# key or an invalid framework call in silence. See tests/typing_gate.py.
+#
+# It is deliberately absent from requirements_test.txt: the unit tests stub the
+# handful of symbols they need (tests/conftest.py) and run in seconds on both
+# supported Python versions, which is worth keeping.
+#
+# 2026.2.3 is the last release that runs on Python 3.13; 2026.3 requires 3.14.
+# Bump both this pin and the mypy job's python-version together.
+homeassistant==2026.2.3
+mypy==1.18.2

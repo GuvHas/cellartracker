@@ -1,6 +1,9 @@
 # custom_components/cellar_tracker/views.py
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -8,10 +11,13 @@ from homeassistant.core import HomeAssistant
 
 from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
 
+if TYPE_CHECKING:
+    from .cellar_data import CellarTrackerConfigEntry, WineCellarData
+
 _LOGGER = logging.getLogger(__name__)
 
 
-def _currency_payload(currency: str) -> dict:
+def _currency_payload(currency: str) -> dict[str, str]:
     """Describe a currency as both its code and its display symbol."""
     return {
         "currency": currency,
@@ -29,11 +35,11 @@ class _CellarTrackerView(HomeAssistantView):
 
     requires_auth = True
 
-    def __init__(self, hass: HomeAssistant):
+    def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
         self.hass = hass
 
-    def _coordinator(self, request):
+    def _coordinator(self, request: web.Request) -> WineCellarData | None:
         """Return the coordinator to serve, or None if there is none yet.
 
         With the single account this integration now allows, ``?entry_id=`` is
@@ -45,9 +51,16 @@ class _CellarTrackerView(HomeAssistantView):
         and so still forwards the parameter. Serving the lowest entry id there
         would answer for an account the caller did not ask for.
         """
+        # async_entries is typed for any integration, so it hands back
+        # ConfigEntry[Any]; naming the type here is what stops runtime_data
+        # laundering Any into everything this method returns. Only entries of
+        # our own domain are asked for, so the claim holds.
+        entries: list[CellarTrackerConfigEntry] = self.hass.config_entries.async_entries(
+            DOMAIN
+        )
         coordinators = {
             entry.entry_id: entry.runtime_data
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            for entry in entries
             # runtime_data is assigned at setup and cleared at unload, so its
             # presence is what "this entry is serving requests" means here.
             if getattr(entry, "runtime_data", None) is not None
@@ -82,7 +95,7 @@ class CellarTrackerInventoryView(_CellarTrackerView):
     url = "/api/cellartracker/inventory"
     name = "api:cellartracker:inventory"
 
-    async def get(self, request):
+    async def get(self, request: web.Request) -> web.Response:
         """Handle GET request for inventory.
 
         The body was rendered by the coordinator when it last refreshed, so a
@@ -113,7 +126,7 @@ class CellarTrackerSettingsView(_CellarTrackerView):
     url = "/api/cellartracker/settings"
     name = "api:cellartracker:settings"
 
-    async def get(self, request):
+    async def get(self, request: web.Request) -> web.Response:
         """Handle GET request for settings."""
         coordinator = self._coordinator(request)
         currency = DEFAULT_CURRENCY if coordinator is None else coordinator.currency

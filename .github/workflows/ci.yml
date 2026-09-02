@@ -53,6 +53,25 @@ jobs:
       - run: pip install ruff==0.15.8
       - run: ruff check --output-format=github .
 
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Home Assistant 2026.2 requires 3.13; the runtime matrix above still
+          # covers 3.12, which is what the integration has to keep working on.
+          python-version: "3.13"
+          cache: pip
+
+      # Home Assistant itself, not just mypy. Without it every homeassistant.*
+      # import resolves to Any, classes deriving from Any inherit Any for
+      # everything, and the job reports success over code it never checked.
+      - run: pip install -r requirements_mypy.txt
+
+      - run: mypy
+
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest
