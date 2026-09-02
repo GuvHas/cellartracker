@@ -48,6 +48,40 @@ TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
 # transport is no longer routed through it.
 REQUEST_TIMEOUT = 60
 
+# A throttled cellar should wait, but a server must not be able to park the
+# integration indefinitely by sending an enormous Retry-After.
+MAX_BACKOFF = 21600
+
+
+class RateLimited(CannotConnect):
+    """CellarTracker answered 429.
+
+    Subclasses CannotConnect so every existing caller - the config flow's
+    credential check among them - keeps classifying it as a connection
+    problem without knowing this type exists.
+    """
+
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(headers) -> int | None:
+    """Read Retry-After as a whole number of seconds, or None.
+
+    The header also has an HTTP-date form. It is not read here: the fallback
+    backoff is already sensible, and mis-parsing a date is worse than not
+    trying.
+    """
+    if not headers:
+        return None
+    try:
+        seconds = int(str(headers.get("Retry-After", "")).strip())
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
+
+
 TABLE_INVENTORY = CellarTrackerTable.Inventory.value
 FORMAT_TAB = CellarTrackerFormat.tab.value
 
@@ -115,6 +149,8 @@ async def async_fetch_inventory_payload(hass, username: str, password: str) -> s
     # Nothing derived from the failed request may escape this function except a
     # description we build ourselves.
     failure: str | None = None
+    retry_after: int | None = None
+    throttled = False
 
     try:
         async with asyncio.timeout(REQUEST_TIMEOUT):
@@ -124,6 +160,11 @@ async def async_fetch_inventory_payload(hass, username: str, password: str) -> s
     except aiohttp.ClientResponseError as err:
         # The status is the diagnostic part and carries nothing sensitive.
         failure = f"HTTP {err.status} from CellarTracker"
+        if err.status == 429:
+            # The header is a count of seconds; unlike the error's URL it
+            # carries nothing sensitive, so it is safe to keep.
+            throttled = True
+            retry_after = _retry_after_seconds(err.headers)
     except aiohttp.ClientError as err:
         # Connector and payload errors name the host rather than the query
         # string, but the same rule applies: name the failure, copy nothing.
@@ -135,6 +176,8 @@ async def async_fetch_inventory_payload(hass, username: str, password: str) -> s
         # traceback would not print it but a diagnostics dump walking the chain
         # still could. Once the except block has exited the exception is no
         # longer being handled, so nothing is attached at all.
+        if throttled:
+            raise RateLimited(failure, retry_after=retry_after)
         raise CannotConnect(failure)
 
     # An auth failure arrives as HTTP 200 with a marker in the body.
@@ -162,6 +205,9 @@ class WineCellarData(DataUpdateCoordinator):
                 entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             )
         )
+        # Kept so a rate-limit backoff knows what to restore, and so it never
+        # polls sooner than the user asked for.
+        self._scan_interval = scan_interval
 
         super().__init__(
             hass,
@@ -198,6 +244,26 @@ class WineCellarData(DataUpdateCoordinator):
         instead, so the view only ever hands over bytes.
         """
         return self._inventory_body
+
+    def _backoff_for(self, retry_after: int | None) -> timedelta:
+        """How long to wait after being throttled.
+
+        Never sooner than the configured interval - the user chose that - and
+        never longer than MAX_BACKOFF, whatever the server asks for. With no
+        usable hint, back off to twice the configured interval.
+        """
+        configured = int(self._scan_interval.total_seconds())
+        seconds = retry_after if retry_after is not None else configured * 2
+        return timedelta(seconds=min(max(seconds, configured), MAX_BACKOFF))
+
+    def _restore_interval(self) -> None:
+        """Undo a backoff once CellarTracker is answering again."""
+        if self.update_interval != self._scan_interval:
+            _LOGGER.info(
+                "CellarTracker is responding again; restoring the %s poll interval",
+                self._scan_interval,
+            )
+            self.update_interval = self._scan_interval
 
     def _process_inventory(self, inventory: list, previous: dict | None = None) -> dict:
         """Process the raw inventory list into a structured dictionary.
@@ -322,6 +388,15 @@ class WineCellarData(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed(
                 "Invalid CellarTracker credentials"
             ) from err
+        except RateLimited as err:
+            # Being throttled is normal operation, not a fault: back off
+            # quietly rather than knocking again on the next tick.
+            backoff = self._backoff_for(err.retry_after)
+            self.update_interval = backoff
+            _LOGGER.info(
+                "CellarTracker is rate limiting us (%s); next poll in %s", err, backoff
+            )
+            raise UpdateFailed(f"Rate limited by CellarTracker: {err}") from err
         except (CannotConnect, TimeoutError, OSError) as err:
             _LOGGER.warning("Temporary communication error with CellarTracker: %r", err)
             raise UpdateFailed(f"Cannot reach CellarTracker: {err!r}") from err
@@ -332,9 +407,21 @@ class WineCellarData(DataUpdateCoordinator):
         # I/O no longer needs a thread, but parsing still does: a large cellar
         # means splitting 66 columns per row, hashing each one and copying every
         # dict. self.data is the last successful result, or None on first poll.
-        return await self._hass.async_add_executor_job(
-            self._parse_and_process, payload, self.data
-        )
+        try:
+            data = await self._hass.async_add_executor_job(
+                self._parse_and_process, payload, self.data
+            )
+        except UpdateFailed:
+            # _process_inventory's own refusals already carry their reasoning.
+            raise
+        except csv.Error as err:
+            # Reachable without malice: csv enforces field_size_limit, and one
+            # long tasting note is enough to exceed it. Classify it here rather
+            # than leaving the coordinator to log a traceback.
+            raise UpdateFailed(f"Malformed CellarTracker export: {err}") from err
+
+        self._restore_interval()
+        return data
 
     def _parse_and_process(self, payload: str, previous: dict | None) -> dict:
         """Parse the tab-separated export, then summarise it. Runs in an executor."""

@@ -15,7 +15,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
-    coordinator: WineCellarData = hass.data[DOMAIN][entry.entry_id]
+    coordinator: WineCellarData = entry.runtime_data
 
     currency = normalize_currency(
         entry.options.get(CONF_CURRENCY, entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY))

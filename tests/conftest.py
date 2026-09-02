@@ -64,6 +64,10 @@ class DataUpdateCoordinator:
         self.init_kwargs = kwargs
         self.data = None
 
+    async def async_config_entry_first_refresh(self):
+        """No-op: tests that want data drive _async_update_data directly."""
+        return None
+
 
 # --- homeassistant.config_entries --------------------------------------------
 class ConfigEntry:
@@ -75,6 +79,8 @@ class ConfigEntry:
         self.options = options or {}
         self.title = title
         self.unload_callbacks = []
+        # Home Assistant 2024.6+: where an integration keeps its live objects.
+        self.runtime_data = None
 
     def async_on_unload(self, callback):
         self.unload_callbacks.append(callback)
@@ -284,15 +290,68 @@ class FakeHttp:
         self.static_paths.extend(configs)
 
 
+class _ViewEntries:
+    """The slice of hass.config_entries the views use."""
+
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+    def async_entries(self, domain=None):
+        return list(self._entries)
+
+    def async_get_entry(self, entry_id):
+        return next((e for e in self._entries if e.entry_id == entry_id), None)
+
+
 class ViewHass:
-    """HomeAssistant double carrying hass.data and an http/executor surface."""
+    """HomeAssistant double carrying config entries and an http/executor surface.
+
+    Still constructed as ``ViewHass({DOMAIN: {entry_id: coordinator}})``: the
+    coordinators are turned into loaded config entries here, so tests written
+    against the old hass.data lookup keep working unchanged.
+    """
 
     def __init__(self, data=None):
         self.data = data if data is not None else {}
         self.http = FakeHttp()
+        entries = []
+        for entry_id, coordinator in (self.data.get("cellar_tracker") or {}).items():
+            entry = ConfigEntry(entry_id=entry_id)
+            entry.runtime_data = coordinator
+            entries.append(entry)
+        self.config_entries = _ViewEntries(entries)
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
+
+
+class SetupHass:
+    """Enough HomeAssistant to run async_setup_entry and async_unload_entry."""
+
+    def __init__(self, *, unload_ok=True):
+        self.data = {}
+        self.http = FakeHttp()
+        self.config_entries = _SetupEntries(unload_ok)
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+class _SetupEntries:
+    def __init__(self, unload_ok=True):
+        self.unload_ok = unload_ok
+
+    async def async_forward_entry_setups(self, entry, platforms):
+        return True
+
+    async def async_unload_platforms(self, entry, platforms):
+        return self.unload_ok
+
+    async def async_reload(self, entry_id):
+        return True
+
+    def async_entries(self, domain=None):
+        return []
 
 
 class FakeHass:

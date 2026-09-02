@@ -45,7 +45,13 @@ class _CellarTrackerView(HomeAssistantView):
         and so still forwards the parameter. Serving the lowest entry id there
         would answer for an account the caller did not ask for.
         """
-        coordinators = self.hass.data.get(DOMAIN, {})
+        coordinators = {
+            entry.entry_id: entry.runtime_data
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            # runtime_data is assigned at setup and cleared at unload, so its
+            # presence is what "this entry is serving requests" means here.
+            if getattr(entry, "runtime_data", None) is not None
+        }
         if not coordinators:
             return None
 

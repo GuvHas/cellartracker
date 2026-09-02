@@ -38,7 +38,8 @@ def build_sensors(*, title="alice", entry_id="entry1", data=None):
         title=title,
         data=data or {"username": "alice", "password": "x", "currency": "USD"},
     )
-    hass = ViewHass({DOMAIN: {entry_id: _Coordinator()}})
+    entry.runtime_data = _Coordinator()
+    hass = ViewHass({DOMAIN: {entry_id: entry.runtime_data}})
     added = []
     asyncio.run(async_setup_entry(hass, entry, lambda sensors: added.extend(sensors)))
     return {type(sensor).__name__: sensor for sensor in added}

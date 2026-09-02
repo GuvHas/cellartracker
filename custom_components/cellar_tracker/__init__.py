@@ -67,9 +67,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = WineCellarData(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
-    # Holds coordinators keyed by entry id and nothing else: the views rely on
-    # every value here being a coordinator.
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # On the entry rather than in hass.data: it is typed, it dies with the
+    # entry, and nothing has to remember to clean it up. The views find it
+    # through hass.config_entries, since they are registered once for the
+    # component and never hold an entry of their own.
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(update_listener))
@@ -80,9 +82,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        # Defaulted: a setup that failed before storing its coordinator still
-        # gets unloaded, and that must not become a KeyError.
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        # Cleared so the views stop seeing this entry immediately, and so a
+        # setup that failed before assigning it unloads without a KeyError.
+        entry.runtime_data = None
     return unload_ok
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
