@@ -54,7 +54,7 @@ def update(coordinator):
 def test_the_http_call_does_not_go_through_an_executor():
     coordinator = build(text=TWO_BOTTLES)
     update(coordinator)
-    assert "get_inventory" not in coordinator._hass.executor_jobs, (
+    assert "get_inventory" not in coordinator.hass.executor_jobs, (
         "the blocking client is still being used"
     )
 
@@ -63,7 +63,7 @@ def test_parsing_still_runs_in_the_executor():
     """CPU-bound work stays off the event loop even though I/O no longer needs it."""
     coordinator = build(text=TWO_BOTTLES)
     update(coordinator)
-    assert coordinator._hass.executor_jobs == ["_parse_and_process"], (
+    assert coordinator.hass.executor_jobs == ["_parse_and_process"], (
         "parsing must be the only executor job, and must still be one"
     )
 
@@ -74,13 +74,13 @@ def test_parsing_still_runs_in_the_executor():
 def test_the_request_targets_the_library_endpoint():
     coordinator = build(text=TWO_BOTTLES)
     update(coordinator)
-    assert coordinator._hass.session.requests[0]["url"] == BASE_URL
+    assert coordinator.hass.session.requests[0]["url"] == BASE_URL
 
 
 def test_the_request_carries_the_expected_query():
     coordinator = build(text=TWO_BOTTLES)
     update(coordinator)
-    params = coordinator._hass.session.requests[0]["params"]
+    params = coordinator.hass.session.requests[0]["params"]
     assert params["User"] == "alice"
     assert params["Password"] == "s3cret"
     assert params["Table"] == "Inventory"

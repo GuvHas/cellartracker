@@ -39,3 +39,31 @@ def test_the_entry_is_not_smuggled_through_kwargs():
     """It has to be the named parameter, not an extra the base class ignores."""
     coordinator, _ = build()
     assert "config_entry" not in coordinator.init_kwargs
+
+
+# --------------------------------------------------------------------------
+# P3-2: no private copy of the base class's hass
+# --------------------------------------------------------------------------
+def test_the_base_class_hass_is_the_one_it_was_given():
+    """DataUpdateCoordinator.__init__ assigns it; nothing else needs to."""
+    hass = FakeHass()
+    hass.session = FakeSession()
+    coordinator = WineCellarData(hass, ConfigEntry(entry_id="e", data=ENTRY_DATA))
+
+    assert coordinator.hass is hass
+
+
+def test_it_keeps_no_private_copy_of_hass():
+    """`_hass` shadowed `self.hass`, which the base class already provides.
+
+    Two names for one object, and the underscore claimed an ownership this
+    code does not have: `hass` belongs to Home Assistant, which exposes it
+    publicly and reads it in its own methods. Harmless while `hass` stays a
+    plain attribute - if it ever became a property, the private copy would
+    quietly bypass whatever that property did.
+    """
+    coordinator, _ = build()
+
+    assert not hasattr(coordinator, "_hass"), (
+        "self._hass duplicates the base class's self.hass; use that instead"
+    )

@@ -70,7 +70,7 @@ def test_a_deliberate_update_failure_is_not_rewrapped():
     assert coordinator.data["total_bottles"] == 1
 
     # An empty response after the cellar held stock: rejected on the first poll.
-    coordinator._hass.session = FakeSession(text=HEADER)
+    coordinator.hass.session = FakeSession(text=HEADER)
     with pytest.raises(UpdateFailed) as caught:
         asyncio.run(coordinator._async_update_data())
 
