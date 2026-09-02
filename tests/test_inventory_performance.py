@@ -120,7 +120,7 @@ def test_totals_are_unaffected_by_the_refactor():
 def test_parsing_is_handed_to_the_executor():
     coordinator = build_coordinator(returns=identical_bottles(10))
     asyncio.run(coordinator._async_update_data())
-    assert "_parse_and_process" in coordinator._hass.executor_jobs, (
+    assert "_parse_and_process" in coordinator.hass.executor_jobs, (
         "parsing ran on the event loop"
     )
 

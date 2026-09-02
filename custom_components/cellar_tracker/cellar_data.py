@@ -269,7 +269,6 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the data coordinator."""
-        self._hass = hass
         self._username = entry.data[CONF_USERNAME]
         self._password = entry.data[CONF_PASSWORD]
         self._currency = normalize_currency(
@@ -514,7 +513,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
     async def _fetch_payload(self) -> str:
         """Fetch the raw inventory export for this entry's account."""
         return await async_fetch_inventory_payload(
-            self._hass, self._username, self._password
+            self.hass, self._username, self._password
         )
 
     async def _async_update_data(self) -> CellarData:
@@ -546,7 +545,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # means splitting 66 columns per row, hashing each one and copying every
         # dict. self.data is the last successful result, or None on first poll.
         try:
-            data = await self._hass.async_add_executor_job(
+            data = await self.hass.async_add_executor_job(
                 self._parse_and_process, payload, self.data
             )
         except UpdateFailed:
