@@ -15,13 +15,24 @@ testpaths = ["tests"]
 known-first-party = ["cellar_tracker", "conftest"]
 
 [tool.mypy]
-python_version = "3.12"
-files = ["custom_components/cellar_tracker"]
-# Home Assistant itself is not installed here - pytest-homeassistant-custom-component
-# cannot build its wheels in this environment - so its imports are unresolved by
-# design. Everything about *our* code is still checked.
-ignore_missing_imports = true
-follow_imports = "silent"
+# 3.13 because that is what Home Assistant 2026.2 requires; the runtime matrix
+# in CI still covers 3.12 as well.
+python_version = "3.13"
+
+# custom_components so that `cellar_tracker` resolves as a top-level package,
+# stubs/ for the one dependency that ships no types of its own.
+mypy_path = ["custom_components", "stubs"]
+files = ["custom_components/cellar_tracker", "tests/typing_gate.py"]
+
+# No ignore_missing_imports. Home Assistant is installed for this job
+# (requirements_mypy.txt) precisely so that it is not waved through: an
+# unresolved `homeassistant.*` makes DataUpdateCoordinator `Any`, a class
+# deriving from `Any` inherits `Any` for everything it does not declare, and
+# `coordinator.data` is then unchecked at every call site - the generic
+# parameter reduced to decoration. tests/typing_gate.py asserts, in the
+# checker's own terms, that this has not happened.
+disallow_any_unimported = true
+warn_return_any = true
 
 warn_unused_ignores = true
 warn_redundant_casts = true

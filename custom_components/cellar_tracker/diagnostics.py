@@ -18,9 +18,10 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+
+from .cellar_data import CellarTrackerConfigEntry
 
 # "title" as well as the credential keys: async_step_user names the entry
 # after the account, so the title *is* the username for every entry this
@@ -48,12 +49,12 @@ SAMPLE_FIELDS = (
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: CellarTrackerConfigEntry
 ) -> dict[str, Any]:
     """Return redacted diagnostics for a config entry."""
     coordinator = entry.runtime_data
-    data = coordinator.data or {}
-    bottles = data.get("bottles") or []
+    data = coordinator.data
+    bottles = [] if data is None else data.get("bottles") or []
 
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
@@ -64,8 +65,8 @@ async def async_get_config_entry_diagnostics(
             "currency": coordinator.currency,
         },
         "totals": {
-            "total_bottles": data.get("total_bottles"),
-            "total_value": data.get("total_value"),
+            "total_bottles": None if data is None else data.get("total_bottles"),
+            "total_value": None if data is None else data.get("total_value"),
         },
         # Sorted so two reports can be diffed when a schema change is suspected.
         "columns": sorted(bottles[0]) if bottles else [],

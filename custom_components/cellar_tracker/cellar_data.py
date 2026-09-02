@@ -256,6 +256,17 @@ async def async_fetch_inventory_payload(
 class WineCellarData(DataUpdateCoordinator[CellarData]):
     """Fetch and process CellarTracker inventory data."""
 
+    # Home Assistant declares `data` as the payload itself and then assigns
+    # None to it until the first refresh completes - a white lie the framework
+    # tells with a `type: ignore` of its own. Every reader here already guards
+    # for that (see F-15: a state read must survive a coordinator with no data
+    # yet), and without this redeclaration mypy calls those guards dead code,
+    # because a TypedDict with required keys can never be falsy.
+    #
+    # Stated once here rather than narrowed at each of the five call sites. If
+    # Home Assistant ever types it honestly, warn_unused_ignores will say so.
+    data: CellarData | None  # type: ignore[assignment]
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the data coordinator."""
         self._hass = hass
@@ -349,10 +360,6 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         list - an arbitrary one could not be rendered ahead of time.
         """
         return self._compact_body
-
-    # Declared because the base class is unresolved without Home Assistant
-    # installed, so mypy has nothing to infer this from.
-    update_interval: timedelta | None
 
     def _backoff_for(self, retry_after: int | None) -> timedelta:
         """How long to wait after being throttled.

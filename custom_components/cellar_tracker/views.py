@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
 
 if TYPE_CHECKING:
-    from .cellar_data import WineCellarData
+    from .cellar_data import CellarTrackerConfigEntry, WineCellarData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,9 +51,16 @@ class _CellarTrackerView(HomeAssistantView):
         and so still forwards the parameter. Serving the lowest entry id there
         would answer for an account the caller did not ask for.
         """
+        # async_entries is typed for any integration, so it hands back
+        # ConfigEntry[Any]; naming the type here is what stops runtime_data
+        # laundering Any into everything this method returns. Only entries of
+        # our own domain are asked for, so the claim holds.
+        entries: list[CellarTrackerConfigEntry] = self.hass.config_entries.async_entries(
+            DOMAIN
+        )
         coordinators = {
             entry.entry_id: entry.runtime_data
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            for entry in entries
             # runtime_data is assigned at setup and cleared at unload, so its
             # presence is what "this entry is serving requests" means here.
             if getattr(entry, "runtime_data", None) is not None

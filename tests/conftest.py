@@ -57,6 +57,7 @@ class UpdateFailed(Exception):
 # --- homeassistant.helpers.update_coordinator ---------------------------------
 _DataT = typing.TypeVar("_DataT")
 _RuntimeT = typing.TypeVar("_RuntimeT")
+_CoordinatorT = typing.TypeVar("_CoordinatorT")
 
 
 class DataUpdateCoordinator(typing.Generic[_DataT]):  # noqa: UP046
@@ -263,6 +264,8 @@ _module(
 )
 
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+# The real ConfigType is dict[str, Any]; async_setup takes one.
+_module("homeassistant.helpers.typing", ConfigType=dict)
 _module("homeassistant.util")
 _module("homeassistant.util.dt", utcnow=lambda: _datetime.now(UTC))
 
@@ -399,8 +402,14 @@ class SensorEntity:
         return self._attr_unique_id
 
 
-class CoordinatorEntity:
-    """Stub of the CoordinatorEntity mixin."""
+class CoordinatorEntity(typing.Generic[_CoordinatorT]):  # noqa: UP046
+    """Stub of the CoordinatorEntity mixin.
+
+    Generic like the real one, which has been parameterised by its coordinator
+    since 2023. Without that, ``CoordinatorEntity[WineCellarData]`` in
+    sensor.py is a TypeError at import - and a double that cannot express what
+    the real base class expresses is how a typing bug hides.
+    """
 
     def __init__(self, coordinator):
         self.coordinator = coordinator

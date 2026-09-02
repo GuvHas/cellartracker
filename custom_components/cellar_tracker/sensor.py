@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Literal
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -14,7 +15,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .cellar_data import CellarTrackerConfigEntry, WineCellarData
+from .cellar_data import CellarData, CellarTrackerConfigEntry, WineCellarData
 from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
 
 # One typed place for what five constructors used to spell out. The key is
@@ -61,6 +62,21 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
 DESCRIPTIONS_BY_KEY = {description.key: description for description in SENSOR_DESCRIPTIONS}
 
 
+def _count(
+    data: CellarData | None,
+    key: Literal["total_bottles", "ready_to_drink", "past_drink_window"],
+) -> int:
+    """Read a count from the payload, defaulting rather than raising.
+
+    Both defences are deliberate and covered by F-15. ``data`` is None until
+    the first refresh succeeds, which is the state a sensor is in if its
+    entity is read during a failed setup; and a payload that predates a key -
+    the drink-window counters were added after the totals - has no such key at
+    all. Neither should turn a state read into a traceback.
+    """
+    return 0 if data is None else data.get(key, 0)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: CellarTrackerConfigEntry,
@@ -99,7 +115,7 @@ async def async_setup_entry(
     async_add_entities(sensors)
 
 
-class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
+class TotalBottlesSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """How many bottles the cellar currently holds."""
 
     # Home Assistant composes the friendly name as "<device> <entity>", so the
@@ -116,12 +132,11 @@ class TotalBottlesSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = device_info
 
     @property
-    def native_value(self) -> Any:
-        # `or {}`: coordinator.data is None until the first successful refresh.
-        return (self.coordinator.data or {}).get("total_bottles", 0)
+    def native_value(self) -> int:
+        return _count(self.coordinator.data, "total_bottles")
 
 
-class TotalValueSensor(CoordinatorEntity, SensorEntity):
+class TotalValueSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """What the cellar is worth, in the configured currency.
 
     MONETARY with state_class TOTAL, so Home Assistant keeps a long-term
@@ -147,11 +162,12 @@ class TotalValueSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = currency
 
     @property
-    def native_value(self) -> Any:
-        return (self.coordinator.data or {}).get("total_value", 0.0)
+    def native_value(self) -> float:
+        data = self.coordinator.data
+        return 0.0 if data is None else data.get("total_value", 0.0)
 
 
-class _BottleCountSensor(CoordinatorEntity, SensorEntity):
+class _BottleCountSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """Shared shape for the drink-window counters.
 
     Both are plain counts the coordinator computed during the parse, so they
@@ -161,7 +177,9 @@ class _BottleCountSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _data_key: str
+    # A literal union rather than a bare str: it is used to index CellarData,
+    # and only a literal lets the checker confirm the key exists at all.
+    _data_key: Literal["ready_to_drink", "past_drink_window"]
 
     def __init__(
         self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
@@ -172,11 +190,8 @@ class _BottleCountSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = device_info
 
     @property
-    def native_value(self) -> Any:
-        # Defaulted rather than indexed: coordinator.data is None before the
-        # first refresh, and a payload cached by an older version has no such
-        # key at all.
-        return (self.coordinator.data or {}).get(self._data_key, 0)
+    def native_value(self) -> int:
+        return _count(self.coordinator.data, self._data_key)
 
 
 class ReadyToDrinkSensor(_BottleCountSensor):
@@ -191,7 +206,7 @@ class PastDrinkWindowSensor(_BottleCountSensor):
     _data_key = "past_drink_window"
 
 
-class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):
+class CellarLastSyncSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     """When the cellar last synchronised with CellarTracker.
 
     This replaces a status sensor that reported "Connected" or "Empty". After
@@ -219,6 +234,6 @@ class CellarLastSyncSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = device_info
 
     @property
-    def native_value(self) -> Any:
+    def native_value(self) -> datetime | None:
         """The last successful refresh, or None if none has happened yet."""
         return self.coordinator.last_success

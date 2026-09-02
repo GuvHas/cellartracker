@@ -41,7 +41,7 @@ DATA_SCHEMA = vol.Schema(
 REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
 
-class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for CellarTracker."""
 
     VERSION = 1
