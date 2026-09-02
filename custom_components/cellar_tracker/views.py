@@ -45,7 +45,13 @@ class _CellarTrackerView(HomeAssistantView):
         and so still forwards the parameter. Serving the lowest entry id there
         would answer for an account the caller did not ask for.
         """
-        coordinators = self.hass.data.get(DOMAIN, {})
+        coordinators = {
+            entry.entry_id: entry.runtime_data
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            # runtime_data is assigned at setup and cleared at unload, so its
+            # presence is what "this entry is serving requests" means here.
+            if getattr(entry, "runtime_data", None) is not None
+        }
         if not coordinators:
             return None
 
@@ -77,12 +83,28 @@ class CellarTrackerInventoryView(_CellarTrackerView):
     name = "api:cellartracker:inventory"
 
     async def get(self, request):
-        """Handle GET request for inventory."""
+        """Handle GET request for inventory.
+
+        The body was rendered by the coordinator when it last refreshed, so a
+        thousand-bottle cellar costs this handler nothing: serialising it here
+        would block the event loop for every dashboard load.
+
+        ``?view=compact`` serves only the columns the dashboard renders. The
+        default is unchanged, because this endpoint is a public surface that
+        users read from their own cards.
+        """
         coordinator = self._coordinator(request)
         if coordinator is None or not coordinator.data:
             return web.json_response([])
 
-        return web.json_response(coordinator.data.get("bottles", []))
+        # Anything other than the one name we recognise gets everything. A typo
+        # must not quietly hand back fewer fields than the caller expected.
+        if request.query.get("view") == "compact":
+            body = coordinator.compact_body
+        else:
+            body = coordinator.inventory_body
+
+        return web.Response(body=body, content_type="application/json")
 
 
 class CellarTrackerSettingsView(_CellarTrackerView):

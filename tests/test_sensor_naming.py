@@ -19,6 +19,9 @@ entry and silently create a duplicate entity.
 from __future__ import annotations
 
 import asyncio
+import json
+import pathlib
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,10 +29,20 @@ from cellar_tracker.const import DOMAIN
 from cellar_tracker.sensor import async_setup_entry
 from conftest import ConfigEntry, ViewHass
 
+ENTITY_NAMES = json.loads(
+    (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "cellar_tracker"
+        / "strings.json"
+    ).read_text()
+)["entity"]["sensor"]
+
 
 class _Coordinator:
     data = {"total_bottles": 3, "total_value": 30.0, "bottles": []}
     currency = "USD"
+    last_success = datetime(2026, 8, 28, 9, 30, tzinfo=UTC)
 
 
 def build_sensors(*, title="alice", entry_id="entry1", data=None):
@@ -38,13 +51,20 @@ def build_sensors(*, title="alice", entry_id="entry1", data=None):
         title=title,
         data=data or {"username": "alice", "password": "x", "currency": "USD"},
     )
-    hass = ViewHass({DOMAIN: {entry_id: _Coordinator()}})
+    entry.runtime_data = _Coordinator()
+    hass = ViewHass({DOMAIN: {entry_id: entry.runtime_data}})
     added = []
     asyncio.run(async_setup_entry(hass, entry, lambda sensors: added.extend(sensors)))
     return {type(sensor).__name__: sensor for sensor in added}
 
 
-ALL_SENSORS = ["TotalBottlesSensor", "TotalValueSensor", "CellarInventorySensor"]
+ALL_SENSORS = [
+    "TotalBottlesSensor",
+    "TotalValueSensor",
+    "ReadyToDrinkSensor",
+    "PastDrinkWindowSensor",
+    "CellarLastSyncSensor",
+]
 
 
 # --------------------------------------------------------------------------
@@ -58,18 +78,32 @@ def test_sensors_opt_into_modern_naming(sensor_name):
 
 @pytest.mark.parametrize("sensor_name", ALL_SENSORS)
 def test_entity_names_do_not_repeat_the_integration_name(sensor_name):
-    """With has_entity_name, HA prepends the device name itself."""
+    """With has_entity_name, HA prepends the device name itself.
+
+    The names now live in strings.json under the translation key, so that is
+    where this has to look; a literal _attr_name would defeat the translation
+    and is asserted absent in test_entity_translations.py.
+    """
     sensor = build_sensors()[sensor_name]
-    assert "cellartracker" not in sensor._attr_name.lower(), (
-        f"{sensor._attr_name!r} would render as 'CellarTracker CellarTracker ...'"
+    name = ENTITY_NAMES[sensor.translation_key]["name"]
+    assert "cellartracker" not in name.lower(), (
+        f"{name!r} would render as 'CellarTracker CellarTracker ...'"
     )
 
 
 def test_entity_names_are_the_expected_short_labels():
     sensors = build_sensors()
-    assert sensors["TotalBottlesSensor"]._attr_name == "Total bottles"
-    assert sensors["TotalValueSensor"]._attr_name == "Total value"
-    assert sensors["CellarInventorySensor"]._attr_name == "Status"
+    labels = {
+        cls: ENTITY_NAMES[sensor.translation_key]["name"]
+        for cls, sensor in sensors.items()
+    }
+    assert labels == {
+        "TotalBottlesSensor": "Total bottles",
+        "TotalValueSensor": "Total value",
+        "ReadyToDrinkSensor": "Ready to drink",
+        "PastDrinkWindowSensor": "Past drinking window",
+        "CellarLastSyncSensor": "Last synchronised",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -110,7 +144,9 @@ def test_manufacturer_stays_the_service_name():
     [
         ("TotalBottlesSensor", "_total_bottles"),
         ("TotalValueSensor", "_total_value"),
-        ("CellarInventorySensor", "_inventory_status"),
+        # Unchanged even though the sensor was repurposed from a status
+        # string to a timestamp: a new id would orphan the registry entry.
+        ("CellarLastSyncSensor", "_inventory_status"),
     ],
 )
 def test_unique_ids_are_unchanged(sensor_name, suffix):
@@ -147,9 +183,9 @@ def test_sensors_still_read_from_the_coordinator():
     sensors = build_sensors()
     assert sensors["TotalBottlesSensor"].native_value == 3
     assert sensors["TotalValueSensor"].native_value == 30.0
-    assert sensors["CellarInventorySensor"].native_value == "Connected"
+    assert sensors["CellarLastSyncSensor"].native_value == _Coordinator.last_success
 
 
 def test_status_sensor_stays_diagnostic():
-    sensor = build_sensors()["CellarInventorySensor"]
+    sensor = build_sensors()["CellarLastSyncSensor"]
     assert sensor._attr_entity_category == "diagnostic"

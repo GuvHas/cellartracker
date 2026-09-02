@@ -110,7 +110,8 @@ def test_unloading_an_entry_removes_only_that_entry(hass):
     setup(hass, second)
 
     assert unload(hass, first) is True
-    assert set(hass.data[DOMAIN]) == {"b"}
+    assert first.runtime_data is None
+    assert second.runtime_data is not None, "unloading one entry disturbed the other"
 
 
 def test_unloading_an_entry_that_was_never_stored_does_not_raise(hass):
@@ -124,14 +125,21 @@ def test_a_failed_platform_unload_leaves_the_entry_in_place(hass):
     hass.config_entries.unload_ok = False
 
     assert unload(hass, entry) is False
-    assert "a" in hass.data[DOMAIN]
+    assert entry.runtime_data is not None, "a refused unload must keep serving"
 
 
-def test_hass_data_holds_only_coordinators(hass):
-    """No bookkeeping flags alongside the entries."""
-    setup(hass, ConfigEntry(entry_id="a"))
-    assert set(hass.data[DOMAIN]) == {"a"}
-    assert all(not key.startswith("_") for key in hass.data[DOMAIN])
+def test_the_coordinator_lives_on_the_entry(hass):
+    """Formerly: hass.data holds coordinators and no bookkeeping flags.
+
+    That shared dict is gone. The coordinator is the entry's own runtime data,
+    so there is nowhere for a stray flag to sit beside it and nothing to leak
+    if an unload is missed.
+    """
+    entry = ConfigEntry(entry_id="a")
+    setup(hass, entry)
+
+    assert entry.runtime_data is not None
+    assert hass.data == {}, "nothing should accumulate in hass.data any more"
 
 
 # --------------------------------------------------------------------------
@@ -139,7 +147,8 @@ def test_hass_data_holds_only_coordinators(hass):
 # --------------------------------------------------------------------------
 def _sensor(cls, data):
     entry = ConfigEntry(entry_id="a")
-    hass = ViewHass({DOMAIN: {"a": _Coordinator(data)}})
+    entry.runtime_data = _Coordinator(data)
+    hass = ViewHass({DOMAIN: {"a": entry.runtime_data}})
     added = []
     asyncio.run(sensor_setup_entry(hass, entry, added.extend))
     return next(sensor for sensor in added if isinstance(sensor, cls))

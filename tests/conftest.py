@@ -13,9 +13,12 @@ separate integration-test suite (see F-19 in the review).
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import pathlib
 import sys
 import types
+from datetime import UTC
+from datetime import datetime as _datetime
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "custom_components"))
@@ -45,14 +48,27 @@ class UpdateFailed(Exception):
 
 # --- homeassistant.helpers.update_coordinator ---------------------------------
 class DataUpdateCoordinator:
-    """Minimal stand-in that records what the real base class would receive."""
+    """Minimal stand-in that records what the real base class would receive.
 
-    def __init__(self, hass, logger, *, name=None, update_interval=None, **kwargs):
+    ``config_entry`` is captured explicitly rather than absorbed into
+    ``**kwargs``: Home Assistant 2024.11 added it and is making it mandatory,
+    so a test has to be able to see whether we passed it.
+    """
+
+    def __init__(
+        self, hass, logger, *, name=None, config_entry=None, update_interval=None, **kwargs
+    ):
         self.hass = hass
         self.logger = logger
         self.name = name
+        self.config_entry = config_entry
         self.update_interval = update_interval
+        self.init_kwargs = kwargs
         self.data = None
+
+    async def async_config_entry_first_refresh(self):
+        """No-op: tests that want data drive _async_update_data directly."""
+        return None
 
 
 # --- homeassistant.config_entries --------------------------------------------
@@ -65,6 +81,17 @@ class ConfigEntry:
         self.options = options or {}
         self.title = title
         self.unload_callbacks = []
+        # Home Assistant 2024.6+: where an integration keeps its live objects.
+        self.runtime_data = None
+
+    def as_dict(self):
+        """The shape diagnostics redacts; runtime_data is deliberately absent."""
+        return {
+            "entry_id": self.entry_id,
+            "title": self.title,
+            "data": dict(self.data),
+            "options": dict(self.options),
+        }
 
     def async_on_unload(self, callback):
         self.unload_callbacks.append(callback)
@@ -174,6 +201,33 @@ _module(
     EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+_module("homeassistant.util")
+_module("homeassistant.util.dt", utcnow=lambda: _datetime.now(UTC))
+
+
+def _async_redact_data(data, to_redact):
+    """Stub of homeassistant.components.diagnostics.async_redact_data.
+
+    Recurses the way the real helper does, so a test cannot pass by redacting
+    only the top level of a nested structure.
+    """
+    if isinstance(data, list):
+        return [_async_redact_data(item, to_redact) for item in data]
+    if not isinstance(data, dict):
+        return data
+    return {
+        key: ("**REDACTED**" if key in to_redact else _async_redact_data(value, to_redact))
+        for key, value in data.items()
+    }
+
+
+_module("homeassistant.components.diagnostics", async_redact_data=_async_redact_data)
+_module(
+    "homeassistant.helpers.json",
+    # The real helper is orjson-backed; stdlib json is equivalent for our
+    # payload, which is only str/int/float.
+    json_bytes=lambda data: _json.dumps(data).encode("utf-8"),
+)
 
 class FakeRequest:
     """Minimal aiohttp request exposing only the query string."""
@@ -211,7 +265,59 @@ sys.modules["homeassistant.helpers"].config_validation = _module(
 
 
 class SensorEntity:
-    """Stub of homeassistant.components.sensor.SensorEntity."""
+    """Stub of homeassistant.components.sensor.SensorEntity.
+
+    Home Assistant's Entity base resolves each public property from the
+    matching ``_attr_`` attribute. Modelling that here keeps tests reading the
+    same surface a Home Assistant instance would, rather than reaching into
+    private attributes and passing whatever they find.
+    """
+
+    _attr_device_class = None
+    _attr_entity_category = None
+    _attr_extra_state_attributes = None
+    _attr_icon = None
+    _attr_name = None
+    _attr_native_unit_of_measurement = None
+    _attr_state_class = None
+    _attr_translation_key = None
+    _attr_unique_id = None
+
+    @property
+    def device_class(self):
+        return self._attr_device_class
+
+    @property
+    def entity_category(self):
+        return self._attr_entity_category
+
+    @property
+    def extra_state_attributes(self):
+        return self._attr_extra_state_attributes
+
+    @property
+    def icon(self):
+        return self._attr_icon
+
+    @property
+    def name(self):
+        return self._attr_name
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._attr_native_unit_of_measurement
+
+    @property
+    def state_class(self):
+        return self._attr_state_class
+
+    @property
+    def translation_key(self):
+        return self._attr_translation_key
+
+    @property
+    def unique_id(self):
+        return self._attr_unique_id
 
 
 class CoordinatorEntity:
@@ -224,19 +330,26 @@ class CoordinatorEntity:
 _module(
     "homeassistant.components.sensor",
     SensorEntity=SensorEntity,
-    SensorDeviceClass=types.SimpleNamespace(MONETARY="monetary"),
+    SensorDeviceClass=types.SimpleNamespace(MONETARY="monetary", TIMESTAMP="timestamp"),
     SensorStateClass=types.SimpleNamespace(MEASUREMENT="measurement", TOTAL="total"),
 )
 sys.modules["homeassistant.helpers.update_coordinator"].CoordinatorEntity = CoordinatorEntity
 
 
 class FakeCoordinator:
-    """Stands in for WineCellarData in view tests."""
+    """Stands in for WineCellarData in view tests.
+
+    Renders ``inventory_body`` the same way the real coordinator does: the
+    views serve those bytes directly rather than encoding per request, so a
+    double without them would not exercise the code path that runs in
+    production.
+    """
 
     def __init__(self, *, currency="USD", bottles=None, data=True):
         self.currency = currency
         if not data:
             self.data = None
+            self.inventory_body = b"[]"
         else:
             bottles = bottles or []
             self.data = {
@@ -244,6 +357,7 @@ class FakeCoordinator:
                 "total_value": 0.0,
                 "bottles": bottles,
             }
+            self.inventory_body = _json.dumps(bottles).encode("utf-8")
 
 
 class FakeHttp:
@@ -260,15 +374,68 @@ class FakeHttp:
         self.static_paths.extend(configs)
 
 
+class _ViewEntries:
+    """The slice of hass.config_entries the views use."""
+
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+    def async_entries(self, domain=None):
+        return list(self._entries)
+
+    def async_get_entry(self, entry_id):
+        return next((e for e in self._entries if e.entry_id == entry_id), None)
+
+
 class ViewHass:
-    """HomeAssistant double carrying hass.data and an http/executor surface."""
+    """HomeAssistant double carrying config entries and an http/executor surface.
+
+    Still constructed as ``ViewHass({DOMAIN: {entry_id: coordinator}})``: the
+    coordinators are turned into loaded config entries here, so tests written
+    against the old hass.data lookup keep working unchanged.
+    """
 
     def __init__(self, data=None):
         self.data = data if data is not None else {}
         self.http = FakeHttp()
+        entries = []
+        for entry_id, coordinator in (self.data.get("cellar_tracker") or {}).items():
+            entry = ConfigEntry(entry_id=entry_id)
+            entry.runtime_data = coordinator
+            entries.append(entry)
+        self.config_entries = _ViewEntries(entries)
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
+
+
+class SetupHass:
+    """Enough HomeAssistant to run async_setup_entry and async_unload_entry."""
+
+    def __init__(self, *, unload_ok=True):
+        self.data = {}
+        self.http = FakeHttp()
+        self.config_entries = _SetupEntries(unload_ok)
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+class _SetupEntries:
+    def __init__(self, unload_ok=True):
+        self.unload_ok = unload_ok
+
+    async def async_forward_entry_setups(self, entry, platforms):
+        return True
+
+    async def async_unload_platforms(self, entry, platforms):
+        return self.unload_ok
+
+    async def async_reload(self, entry_id):
+        return True
+
+    def async_entries(self, domain=None):
+        return []
 
 
 class FakeHass:

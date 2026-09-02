@@ -130,23 +130,42 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
 
     # `self.config_entry` is provided automatically by the base class.
 
+    def _current_currency(self) -> str:
+        return normalize_currency(
+            self.config_entry.options.get(
+                CONF_CURRENCY, self.config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+            )
+        )
+
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
+            previous = self._current_currency()
             user_input[CONF_CURRENCY] = normalize_currency(
                 user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
             )
+            if user_input[CONF_CURRENCY] != previous:
+                # The cellar value is a long-term statistic, and Home Assistant
+                # treats a unit change on an existing statistic as an error: it
+                # logs a mismatch and stops recording until the statistic is
+                # cleared. Say so here, where the user has just done it and can
+                # still act, rather than leaving them to find it in the log.
+                _LOGGER.warning(
+                    "CellarTracker currency changed from %s to %s. This relabels "
+                    "the cellar value rather than converting it, and Home "
+                    "Assistant will refuse to record the value sensor's "
+                    "long-term statistic until its existing statistic is "
+                    "cleared in Developer tools > Statistics.",
+                    previous,
+                    user_input[CONF_CURRENCY],
+                )
             return self.async_create_entry(title="", data=user_input)
 
         current_scan_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL,
             self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
-        current_currency = normalize_currency(
-            self.config_entry.options.get(
-                CONF_CURRENCY, self.config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY)
-            )
-        )
+        current_currency = self._current_currency()
 
         options_schema = vol.Schema(
             {

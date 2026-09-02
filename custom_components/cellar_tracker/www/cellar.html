@@ -248,9 +248,18 @@
         // remaining parameters and so preserves this one.
         const entryId = (new URLSearchParams(window.location.search).get('entry_id') || '').trim();
 
+        // The inventory endpoint serves all 66 export columns by default, for
+        // the sake of cards people built against it. This page renders seven,
+        // so it asks for the compact projection instead - roughly a tenth of
+        // the bytes on a large cellar.
+        const COMPACT_PATHS = { inventory: true };
+
         function apiUrl(path) {
-            const base = '/api/cellartracker/' + path;
-            return entryId ? base + '?entry_id=' + encodeURIComponent(entryId) : base;
+            const params = new URLSearchParams();
+            if (entryId) params.set('entry_id', entryId);
+            if (COMPACT_PATHS[path]) params.set('view', 'compact');
+            const query = params.toString();
+            return '/api/cellartracker/' + path + (query ? '?' + query : '');
         }
 
         async function fetchJson(path) {

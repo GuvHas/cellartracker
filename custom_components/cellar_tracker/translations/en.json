@@ -37,7 +37,27 @@
         "data": {
           "scan_interval": "Seconds between refreshes",
           "currency": "Currency"
-        }
+        },
+        "description": "Changing the currency relabels the cellar value; it does not convert it. Home Assistant records the value as a long-term statistic in its current unit, so after a change you may need to clear that sensor's statistics before it records again."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_bottles": {
+        "name": "Total bottles"
+      },
+      "total_value": {
+        "name": "Total value"
+      },
+      "last_synchronised": {
+        "name": "Last synchronised"
+      },
+      "ready_to_drink": {
+        "name": "Ready to drink"
+      },
+      "past_drink_window": {
+        "name": "Past drinking window"
       }
     }
   }

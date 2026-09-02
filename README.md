@@ -61,7 +61,7 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
 
 ## What gets created
 
-Adding the integration creates **one device per account** with **three entities**. It does not
+Adding the integration creates **one device per account** with **five entities**. It does not
 create an entity per bottle — see [Bottle-level data](#bottle-level-data) for why, and for how to
 reach that data.
 
@@ -69,7 +69,13 @@ reach that data.
 |---|---|---|---|---|
 | Total bottles | `142` | `bottles` | — | `measurement` |
 | Total value | `9812.50` | your chosen currency | `monetary` | `total` |
-| Status | `Connected` | — | — | diagnostic |
+| Ready to drink | `37` | `bottles` | — | `measurement` |
+| Past drinking window | `4` | `bottles` | — | `measurement` |
+| Last synchronised | `2026-08-28 09:30:00` | — | `timestamp` | diagnostic |
+
+Upgrading from 0.0.17 or earlier: the diagnostic entity that reported `Connected` now reports
+when the cellar last synchronised. It keeps its entity ID, so nothing has to be repointed. Its old
+value never changed once the integration was running, so nothing could have been triggering on it.
 
 ### Entity IDs
 
@@ -78,8 +84,14 @@ The device is named after the account, so entity IDs follow the account name:
 ```
 sensor.<account>_total_bottles
 sensor.<account>_total_value
-sensor.<account>_status
+sensor.<account>_ready_to_drink
+sensor.<account>_past_drinking_window
+sensor.<account>_last_synchronised
 ```
+
+That third ID is what a **fresh install** gets. An install that predates 0.0.18 keeps
+`sensor.<account>_status`, because Home Assistant assigns an entity ID once, at first
+registration, and never rewrites it. Both point at the same entity; only the name differs.
 
 **If you installed before v0.0.15**, your entity IDs were generated when the entities were first
 registered and Home Assistant keeps them — they will still be `sensor.cellartracker_total_bottles`
@@ -95,7 +107,8 @@ Per-bottle detail is exposed through an authenticated REST endpoint rather than 
 state attributes:
 
 ```
-GET /api/cellartracker/inventory     # every bottle, as JSON
+GET /api/cellartracker/inventory                # every bottle, as JSON
+GET /api/cellartracker/inventory?view=compact   # the same bottles, nine columns
 GET /api/cellartracker/settings      # the configured currency and its symbol
 ```
 
@@ -135,8 +148,9 @@ The response contains all 66 columns CellarTracker returns; the table above is t
 
 ## Installation via HACS
 
-**Requires Home Assistant 2024.7 or newer** — that is the release that added the static-path API
-the integration uses to serve its dashboard page.
+**Requires Home Assistant 2024.11 or newer** — 2024.7 added the static-path API the integration
+uses to serve its dashboard page, and 2024.11 added the `config_entry` argument its data
+coordinator now passes.
 
 1. Open **HACS** in Home Assistant.
 2. Click the **⋮** menu (top right) → **Custom repositories**.
