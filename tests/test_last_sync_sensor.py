@@ -97,3 +97,40 @@ def test_the_coordinator_records_when_it_last_succeeded():
 
     assert coordinator.last_success is not None
     assert coordinator.last_success.tzinfo is not None
+
+
+# --------------------------------------------------------------------------
+# Reported by Codex on #18
+# --------------------------------------------------------------------------
+def test_the_timestamp_is_part_of_the_coordinator_payload():
+    """Otherwise always_update=False suppresses the update that carries it.
+
+    A cellar's inventory is identical between most polls, so the coordinator
+    compares the new payload equal to the old and notifies no listeners. A
+    timestamp held outside that payload therefore never reaches the sensor,
+    and "last synchronised" would silently mean "last time a bottle changed".
+    """
+    from cellar_tracker.cellar_data import WineCellarData
+    from conftest import FakeHass, FakeSession
+
+    export = "iWine\tWine\tValuation\n1\tBarolo\t45.50"
+    hass = FakeHass()
+    hass.session = FakeSession(text=export)
+    coordinator = WineCellarData(hass, ConfigEntry(data={"username": "a", "password": "b"}))
+
+    first = asyncio.run(coordinator._async_update_data())
+    coordinator.data = first
+    second = asyncio.run(coordinator._async_update_data())
+
+    assert "last_success" in first
+    assert first["bottles"] == second["bottles"], "the fixture must be unchanged"
+    assert first != second, (
+        "two polls of an unchanged cellar produced equal payloads, so the "
+        "coordinator would notify no listeners and the timestamp would stall"
+    )
+
+
+def test_the_sensor_reads_the_timestamp_the_payload_carries():
+    stamp = datetime(2026, 9, 2, 8, 30, tzinfo=UTC)
+    sensor = build(_Coordinator(last_success=stamp))
+    assert sensor.native_value == stamp

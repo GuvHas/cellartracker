@@ -260,7 +260,10 @@ class WineCellarData(DataUpdateCoordinator):
             # entry, so unloading cancels a poll still in flight.
             config_entry=entry,
             update_interval=scan_interval,
-            always_update=False,
+            # Every payload now carries the time of the poll that produced it,
+            # so no two ever compare equal and this could never suppress an
+            # update. Left at the default rather than kept as a flag that
+            # reads like it does something.
         )
 
         # Consecutive polls that reported an empty cellar after it held stock.
@@ -332,7 +335,13 @@ class WineCellarData(DataUpdateCoordinator):
         """
         configured = int(self._scan_interval.total_seconds())
         seconds = retry_after if retry_after is not None else configured * 2
-        return timedelta(seconds=min(max(seconds, configured), MAX_BACKOFF))
+
+        # Cap what the *server* can ask for, then apply the configured interval
+        # as the floor. Doing it the other way round let the cap undercut a
+        # schedule longer than six hours - the options schema sets a minimum
+        # and no maximum, so a daily poll became six-hourly while being rate
+        # limited, which is the opposite of backing off.
+        return timedelta(seconds=max(min(seconds, MAX_BACKOFF), configured))
 
     def _restore_interval(self) -> None:
         """Undo a backoff once CellarTracker is answering again."""
@@ -508,7 +517,14 @@ class WineCellarData(DataUpdateCoordinator):
             # than leaving the coordinator to log a traceback.
             raise UpdateFailed(f"Malformed CellarTracker export: {err}") from err
 
+        # Carried inside the payload, not just alongside it. The coordinator
+        # compares payloads to decide whether to notify listeners, and a
+        # cellar's inventory is identical between most polls - so a timestamp
+        # held outside would never reach the sensor, and "last synchronised"
+        # would quietly come to mean "last time a bottle changed".
         self._last_success = dt_util.utcnow()
+        data["last_success"] = self._last_success
+
         self._restore_interval()
         return data
 

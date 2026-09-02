@@ -116,3 +116,43 @@ def test_throttling_is_logged_without_alarm(caplog):
 
     assert "429" in caplog.text
     assert not [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+
+
+# --------------------------------------------------------------------------
+# Reported by Codex on #18: the cap must never undercut the configured interval
+# --------------------------------------------------------------------------
+DAILY = 86400
+
+
+def daily(**session_kwargs) -> WineCellarData:
+    hass = FakeHass()
+    hass.session = FakeSession(**session_kwargs)
+    entry = ConfigEntry(
+        data={"username": "alice", "password": "s3cret", "scan_interval": DAILY}
+    )
+    return WineCellarData(hass, entry)
+
+
+def test_a_daily_schedule_is_not_shortened_by_the_cap():
+    """The options schema sets a floor, not a ceiling, so this is reachable.
+
+    Capping at MAX_BACKOFF turned a 24-hour schedule into a six-hourly one
+    *while being rate limited* - four times the requests, and the exact
+    opposite of backing off.
+    """
+    coordinator = daily(raise_for_status=throttled("1800"))
+    refresh(coordinator)
+    assert coordinator.update_interval >= timedelta(seconds=DAILY)
+
+
+def test_a_daily_schedule_with_no_retry_after_is_not_shortened():
+    coordinator = daily(raise_for_status=throttled(None))
+    refresh(coordinator)
+    assert coordinator.update_interval >= timedelta(seconds=DAILY)
+
+
+def test_a_server_still_cannot_extend_a_daily_schedule_without_bound():
+    """The cap still applies on top of the configured interval, not under it."""
+    coordinator = daily(raise_for_status=throttled("604800"))
+    refresh(coordinator)
+    assert coordinator.update_interval == timedelta(seconds=DAILY)

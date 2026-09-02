@@ -21,7 +21,10 @@ from __future__ import annotations
 import asyncio
 import json
 
-from cellar_tracker.diagnostics import async_get_config_entry_diagnostics
+from cellar_tracker.diagnostics import (
+    SAMPLE_FIELDS,
+    async_get_config_entry_diagnostics,
+)
 from conftest import ConfigEntry, ViewHass
 
 PASSWORD = "hunter2-do-not-leak"
@@ -35,6 +38,9 @@ BOTTLE = {
     "Barcode": "BC-77-4412",
     "Location": "Cellar under the stairs",
     "Bin": "A4",
+    "BottleNote": "bought for Anna's 40th, keep for her",
+    "CNotes": "cellar note naming the neighbour who has the spare key",
+    "PNotes": "private note",
     "unique_bottle_id": "abcdef0123456789",
 }
 
@@ -51,6 +57,9 @@ class _Coordinator:
 def diagnostics(coordinator) -> dict:
     entry = ConfigEntry(
         entry_id="a",
+        # async_step_user sets the title to the username. The double defaulted
+        # to something else, which is why the leak below went unnoticed.
+        title=USERNAME,
         data={"username": USERNAME, "password": PASSWORD, "currency": "SEK"},
         options={"scan_interval": 21600},
     )
@@ -80,11 +89,12 @@ def test_the_bottle_sample_hides_where_the_wine_lives():
     report = diagnostics(_Coordinator(stocked()))
     sample = report["sample_bottle"]
 
-    # Asserted field by field rather than by searching the rendered report:
-    # a substring search gives false positives against unrelated values, and
-    # a short Bin like "A4" appears inside plenty of innocent text.
+    # Absent rather than redacted: the sample is an allowlist, so these were
+    # never copied in. Asserted field by field because a substring search over
+    # the rendered report gives false positives - a short Bin like "A4"
+    # appears inside plenty of innocent text.
     for field in ("Barcode", "Location", "Bin"):
-        assert sample[field] == "**REDACTED**", f"{field} was not redacted"
+        assert field not in sample, f"{field} must not reach the report"
 
     assert "Cellar under the stairs" not in rendered(report)
 
@@ -124,3 +134,38 @@ def test_a_coordinator_that_never_refreshed_produces_a_report():
     report = diagnostics(_Coordinator(None, last_update_success=False))
     assert report["totals"]["total_bottles"] is None
     assert report["sample_bottle"] is None
+
+
+# --------------------------------------------------------------------------
+# Reported by Codex on #18
+# --------------------------------------------------------------------------
+def test_the_entry_title_does_not_leak_the_username():
+    """The title *is* the username for every entry this integration creates."""
+    report = diagnostics(_Coordinator(stocked()))
+    assert USERNAME not in rendered(report)
+    assert report["entry"]["title"] == "**REDACTED**"
+
+
+def test_free_form_notes_never_reach_the_report():
+    """Tasting and cellar notes are prose someone wrote; they can say anything."""
+    sample = diagnostics(_Coordinator(stocked()))["sample_bottle"]
+
+    for field in ("BottleNote", "CNotes", "PNotes"):
+        assert field not in sample, f"{field} is free-form and must not be published"
+
+
+def test_the_sample_is_an_allowlist_not_a_denylist():
+    """A denylist ships every column CellarTracker adds in future, unreviewed."""
+    sample = diagnostics(_Coordinator(stocked()))["sample_bottle"]
+    assert set(sample) <= set(SAMPLE_FIELDS)
+
+
+def test_an_unknown_column_is_omitted_rather_than_published():
+    bottle = {**BOTTLE, "SomeColumnAddedNextYear": "who knows what this holds"}
+    report = diagnostics(
+        _Coordinator({"total_bottles": 1, "total_value": 0.0, "bottles": [bottle]})
+    )
+
+    assert "SomeColumnAddedNextYear" not in report["sample_bottle"]
+    # ...but its existence is still visible, which is what schema drift needs.
+    assert "SomeColumnAddedNextYear" in report["columns"]
