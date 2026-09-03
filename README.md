@@ -23,6 +23,7 @@ bottle down to the ones you can drink tonight.
 - [Configuration](#configuration)
 - [The dashboard](#the-dashboard)
 - [Lovelace and automation examples](#lovelace-and-automation-examples)
+- [Lighting the rack](#lighting-the-rack)
 - [Troubleshooting and FAQ](#troubleshooting-and-faq)
 - [Development](#development)
 - [License](#license)
@@ -471,6 +472,76 @@ If you want the bottles themselves in Lovelace proper, the missing piece is per-
 see [Bottle-level data](#bottle-level-data) for why they are not created by default. Please open
 an issue if this matters to you; it is a reasonable feature to add behind an opt-in, given the
 recorder cost is the user's to accept.
+
+---
+
+## Lighting the rack
+
+If your bottles live in a rack you can put LEDs behind, the cellar can answer "what should I open"
+in the room rather than on a screen. `examples/` holds a working pair of configurations for that:
+
+| File | What it is |
+|---|---|
+| `examples/esphome/winerack1led.yaml` | An ESPHome node driving one WS2812 strand per rack row, with a block of LEDs behind each bin |
+| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what the node paints |
+
+The rack is a 13 x 13 grid: rows **A**-**M**, bins **1**-**13**, addressed the way CellarTracker
+addresses them — `Location` is the rack, `Bin` is the slot, so bin `A7` is row A, column 7. Both
+files are written for that shape and say where to change it.
+
+### What it shows
+
+Every lit bin carries the same drinking-window state the dashboard paints, so the rack and
+`/cellartracker/cellar.html` cannot tell you different things about the same bottle:
+
+| Bin | Meaning |
+|---|---|
+| Green | **Ready** — this year is inside the drinking window |
+| Amber | **Drink this year** — the final year of the window |
+| Red | **Past window** — the window closed before this year |
+| Blue | **Needs aging** — the window has not opened yet |
+| Dim white | **No window** — CellarTracker has no recommendation for that bottle |
+| Dark | No bottle in that bin |
+
+A bin usually holds several bottles. It shows the one that most wants dealing with: past, then
+drink-this-year, then ready, then aging, then a bottle with no window at all.
+
+There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
+particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_1_locate`
+script, and walk to the rack. The overview comes back when the hold expires, and a poll that lands
+while you are looking does not steal the answer from you.
+
+### How the two halves talk
+
+The node exposes four actions, and knows nothing about wine:
+
+| Action | Takes |
+|---|---|
+| `esphome.winerack1led_light_rack` | `grid`: 169 state characters, row-major — the whole rack in one call |
+| `esphome.winerack1led_light_row` | `row`: `A`-`M`, `states`: 13 characters |
+| `esphome.winerack1led_light_bin` | `bin_id`: `A7`, `r`/`g`/`b`, `seconds` to hold it |
+| `esphome.winerack1led_clear_all` | nothing |
+
+A state character per bin — `R` ready, `U` urgent, `P` past, `A` aging, `N` no window, `.` empty —
+means the whole rack fits in one 169-character string, which is both a single action call and
+small enough to be an ordinary sensor state. The package builds that string from
+`/api/cellartracker/inventory?view=compact` with the same rule
+[`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
+and pushes it when the cellar syncs rather than on a timer.
+
+### Before you build it
+
+Three things are worth knowing before you cut LED strip:
+
+- **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
+  own API. The package expects it in `secrets.yaml`.
+- **Thirteen strands is more than a classic ESP32 has timing hardware for** — eight RMT channels
+  and two I2S buses is ten. That bounds how many strands can transmit at once, not how many you
+  can have, so the config drives them with FastLED, which takes a channel per strand and hands it
+  back for the next one. `neopixelbus` cannot: it holds a channel per strand for the life of the
+  node and runs out at ten.
+- **Power.** 1014 LEDs at the palette in the file is a few amps, and considerably more if you
+  brighten it. The file shows the arithmetic.
 
 ---
 

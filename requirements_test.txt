@@ -2,3 +2,10 @@ pytest>=8.0
 aiohttp>=3.9
 cellartracker==1.1.1
 voluptuous>=0.13
+
+# tests/test_rack_leds_example.py reads the example configurations in
+# examples/ and renders the Home Assistant template inside one of them, so it
+# needs a YAML parser and the same Jinja sandbox Home Assistant renders in.
+# Neither is a dependency of the integration itself.
+PyYAML>=6.0
+Jinja2>=3.1
