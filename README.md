@@ -540,8 +540,9 @@ Three things are worth knowing before you cut LED strip:
   can have, so the config drives them with FastLED, which takes a channel per strand and hands it
   back for the next one. `neopixelbus` cannot: it holds a channel per strand for the life of the
   node and runs out at ten.
-- **Power.** 1014 LEDs at the palette in the file is a few amps, and considerably more if you
-  brighten it. The file shows the arithmetic.
+- **Power.** 1014 pixels can be lit at once. At the palette in the file that is 10.2 A for a
+  fully green rack and 17.8 A worst case — a 5 V 25 A supply, or half of everything if you drop
+  `bin_leds` from 6 to 3. Every strand wants feeding at both ends. The file shows the arithmetic.
 
 ---
 

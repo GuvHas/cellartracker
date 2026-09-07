@@ -74,12 +74,30 @@
 #    ESPHome's supported component, and the one that works under ESP-IDF. That
 #    means reworking the per-strand lambdas to cover more than one row.
 #
-# 3. Power. 13 rows x 13 bins x 6 LEDs is 1014 LEDs, and a WS2812 draws
-#    roughly 1 mA dark and up to 60 mA at full white. The palette below is
-#    deliberately dim - no channel goes above 150 - which keeps a fully green
-#    overview near 6 A. Budget the supply for the whole rack lit, inject power
-#    at both ends of every strand, and do not raise the palette without
-#    redoing that arithmetic.
+# 3. Power. Budget a WS2812 at 20 mA per colour channel at full scale plus
+#    1 mA for being powered at all, so one pixel is
+#
+#      (R + G + B) / 255 * 20 mA + 1 mA
+#
+#    13 rows x 13 bins x 6 LEDs is 1014 pixels that can be lit at once, out of
+#    1482 powered. That makes the whole rack:
+#
+#      everything off ............................  1.5 A
+#      every bin ready (0, 110, 0) .............. 10.2 A
+#      every bin drink-this-year (150, 55, 0) ... 17.8 A   <- the worst case
+#      per strand, at that worst case ............ 1.4 A
+#
+#    So: a 5 V supply of 25 A, a fuse that protects the feed cable rather than
+#    the LEDs, and power injected at BOTH ends of every strand - a 1 m strand
+#    at 1.4 A fed from one end only drops its far bins to around 3.1 V, and a
+#    WS2812 wants 3.5 V. Halving `bin_leds` to 3 halves all of it and still
+#    reads as a solid marker behind a bottle; that is much the cheapest way to
+#    get to a 15 A supply and 14 AWG.
+#
+#    The palette is what keeps those numbers reachable - no channel goes above
+#    150, and gamma_correct is 1.0, so these values are what the LEDs actually
+#    draw. Full white on every pixel would be 62 A. Do not raise the palette
+#    without redoing the arithmetic.
 #
 # =============================================================================
 
