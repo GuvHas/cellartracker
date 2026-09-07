@@ -1,0 +1,434 @@
+# Wine rack 2 - bin lighting for the CellarTracker integration
+# =============================================================================
+#
+# The second rack: a plain 7 x 7, rows A-G and bins 1-7, 49 bins. Its own
+# ESP32, because it is a separate piece of furniture - a data line running
+# between two racks is exactly the long unshielded run that goes wrong, and
+# two nodes means either rack can be worked on without darkening the other.
+#
+# Everything else is rack 1's design at a smaller size: one WS2815 strand per
+# bin column running top to bottom, the same action surface, the same state
+# characters, the same palette. See examples/esphome/winerack1led.yaml for the
+# reasoning behind the vertical strips, the FastLED driver and the 12 V rail;
+# only the numbers differ here.
+#
+# Actions exposed to Home Assistant:
+#
+#   esphome.winerack2led_light_rack   grid: 49 state characters, row-major
+#   esphome.winerack2led_light_row    row: "A".."G", states: 7 characters
+#   esphome.winerack2led_light_bin    bin_id: "C4", r/g/b: 0-255, seconds: hold
+#   esphome.winerack2led_clear_all    turn everything off
+#
+# State characters: R ready, U drink this year, P past window, A needs aging,
+# N no window recorded, . empty.
+#
+# -----------------------------------------------------------------------------
+# Before you flash this
+# -----------------------------------------------------------------------------
+#
+# 1. Secrets. Your ESPHome secrets.yaml needs these, alongside rack 1's:
+#
+#      wifi_ssid / wifi_password / wifi_domain   shared with rack 1
+#      winerack2led_api_key:       `esphome generate-encryption-key`
+#      winerack2led_ota_password:  anything long and random
+#      winerack2led_ap_ssid:       the fallback hotspot's name
+#      winerack2led_ap_password:   and its password, 8 characters or more
+#
+#    Generate rack 2 its own key and password rather than reusing rack 1's.
+#
+# 2. Power. 49 bins x 6 LEDs is 294 pixels lit at once out of 420 powered:
+#
+#      everything off ............................  0.4 A   (5 W)
+#      every bin ready (0, 110, 0) ...............  1.5 A
+#      every bin drink-this-year (150, 55, 0) ....  2.4 A   <- the worst case
+#      per strand, at that worst case ............  0.4 A
+#
+#    A 12 V 3 A supply covers this rack on its own, with a 5 A fuse on an
+#    18 AWG feed. If the two racks are close enough to share a bus, one 12 V
+#    12.5 A supply runs both - rack 1's 6.3 A plus this 2.4 A is 8.7 A - but
+#    each node still wants its own 12 V -> 5 V buck for its logic.
+#
+# 3. Seven strands is inside the ESP32's eight RMT channels, so this node
+#    would also work with `esp32_rmt_led_strip` under ESP-IDF. It is left on
+#    FastLED to match rack 1: one thing to learn, one thing to debug.
+#
+# =============================================================================
+
+substitutions:
+  device_name: winerack2led
+  friendly_name: Wine Rack 2
+
+  # --- Rack geometry -------------------------------------------------------
+  # A full 7 x 7, so every column is the same height - no U here.
+  rack_rows: "7" # rows A..G
+  rack_cols: "7" # bin columns 1..7, one strand each
+  rack_cells: "49" # rack_rows * rack_cols
+  bin_leds: "6" # LEDs lit in front of one bin
+  bin_pitch: "9" # LEDs from the start of one bin to the start of the next
+  strand_leds: "60" # 7 bins: 7 * 9 - 3, the last bin has no gap after it
+
+  redraw_interval: 200ms
+
+  # --- Palette -------------------------------------------------------------
+  # Identical to rack 1. Two racks that disagreed about what amber means would
+  # be worse than no colour at all.
+  colour_ready: "0, 110, 0" # dashboard --status-green
+  colour_urgent: "150, 55, 0" # dashboard --status-amber
+  colour_past: "140, 0, 0" # dashboard --status-red
+  colour_aging: "0, 45, 120" # dashboard --accent-color
+  colour_no_window: "35, 35, 35" # dashboard --status-grey
+  colour_locate: "150, 120, 0" # the locator, when the caller passes r=g=b=0
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+  encryption:
+    key: !secret winerack2led_api_key
+
+  actions:
+    - action: light_rack
+      variables:
+        grid: string
+      then:
+        - lambda: |-
+            for (int i = 0; i < ${rack_cells}; i++) {
+              id(cell_state)[i] = i < (int) grid.length() ? (uint8_t) toupper(grid[i]) : (uint8_t) '.';
+            }
+        - script.execute: render
+
+    - action: light_row
+      variables:
+        row: string
+        states: string
+      then:
+        - lambda: |-
+            if (row.empty()) {
+              ESP_LOGW("winerack", "light_row: no row given");
+              return;
+            }
+            const int r = toupper(row[0]) - 'A';
+            if (r < 0 || r >= ${rack_rows}) {
+              ESP_LOGW("winerack", "light_row: '%s' is not a row between A and G", row.c_str());
+              return;
+            }
+            for (int c = 0; c < ${rack_cols}; c++) {
+              id(cell_state)[r * ${rack_cols} + c] =
+                  c < (int) states.length() ? (uint8_t) toupper(states[c]) : (uint8_t) '.';
+            }
+        - script.execute: render
+
+    - action: light_bin
+      variables:
+        bin_id: string
+        r: int
+        g: int
+        b: int
+        seconds: int
+      then:
+        - lambda: |-
+            if (bin_id.length() < 2) {
+              ESP_LOGW("winerack", "light_bin: '%s' is not a bin id", bin_id.c_str());
+              return;
+            }
+            const int row = toupper(bin_id[0]) - 'A';
+            int col = 0;
+            for (size_t i = 1; i < bin_id.length(); i++) {
+              if (isdigit((unsigned char) bin_id[i]))
+                col = col * 10 + (bin_id[i] - '0');
+            }
+            if (row < 0 || row >= ${rack_rows} || col < 1 || col > ${rack_cols}) {
+              ESP_LOGW("winerack", "light_bin: '%s' is not a bin in this rack", bin_id.c_str());
+              return;
+            }
+            const Color fallback(${colour_locate});
+            id(locate_cell) = row * ${rack_cols} + (col - 1);
+            id(locate_r) = (r | g | b) ? r : fallback.r;
+            id(locate_g) = (r | g | b) ? g : fallback.g;
+            id(locate_b) = (r | g | b) ? b : fallback.b;
+        - script.execute: render
+        - if:
+            condition:
+              lambda: 'return seconds > 0;'
+            then:
+              - script.execute:
+                  id: hold_locator
+                  duration: !lambda 'return seconds;'
+            else:
+              - script.stop: hold_locator
+
+    - action: clear_all
+      then:
+        - script.stop: hold_locator
+        - lambda: |-
+            for (int i = 0; i < ${rack_cells}; i++) id(cell_state)[i] = (uint8_t) '.';
+            id(locate_cell) = -1;
+        - script.execute: render
+
+ota:
+  - platform: esphome
+    password: !secret winerack2led_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: !secret wifi_domain
+
+  ap:
+    ssid: !secret winerack2led_ap_ssid
+    password: !secret winerack2led_ap_password
+
+captive_portal:
+
+# --- STATE -------------------------------------------------------------------
+globals:
+  - id: cell_state
+    type: uint8_t[49] # rack_cells
+    restore_value: false
+
+  - id: cell_rgb
+    type: uint8_t[147] # rack_cells * 3
+    restore_value: false
+
+  - id: locate_cell
+    type: int
+    restore_value: false
+    initial_value: '-1'
+
+  - id: locate_r
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: locate_g
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: locate_b
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+# --- RENDERING ---------------------------------------------------------------
+script:
+  - id: render
+    mode: restart
+    then:
+      - lambda: |-
+          auto colour_of = [](uint8_t state) -> Color {
+            switch (state) {
+              case 'R': return Color(${colour_ready});
+              case 'U': return Color(${colour_urgent});
+              case 'P': return Color(${colour_past});
+              case 'A': return Color(${colour_aging});
+              case 'N': return Color(${colour_no_window});
+              default:  return Color(0, 0, 0);
+            }
+          };
+
+          const int located = id(locate_cell);
+          for (int i = 0; i < ${rack_cells}; i++) {
+            Color c(0, 0, 0);
+            if (located >= 0) {
+              if (i == located)
+                c = Color(id(locate_r), id(locate_g), id(locate_b));
+            } else {
+              c = colour_of(id(cell_state)[i]);
+            }
+            id(cell_rgb)[i * 3] = c.r;
+            id(cell_rgb)[i * 3 + 1] = c.g;
+            id(cell_rgb)[i * 3 + 2] = c.b;
+          }
+
+          esphome::light::LightState *strand[${rack_cols}] = {
+            id(col_01), id(col_02), id(col_03), id(col_04),
+            id(col_05), id(col_06), id(col_07),
+          };
+
+          for (int c = 0; c < ${rack_cols}; c++) {
+            bool lit = false;
+            for (int r = 0; r < ${rack_rows} && !lit; r++) {
+              const uint8_t *rgb = &id(cell_rgb)[(r * ${rack_cols} + c) * 3];
+              lit = rgb[0] || rgb[1] || rgb[2];
+            }
+            if (lit) {
+              auto call = strand[c]->turn_on();
+              call.set_effect("Rack");
+              call.perform();
+            } else {
+              strand[c]->turn_off().perform();
+            }
+          }
+
+  - id: hold_locator
+    mode: restart
+    parameters:
+      duration: int
+    then:
+      - delay: !lambda 'return duration * 1000;'
+      - lambda: 'id(locate_cell) = -1;'
+      - script.execute: render
+
+# --- STRANDS -----------------------------------------------------------------
+# Seven identical columns, rows A to G. Pixel 0 is the top bin; feed and data
+# enter at the top of each column.
+.strand: &strand
+  platform: fastled_clockless
+  # WS2815 again - 12 V with the backup data line. It speaks the WS2812B
+  # protocol, which is the name ESPHome knows. Tie the first pixel's BI pad
+  # alongside its DI.
+  chipset: WS2812B
+  rgb_order: GRB
+  num_leds: ${strand_leds}
+  restore_mode: ALWAYS_OFF
+  default_transition_length: 0s
+  gamma_correct: 1.0
+
+light:
+  - <<: *strand
+    id: col_01
+    name: "Column 1"
+    pin: GPIO4
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 0, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  - <<: *strand
+    id: col_02
+    name: "Column 2"
+    pin: GPIO13
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 1, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  # GPIO16 and GPIO17 are PSRAM on a WROVER module. Fine on a plain WROOM.
+  - <<: *strand
+    id: col_03
+    name: "Column 3"
+    pin: GPIO16
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 2, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  - <<: *strand
+    id: col_04
+    name: "Column 4"
+    pin: GPIO17
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 3, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  - <<: *strand
+    id: col_05
+    name: "Column 5"
+    pin: GPIO18
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 4, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  - <<: *strand
+    id: col_06
+    name: "Column 6"
+    pin: GPIO19
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 5, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  - <<: *strand
+    id: col_07
+    name: "Column 7"
+    pin: GPIO21
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 6, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }

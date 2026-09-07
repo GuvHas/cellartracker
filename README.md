@@ -478,20 +478,22 @@ recorder cost is the user's to accept.
 ## Lighting the rack
 
 If your bottles live in a rack you can put LEDs behind, the cellar can answer "what should I open"
-in the room rather than on a screen. `examples/` holds a working pair of configurations for that:
+in the room rather than on a screen. `examples/` holds a working set of configurations for two:
 
 | File | What it is |
 |---|---|
-| `examples/esphome/winerack1led.yaml` | An ESPHome node driving one WS2815 strand per rack row, with a block of LEDs behind each bin |
-| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what the node paints |
+| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column |
+| `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
+| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
 
-The rack is a 13 x 13 grid: rows **A**-**M**, bins **1**-**13**, addressed the way CellarTracker
-addresses them — `Location` is the rack, `Bin` is the slot, so bin `A7` is row A, column 7. Both
-files are written for that shape and say where to change it.
+Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
+slot, so bin `A2` is row A, column 2. Rack 1's rows **A**–**H** hold bins 1–4 and 10–13 with an
+opening across the middle; rows **I**–**M** run the full width. Rack 2 is rows **A**–**G**,
+bins 1–7.
 
 ### What it shows
 
-Every lit bin carries the same drinking-window state the dashboard paints, so the rack and
+Every lit bin carries the same drinking-window state the dashboard paints, so the racks and
 `/cellartracker/cellar.html` cannot tell you different things about the same bottle:
 
 | Bin | Meaning |
@@ -501,51 +503,63 @@ Every lit bin carries the same drinking-window state the dashboard paints, so th
 | Red | **Past window** — the window closed before this year |
 | Blue | **Needs aging** — the window has not opened yet |
 | Dim white | **No window** — CellarTracker has no recommendation for that bottle |
-| Dark | No bottle in that bin |
+| Dark | No bottle, or no bin there at all |
 
 A bin usually holds several bottles. It shows the one that most wants dealing with: past, then
 drink-this-year, then ready, then aging, then a bottle with no window at all.
 
 There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
-particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_1_locate`
+particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_locate`
 script, and walk to the rack. The overview comes back when the hold expires, and a poll that lands
 while you are looking does not steal the answer from you.
 
+### Why the strips run vertically
+
+A U-shaped rack makes this decision for you. Eight of rack 1's thirteen rows are split in two by
+the opening, so a strand per **row** would need a jumper carrying 12 V, ground and data across
+each gap, and firmware that skips the pixels that are not there. Every **column** of the same rack
+is contiguous — columns 1–4 and 10–13 run A to M, columns 5–9 exist only for rows I–M and are
+simply shorter strands.
+
+Same thirteen strands, same 1122 pixels, eight fewer jumpers and no gaps in any strand. The test
+suite asserts both halves of that argument, so the wiring cannot quietly stop matching the rack.
+
 ### How the two halves talk
 
-The node exposes four actions, and knows nothing about wine:
+Each node exposes four actions and knows nothing about wine:
 
 | Action | Takes |
 |---|---|
-| `esphome.winerack1led_light_rack` | `grid`: 169 state characters, row-major — the whole rack in one call |
+| `esphome.winerack1led_light_rack` | `grid`: 169 state characters, row-major — the whole envelope in one call |
 | `esphome.winerack1led_light_row` | `row`: `A`-`M`, `states`: 13 characters |
-| `esphome.winerack1led_light_bin` | `bin_id`: `A7`, `r`/`g`/`b`, `seconds` to hold it |
+| `esphome.winerack1led_light_bin` | `bin_id`: `A2`, `r`/`g`/`b`, `seconds` to hold it |
 | `esphome.winerack1led_clear_all` | nothing |
 
-A state character per bin — `R` ready, `U` urgent, `P` past, `A` aging, `N` no window, `.` empty —
-means the whole rack fits in one 169-character string, which is both a single action call and
-small enough to be an ordinary sensor state. The package builds that string from
+Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per bin — `R` ready,
+`U` urgent, `P` past, `A` aging, `N` no window, `.` empty — means a whole rack fits in one action
+call and in an ordinary sensor state. The package builds those strings from
 `/api/cellartracker/inventory?view=compact` with the same rule
 [`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
-and pushes it when the cellar syncs rather than on a timer.
+in one request for both racks, and pushes them when the cellar syncs rather than on a timer.
+
+Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins the U does not have
+are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
+the rebuild removed is not mis-lit — it is just dark, and a diagnostic sensor counts them so a
+rebuild does not quietly swallow bottles.
 
 ### Before you build it
 
-Three things are worth knowing before you cut LED strip:
-
 - **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
   own API. The package expects it in `secrets.yaml`.
-- **Thirteen strands is more than a classic ESP32 has timing hardware for** — eight RMT channels
-  and two I2S buses is ten. That bounds how many strands can transmit at once, not how many you
-  can have, so the config drives them with FastLED, which takes a channel per strand and hands it
-  back for the next one. `neopixelbus` cannot: it holds a channel per strand for the life of the
-  node and runs out at ten.
-- **Power.** 1014 pixels can be lit at once. On the 12 V WS2815 strip the file assumes, that is
-  5.1 A for a fully green rack and 8.3 A worst case — a 12 V 12.5 A supply, a 15 A fuse, and a
-  single feed at the head of each strand. The file shows the arithmetic.
-- **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than
-  a dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
+- **Power.** Rack 1 draws 3.9 A for a fully green overview and 6.3 A worst case; rack 2 adds
+  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the top of
+  each column is enough at 0.6 A per strand. Halve it all by dropping `bin_leds` from 6 to 3.
+- **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
+  dark column, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.
+- **Thirteen strands is more than a classic ESP32 has timing hardware for** — eight RMT channels
+  and two I2S buses is ten. That bounds how many can transmit at once, not how many you can have,
+  so the config drives them with FastLED, which takes a channel per strand and hands it back.
 
 ---
 

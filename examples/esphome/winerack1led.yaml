@@ -1,8 +1,12 @@
 # Wine rack 1 - bin lighting for the CellarTracker integration
 # =============================================================================
 #
-# One WS2815 strand per rack row, one block of LEDs per bin. Home Assistant
-# tells the board what to show; the board owns nothing but the pixels.
+# A U-shaped rack: rows A-H hold bins 1-4 and 10-13 with an opening across the
+# middle, and rows I-M run the full width. 129 bins in a 13 x 13 envelope.
+#
+# One WS2815 strand per bin COLUMN, running top to bottom - see note 2 for why
+# the strips are vertical rather than one per row. Home Assistant tells the
+# board what to show; the board owns nothing but the pixels.
 #
 # Two things are drawn:
 #
@@ -17,8 +21,13 @@
 #
 #   esphome.winerack1led_light_rack   grid: 169 state characters, row-major
 #   esphome.winerack1led_light_row    row: "A".."M", states: 13 characters
-#   esphome.winerack1led_light_bin    bin_id: "A7", r/g/b: 0-255, seconds: hold
+#   esphome.winerack1led_light_bin    bin_id: "A2", r/g/b: 0-255, seconds: hold
 #   esphome.winerack1led_clear_all    turn everything off
+#
+# The action surface is unchanged by the rewiring. The grid stays row-major
+# over the whole 13 x 13 envelope and bins the rack does not have are simply
+# never lit - which also means a bottle CellarTracker still files at, say, A7
+# quietly lights nothing, rather than lighting the wrong bin.
 #
 # State characters, which are the dashboard's five drinking-window states:
 #
@@ -27,10 +36,11 @@
 #   P  past           - the window closed before this year
 #   A  aging          - the window has not opened yet
 #   N  no window      - a bottle CellarTracker has no recommendation for
-#   .  empty          - no bottle in that bin (any other character reads as this)
+#   .  empty          - no bottle, or no bin there at all
 #
 # examples/home_assistant/wine_rack_leds.yaml builds those strings from the
-# integration's inventory endpoint and calls the actions.
+# integration's inventory endpoint and calls the actions. The second rack has
+# its own node: examples/esphome/winerack2led.yaml.
 #
 # -----------------------------------------------------------------------------
 # Before you flash this
@@ -53,7 +63,23 @@
 #    Anything that was ever pasted into a chat window or committed to a
 #    repository should be regenerated before it goes in there.
 #
-# 2. Why FastLED and not neopixelbus. A classic ESP32 has eight RMT channels
+# 2. Why the strips run vertically. The U has a hole in the middle of rows A-H,
+#    and which way you run the strip decides whether that hole is a problem:
+#
+#      one strand per ROW     - 8 of the 13 strands are split in two by the
+#                               opening, so each needs a jumper carrying 12 V,
+#                               ground and data across half a metre of nothing,
+#                               and the firmware has to skip five bins' worth
+#                               of pixels that do not exist.
+#      one strand per COLUMN  - every strand is contiguous. Columns 1-4 and
+#                               10-13 run A to M; columns 5-9 exist only for
+#                               rows I-M and are simply shorter strands.
+#
+#    Same thirteen strands, same 1122 pixels, eight fewer jumpers and no gaps
+#    in any strand. That is the whole argument. A rectangular rack can go
+#    either way; this one should not.
+#
+# 3. Why FastLED and not neopixelbus. A classic ESP32 has eight RMT channels
 #    and two I2S buses to get WS2812-protocol timing from - ten strands' worth
 #    of hardware for thirteen strands. That is a limit on how many can transmit
 #    at once rather than on how many you can have, and it is the whole
@@ -63,53 +89,40 @@
 #    the life of the node and runs out. Its `bit_bang` fallback is not an
 #    answer either - on ESP32 it does not compile.
 #
-#    The cost is that a full repaint goes out in batches rather than all at
-#    once - at worst the thirteen strands end up fully serialised, which for
-#    114 LEDs each is about 45 ms. For a picture that changes when the cellar
-#    does, that is nothing.
-#
 #    `fastled_clockless` needs the Arduino framework, which is why `esp32:`
-#    below asks for it. If you ever chain rows onto eight data lines or fewer -
-#    row A's output into row B's input - move to `esp32_rmt_led_strip`:
-#    ESPHome's supported component, and the one that works under ESP-IDF. That
-#    means reworking the per-strand lambdas to cover more than one row.
+#    below asks for it.
 #
-# 3. Power. The strips are WS2815 on a 12 V rail. Budget a pixel at 0.3 W -
+# 4. Power. The strips are WS2815 on a 12 V rail. Budget a pixel at 0.3 W -
 #    25 mA at 12 V - at full white, scaling with the sum of its channels,
 #    plus about 1 mA standing for the controller and the backup-line logic:
 #
 #      (R + G + B) / 765 * 25 mA + 1 mA        @ 12 V
 #
-#    13 rows x 13 bins x 6 LEDs is 1014 pixels that can be lit at once, out of
-#    1482 powered. That makes the whole rack:
+#    129 bins x 6 LEDs is 774 pixels that can be lit at once, out of 1122
+#    powered. That makes this rack:
 #
-#      everything off ............................  1.5 A   (18 W)
-#      every bin ready (0, 110, 0) ...............  5.1 A
-#      every bin drink-this-year (150, 55, 0) ....  8.3 A   <- the worst case
-#      per strand, at that worst case ............  0.6 A
+#      everything off ............................  1.1 A   (13 W)
+#      every bin ready (0, 110, 0) ...............  3.9 A
+#      every bin drink-this-year (150, 55, 0) ....  6.3 A   <- the worst case
+#      per strand, at that worst case ............  0.6 A   (a 13-bin column)
 #
-#    So: a 12 V supply of 12.5 A, a 15 A fuse protecting the 14 AWG feed
-#    rather than the LEDs, and - unlike the 5 V version this replaced - a
-#    single feed at the head of each strand is enough. A 1.1 m strand at
-#    0.6 A drops about 0.3 V, against the 1.5 V of budget between 12 V and
+#    So: a 12 V supply of 8.5 A for this rack alone, a 10 A fuse protecting a
+#    16 AWG feed, and a single feed at the top of each column. A 1.1 m strand
+#    at 0.6 A drops about 0.3 V, against the 1.5 V of budget between 12 V and
 #    the 10.5 V a WS2815 wants. Measure your strip's copper before trusting
-#    that; over 1 ohm/m per rail, or strands longer than 1.5 m, feed both ends.
+#    that; over 1 ohm/m per rail, feed both ends.
+#
+#    Rack 2 adds 2.4 A. One 12 V 12.5 A supply runs both if they are close
+#    enough to share a bus; otherwise give each rack its own.
 #
 #    The 12 V rail powers only the LEDs. The ESP32 and the level shifters run
 #    from a small 12 V -> 5 V buck off the same bus, and every ground - buck
 #    included - returns to the PSU terminal rather than through a strip.
 #
-#    Two things 12 V costs you. Total power is slightly higher than the 5 V
-#    equivalent, because each pixel regulates 12 V down and dissipates the
-#    difference as heat in the strip. And the always-on backup-line logic
-#    makes idle 18 W rather than 7 W, which in a room you are paying to keep
-#    cold is worth switching off - see the blueprint for the high-side switch
-#    and the output-enable interlock that goes with it.
-#
 #    The palette is what keeps those numbers modest - no channel goes above
 #    150, and gamma_correct is 1.0, so these values are what the pixels
-#    actually draw. Full white everywhere would be 28 A. Halving `bin_leds`
-#    to 3 halves the lot and still reads as a solid marker behind a bottle.
+#    actually draw. Halving `bin_leds` to 3 halves the lot and still reads as
+#    a solid marker behind a bottle.
 #
 # =============================================================================
 
@@ -118,14 +131,18 @@ substitutions:
   friendly_name: Wine Rack 1
 
   # --- Rack geometry -------------------------------------------------------
-  # Physical layout of one row: 13 compartments of 6 LEDs, separated by gaps of
-  # 3. The last compartment has no gap after it, so a strand is 13 * 9 - 3.
-  rack_rows: "13" # rows A..M, one strand each
-  rack_cols: "13" # bins per row, numbered 1..13
-  rack_cells: "169" # rack_rows * rack_cols
+  # The envelope is 13 x 13; which of those bins exist is decided per strand,
+  # by the `col` and `first_row` literals in each light's lambda below.
+  #
+  # One column of the rack: N compartments of 6 LEDs separated by gaps of 3.
+  # The last compartment has no gap after it, so a strand is N * 9 - 3.
+  rack_rows: "13" # rows A..M
+  rack_cols: "13" # bin columns 1..13, one strand each
+  rack_cells: "169" # rack_rows * rack_cols, the whole envelope
   bin_leds: "6" # LEDs lit in front of one bin
   bin_pitch: "9" # LEDs from the start of one bin to the start of the next
-  strand_leds: "114" # rack_cols * bin_pitch - (bin_pitch - bin_leds)
+  tall_strand: "114" # 13 bins, rows A..M  - columns 1-4 and 10-13
+  short_strand: "42" # 5 bins, rows I..M   - columns 5-9, the U's opening
 
   # How often a strand redraws itself. The picture is static between action
   # calls, so this is only how long a change takes to appear - 200 ms is
@@ -150,7 +167,7 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    # fastled_clockless is Arduino-only. See note 2 above.
+    # fastled_clockless is Arduino-only. See note 3 above.
     type: arduino
 
 logger:
@@ -162,9 +179,8 @@ api:
   actions:
     # --- Cellar overview, whole rack in one call --------------------------
     # `grid` is rack_cells state characters, row-major: A1..A13, then B1..B13,
-    # and so on. One call paints the rack, so the picture is never half-old.
-    # Characters past the end of the string, and any character that is not one
-    # of RUPAN, read as an empty bin.
+    # and so on across the whole 13 x 13 envelope. Bins the U does not have
+    # are sent as '.' like any other empty bin and light nothing.
     - action: light_rack
       variables:
         grid: string
@@ -201,10 +217,13 @@ api:
 
     # --- Locator ----------------------------------------------------------
     # Light one bin and nothing else. `bin_id` is a row letter and a column
-    # number - "A7", "a-7" and "A 07" all mean the same bin. Pass r=g=b=0 for
+    # number - "A2", "a-2" and "A 02" all mean the same bin. Pass r=g=b=0 for
     # the default locator colour. `seconds` is how long to hold it: 0 holds it
     # until something else changes the rack, anything above that restores the
     # overview when it expires.
+    #
+    # A bin inside the envelope but outside the rack - A7, say, in the U's
+    # opening - is accepted and lights nothing. There is no strand there.
     - action: light_bin
       variables:
         bin_id: string
@@ -219,8 +238,8 @@ api:
               return;
             }
             const int row = toupper(bin_id[0]) - 'A';
-            // Every digit after the row letter, so "A-7" and "A 07" parse the
-            // same as "A7". A bin id carries no other number.
+            // Every digit after the row letter, so "A-2" and "A 02" parse the
+            // same as "A2". A bin id carries no other number.
             int col = 0;
             for (size_t i = 1; i < bin_id.length(); i++) {
               if (isdigit((unsigned char) bin_id[i]))
@@ -275,10 +294,12 @@ wifi:
 captive_portal:
 
 # --- STATE -------------------------------------------------------------------
-# Two arrays, both row-major and both indexed by cell: row * rack_cols + column.
-# cell_state is what Home Assistant said; cell_rgb is what the strands draw,
-# composed from it by the render script. Keeping them apart is what lets the
-# locator hide the overview without destroying it.
+# Two arrays over the whole 13 x 13 envelope, both row-major and both indexed
+# by cell: row * rack_cols + column. cell_state is what Home Assistant said;
+# cell_rgb is what the strands draw, composed from it by the render script.
+# Keeping them apart is what lets the locator hide the overview without
+# destroying it. Cells the rack has no bin for stay black and no strand reads
+# them.
 globals:
   - id: cell_state
     type: uint8_t[169] # rack_cells
@@ -342,31 +363,28 @@ script:
             id(cell_rgb)[i * 3 + 2] = c.b;
           }
 
-          // One strand per row, in row order. Chaining rows onto fewer data
-          // pins means reworking this list and the per-strand lambdas.
-          esphome::light::LightState *strand[${rack_rows}] = {
-            id(row_a), id(row_b), id(row_c), id(row_d), id(row_e),
-            id(row_f), id(row_g), id(row_h), id(row_i), id(row_j),
-            id(row_k), id(row_l), id(row_m),
+          // One strand per bin column, in column order. A column with nothing
+          // to show is switched off, so Home Assistant's light entities say
+          // which columns are lit. The LEDs still draw their idle current
+          // either way - off here means black, not unpowered.
+          esphome::light::LightState *strand[${rack_cols}] = {
+            id(col_01), id(col_02), id(col_03), id(col_04), id(col_05),
+            id(col_06), id(col_07), id(col_08), id(col_09), id(col_10),
+            id(col_11), id(col_12), id(col_13),
           };
 
-          // A row with nothing to show is switched off, so Home Assistant's
-          // light entities say which rows are lit. The LEDs still draw their
-          // idle current either way - off here means black, not unpowered.
-          for (int r = 0; r < ${rack_rows}; r++) {
+          for (int c = 0; c < ${rack_cols}; c++) {
             bool lit = false;
-            for (int i = r * ${rack_cols} * 3; i < (r + 1) * ${rack_cols} * 3; i++) {
-              if (id(cell_rgb)[i]) {
-                lit = true;
-                break;
-              }
+            for (int r = 0; r < ${rack_rows} && !lit; r++) {
+              const uint8_t *rgb = &id(cell_rgb)[(r * ${rack_cols} + c) * 3];
+              lit = rgb[0] || rgb[1] || rgb[2];
             }
             if (lit) {
-              auto call = strand[r]->turn_on();
+              auto call = strand[c]->turn_on();
               call.set_effect("Rack");
               call.perform();
             } else {
-              strand[r]->turn_off().perform();
+              strand[c]->turn_off().perform();
             }
           }
 
@@ -382,268 +400,319 @@ script:
       - script.execute: render
 
 # --- STRANDS -----------------------------------------------------------------
-# Everything the thirteen strands have in common. Merged into each light below,
-# so a change to the geometry or the colour handling happens once. See note 2
-# at the top for why these are FastLED strands rather than neopixelbus ones.
+# Everything the thirteen strands have in common. `num_leds` is not in here
+# because it is not common: columns 5-9 only exist for rows I-M and are short.
+# See note 3 at the top for why these are FastLED strands.
 #
 # gamma_correct is off because these are status colours, not a dimmable white:
 # the palette above should reach the LEDs as written. The light's brightness
-# still scales the whole row, so Home Assistant's slider is a master dimmer.
+# still scales the whole column, so Home Assistant's slider is a master dimmer.
 .strand: &strand
   platform: fastled_clockless
   # The hardware is WS2815 - 12 V, and with the backup data line that keeps a
-  # row alive when one pixel dies. ESPHome has no name for it because it does
-  # not need one: WS2815 speaks the same 800 kHz protocol as a WS2812B, so
-  # that is the chipset to declare. Wire the first pixel's BI pad alongside
-  # its DI; left floating it can oscillate and take the row with it.
+  # column alive when one pixel dies. ESPHome has no name for it because it
+  # does not need one: WS2815 speaks the same 800 kHz protocol as a WS2812B,
+  # so that is the chipset to declare. Wire the first pixel's BI pad alongside
+  # its DI; left floating it can oscillate and take the column with it.
   chipset: WS2812B
   rgb_order: GRB
-  num_leds: ${strand_leds}
   restore_mode: ALWAYS_OFF
   default_transition_length: 0s
   gamma_correct: 1.0
 
-# The one effect every strand runs. It copies its own row out of cell_rgb and
-# paints each bin's block of LEDs, leaving the gaps between bins dark. All the
-# decisions were made in the render script; this only draws.
+# The one effect every strand runs. Two literals per strand say where it is:
+# `col` is its bin column, 0-based, and `first_row` is the row its first pixel
+# sits at. The loop then walks down the column, one bin per bin_pitch pixels,
+# and stops when it runs off the end of the strand - which is what lets the
+# short columns share the same code as the tall ones.
+#
+# Pixel 0 is the TOP bin of each column and the strand runs downward. Feed and
+# data enter at the top. If you would rather wire from the floor up, reverse
+# the strip and set `first_row` to the bottom row, counting up.
 #
 # It has to be an effect rather than direct pixel writes: with no effect
 # running, any light command (a brightness change, a toggle from the Home
 # Assistant UI) repaints the whole strand in the light's own colour and would
 # wipe the picture.
 light:
+  # --- Columns 1-4: the left arm of the U, rows A to M ----------------------
   - <<: *strand
-    id: row_a
-    name: "Row A"
+    id: col_01
+    name: "Column 1"
     pin: GPIO4
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 0;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 0, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_b
-    name: "Row B"
+    id: col_02
+    name: "Column 2"
     pin: GPIO13
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 1;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 1, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
-
-  - <<: *strand
-    id: row_c
-    name: "Row C"
-    pin: GPIO14
-    effects:
-      - addressable_lambda:
-          name: Rack
-          update_interval: ${redraw_interval}
-          lambda: |-
-            const int row = 2;
-            for (int col = 0; col < ${rack_cols}; col++) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   # GPIO16 and GPIO17 are wired to the PSRAM on WROVER modules. Fine on the
-  # plain WROOM this board uses; move these two rows if you reflash a WROVER.
+  # plain WROOM this board uses; move these two columns if you reflash a WROVER.
   - <<: *strand
-    id: row_d
-    name: "Row D"
+    id: col_03
+    name: "Column 3"
     pin: GPIO16
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 3;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 2, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_e
-    name: "Row E"
+    id: col_04
+    name: "Column 4"
     pin: GPIO17
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 4;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 3, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
+  # --- Columns 5-9: the base of the U only, rows I to M --------------------
+  # Five bins each. `first_row = 8` is row I, so pixel 0 of these strands sits
+  # at the top of the U's opening rather than at the top of the rack.
   - <<: *strand
-    id: row_f
-    name: "Row F"
+    id: col_05
+    name: "Column 5"
     pin: GPIO18
+    num_leds: ${short_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 5;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 4, first_row = 8;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_g
-    name: "Row G"
+    id: col_06
+    name: "Column 6"
     pin: GPIO19
+    num_leds: ${short_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 6;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 5, first_row = 8;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_h
-    name: "Row H"
+    id: col_07
+    name: "Column 7"
     pin: GPIO21
+    num_leds: ${short_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 7;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 6, first_row = 8;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_i
-    name: "Row I"
+    id: col_08
+    name: "Column 8"
     pin: GPIO22
+    num_leds: ${short_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 8;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 7, first_row = 8;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_j
-    name: "Row J"
+    id: col_09
+    name: "Column 9"
     pin: GPIO23
+    num_leds: ${short_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 9;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 8, first_row = 8;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
+  # --- Columns 10-13: the right arm of the U, rows A to M ------------------
   - <<: *strand
-    id: row_k
-    name: "Row K"
+    id: col_10
+    name: "Column 10"
     pin: GPIO25
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 10;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 9, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_l
-    name: "Row L"
+    id: col_11
+    name: "Column 11"
     pin: GPIO26
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 11;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 10, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
 
   - <<: *strand
-    id: row_m
-    name: "Row M"
+    id: col_12
+    name: "Column 12"
     pin: GPIO27
+    num_leds: ${tall_strand}
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int row = 12;
-            for (int col = 0; col < ${rack_cols}; col++) {
+            const int col = 11, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
               const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              const int start = col * ${bin_pitch};
-              for (int i = 0; i < ${bin_pitch} && start + i < it.size(); i++) {
-                it[start + i] = i < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
+              }
+            }
+
+  # GPIO32 rather than GPIO14: 14 is MTMS and emits a pulse during boot, which
+  # would flick this column every time the board resets. 32 has no such habit.
+  - <<: *strand
+    id: col_13
+    name: "Column 13"
+    pin: GPIO32
+    num_leds: ${tall_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            const int col = 12, first_row = 0;
+            for (int i = 0; ; i++) {
+              const int start = i * ${bin_pitch};
+              const int row = first_row + i;
+              if (start >= it.size() || row >= ${rack_rows}) break;
+              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
+              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
+                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
               }
             }
