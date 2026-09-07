@@ -169,7 +169,7 @@ def one_bottle_per_bin() -> list[dict]:
     slots = sorted(RACK1_SHAPE)[: len(WINDOWS)]
     return [
         bottle(f"{chr(ord('A') + r)}{c + 1}", begin, end)
-        for (r, c), (begin, end) in zip(slots, WINDOWS)
+        for (r, c), (begin, end) in zip(slots, WINDOWS, strict=True)
     ]
 
 
