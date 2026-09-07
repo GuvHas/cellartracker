@@ -482,7 +482,7 @@ in the room rather than on a screen. `examples/` holds a working pair of configu
 
 | File | What it is |
 |---|---|
-| `examples/esphome/winerack1led.yaml` | An ESPHome node driving one WS2812 strand per rack row, with a block of LEDs behind each bin |
+| `examples/esphome/winerack1led.yaml` | An ESPHome node driving one WS2815 strand per rack row, with a block of LEDs behind each bin |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what the node paints |
 
 The rack is a 13 x 13 grid: rows **A**-**M**, bins **1**-**13**, addressed the way CellarTracker
@@ -540,9 +540,12 @@ Three things are worth knowing before you cut LED strip:
   can have, so the config drives them with FastLED, which takes a channel per strand and hands it
   back for the next one. `neopixelbus` cannot: it holds a channel per strand for the life of the
   node and runs out at ten.
-- **Power.** 1014 pixels can be lit at once. At the palette in the file that is 10.2 A for a
-  fully green rack and 17.8 A worst case — a 5 V 25 A supply, or half of everything if you drop
-  `bin_leds` from 6 to 3. Every strand wants feeding at both ends. The file shows the arithmetic.
+- **Power.** 1014 pixels can be lit at once. On the 12 V WS2815 strip the file assumes, that is
+  5.1 A for a fully green rack and 8.3 A worst case — a 12 V 12.5 A supply, a 15 A fuse, and a
+  single feed at the head of each strand. The file shows the arithmetic.
+- **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than
+  a dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
+  LEDs, 5 V from a buck for the ESP32 and the level shifters.
 
 ---
 

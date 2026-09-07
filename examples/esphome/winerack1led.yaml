@@ -1,7 +1,7 @@
 # Wine rack 1 - bin lighting for the CellarTracker integration
 # =============================================================================
 #
-# One WS2812 strand per rack row, one block of LEDs per bin. Home Assistant
+# One WS2815 strand per rack row, one block of LEDs per bin. Home Assistant
 # tells the board what to show; the board owns nothing but the pixels.
 #
 # Two things are drawn:
@@ -54,8 +54,8 @@
 #    repository should be regenerated before it goes in there.
 #
 # 2. Why FastLED and not neopixelbus. A classic ESP32 has eight RMT channels
-#    and two I2S buses to get WS2812 timing from - ten strands' worth of
-#    hardware for thirteen strands. That is a limit on how many can transmit
+#    and two I2S buses to get WS2812-protocol timing from - ten strands' worth
+#    of hardware for thirteen strands. That is a limit on how many can transmit
 #    at once rather than on how many you can have, and it is the whole
 #    difference between the two components: FastLED takes a channel per strand
 #    as it goes and hands it back for the next one, so thirteen strands
@@ -74,30 +74,42 @@
 #    ESPHome's supported component, and the one that works under ESP-IDF. That
 #    means reworking the per-strand lambdas to cover more than one row.
 #
-# 3. Power. Budget a WS2812 at 20 mA per colour channel at full scale plus
-#    1 mA for being powered at all, so one pixel is
+# 3. Power. The strips are WS2815 on a 12 V rail. Budget a pixel at 0.3 W -
+#    25 mA at 12 V - at full white, scaling with the sum of its channels,
+#    plus about 1 mA standing for the controller and the backup-line logic:
 #
-#      (R + G + B) / 255 * 20 mA + 1 mA
+#      (R + G + B) / 765 * 25 mA + 1 mA        @ 12 V
 #
 #    13 rows x 13 bins x 6 LEDs is 1014 pixels that can be lit at once, out of
 #    1482 powered. That makes the whole rack:
 #
-#      everything off ............................  1.5 A
-#      every bin ready (0, 110, 0) .............. 10.2 A
-#      every bin drink-this-year (150, 55, 0) ... 17.8 A   <- the worst case
-#      per strand, at that worst case ............ 1.4 A
+#      everything off ............................  1.5 A   (18 W)
+#      every bin ready (0, 110, 0) ...............  5.1 A
+#      every bin drink-this-year (150, 55, 0) ....  8.3 A   <- the worst case
+#      per strand, at that worst case ............  0.6 A
 #
-#    So: a 5 V supply of 25 A, a fuse that protects the feed cable rather than
-#    the LEDs, and power injected at BOTH ends of every strand - a 1 m strand
-#    at 1.4 A fed from one end only drops its far bins to around 3.1 V, and a
-#    WS2812 wants 3.5 V. Halving `bin_leds` to 3 halves all of it and still
-#    reads as a solid marker behind a bottle; that is much the cheapest way to
-#    get to a 15 A supply and 14 AWG.
+#    So: a 12 V supply of 12.5 A, a 15 A fuse protecting the 14 AWG feed
+#    rather than the LEDs, and - unlike the 5 V version this replaced - a
+#    single feed at the head of each strand is enough. A 1.1 m strand at
+#    0.6 A drops about 0.3 V, against the 1.5 V of budget between 12 V and
+#    the 10.5 V a WS2815 wants. Measure your strip's copper before trusting
+#    that; over 1 ohm/m per rail, or strands longer than 1.5 m, feed both ends.
 #
-#    The palette is what keeps those numbers reachable - no channel goes above
-#    150, and gamma_correct is 1.0, so these values are what the LEDs actually
-#    draw. Full white on every pixel would be 62 A. Do not raise the palette
-#    without redoing the arithmetic.
+#    The 12 V rail powers only the LEDs. The ESP32 and the level shifters run
+#    from a small 12 V -> 5 V buck off the same bus, and every ground - buck
+#    included - returns to the PSU terminal rather than through a strip.
+#
+#    Two things 12 V costs you. Total power is slightly higher than the 5 V
+#    equivalent, because each pixel regulates 12 V down and dissipates the
+#    difference as heat in the strip. And the always-on backup-line logic
+#    makes idle 18 W rather than 7 W, which in a room you are paying to keep
+#    cold is worth switching off - see the blueprint for the high-side switch
+#    and the output-enable interlock that goes with it.
+#
+#    The palette is what keeps those numbers modest - no channel goes above
+#    150, and gamma_correct is 1.0, so these values are what the pixels
+#    actually draw. Full white everywhere would be 28 A. Halving `bin_leds`
+#    to 3 halves the lot and still reads as a solid marker behind a bottle.
 #
 # =============================================================================
 
@@ -379,6 +391,11 @@ script:
 # still scales the whole row, so Home Assistant's slider is a master dimmer.
 .strand: &strand
   platform: fastled_clockless
+  # The hardware is WS2815 - 12 V, and with the backup data line that keeps a
+  # row alive when one pixel dies. ESPHome has no name for it because it does
+  # not need one: WS2815 speaks the same 800 kHz protocol as a WS2812B, so
+  # that is the chipset to declare. Wire the first pixel's BI pad alongside
+  # its DI; left floating it can oscillate and take the row with it.
   chipset: WS2812B
   rgb_order: GRB
   num_leds: ${strand_leds}
