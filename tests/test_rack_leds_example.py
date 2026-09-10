@@ -299,45 +299,30 @@ def test_a_full_rack_is_still_one_character_per_bin():
 # --------------------------------------------------------------------------
 # The wiring has to match the shape of the rack
 # --------------------------------------------------------------------------
-GEOMETRY_FILES = {
-    "winerack1led": EXAMPLES / "esphome" / "winerack1_geometry.h",
-    "winerack2led": EXAMPLES / "esphome" / "winerack2_geometry.h",
-}
-
-
 def geometry(node: dict) -> dict:
-    """Read a rack's shape out of its C++ geometry header.
+    """Read a rack's shape out of its own configuration.
 
-    The header is the single source of truth for which bins exist: the ESPHome
-    lambdas ask it, tests/cpp tests it, and this reads it so the Python side
-    checks the same table rather than a second description of it.
+    Since the coordinate map moved into `substitutions:`, the rack's shape is
+    the `rack_table` substitution and nothing else - the same characters the
+    lambdas paste in and tests/cpp compiles. There is no separate description
+    of the rack left to disagree with.
     """
-    text = GEOMETRY_FILES[node["substitutions"]["device_name"]].read_text()
-
-    def constant(name: str) -> int:
-        m = re.search(rf"constexpr int {name} = (\d+);", text)
-        assert m, f"{name} missing from the geometry header"
-        return int(m.group(1))
-
-    table = re.search(r"constexpr rack::Column kColumns\[\] = \{(.*?)\};", text, re.S)
-    if table:
-        columns = [
-            (int(first), int(bins))
-            for first, bins in re.findall(r"\{\s*(\d+)\s*,\s*(\d+)\s*\}", table.group(1))
-        ]
-    else:
-        # A rectangular rack needs no table: every column is the same.
-        columns = [(0, constant("kBinsPerColumn"))] * constant("kEnvelopeColumns")
-
+    subs_ = node["substitutions"]
+    columns = [
+        (int(first), int(bins))
+        for first, bins in re.findall(r"\{\s*(\d+)\s*,\s*(\d+)\s*\}", subs_["rack_table"])
+    ]
+    assert len(columns) == int(subs_["rack_cols"]), "rack_table does not cover every column"
     return {
         "columns": columns,
-        "leds_per_bin": constant("kLedsPerBin"),
-        "bin_pitch": constant("kBinPitch"),
+        "leds_per_bin": int(subs_["bin_leds"]),
+        "bin_pitch": int(subs_["bin_pitch"]),
     }
 
 
 def strand_leds(geo: dict, column: int) -> int:
-    """The same arithmetic rack_geometry.h does, so the two can be compared."""
+    """How long that column's strip is: one pitch per bin, less the gap the
+    last bin does not need."""
     bins = geo["columns"][column][1]
     return bins * geo["bin_pitch"] - (geo["bin_pitch"] - geo["leds_per_bin"])
 
@@ -358,7 +343,7 @@ def strands(node: dict) -> list[dict]:
 
 
 def covered(node: dict) -> set[tuple[int, int]]:
-    """Every (row, column) the geometry header says this rack has."""
+    """Every (row, column) the rack_table says this rack has."""
     geo = geometry(node)
     return {
         (first + i, col)
@@ -437,8 +422,9 @@ def test_the_short_strands_are_the_ones_in_the_us_opening():
 
 def test_every_light_is_as_long_as_the_geometry_says_its_column_is():
     """`num_leds` has to be a literal in YAML, so it is a second copy of a
-    number the header already knows. This is the only thing stopping the two
-    from drifting - and a light one pixel short truncates its last bin."""
+    number `rack_table` already implies. This is the only thing stopping the
+    two from drifting - and a light one pixel short truncates its last bin,
+    which after the rewiring is the bin at the TOP of the column."""
     for node in NODES.values():
         geo = geometry(node)
         for strand in strands(node):
@@ -451,8 +437,13 @@ def test_the_racks_agree_about_how_many_leds_light_a_bin():
     assert geometry(NODE1)["bin_pitch"] == geometry(NODE2)["bin_pitch"]
 
 
-def test_the_geometry_headers_match_the_yaml_substitutions():
-    """The substitutions are what the config's own arithmetic and comments use."""
+def test_the_column_table_agrees_with_the_rest_of_the_substitutions():
+    """`rack_table` and the plain numbers beside it describe one rack.
+
+    `rack_cols` and `rack_rows` size the state arrays and bound the action
+    handlers; the table decides which of those cells a strand can reach. A
+    table that outgrew them would light bins the envelope has no room for.
+    """
     for node in NODES.values():
         geo = geometry(node)
         assert len(geo["columns"]) == subs(node, "rack_cols")
@@ -561,3 +552,65 @@ def test_the_two_racks_share_one_palette():
     assert keys, "the palette should be in substitutions"
     for key in keys:
         assert NODE1["substitutions"][key] == NODE2["substitutions"][key], key
+
+
+# --------------------------------------------------------------------------
+# One copy of the maths, in the file that uses it
+# --------------------------------------------------------------------------
+#: The substitutions that hold C++ rather than a value. tests/cpp lifts these
+#: same blocks out and compiles them, which is what makes an inline YAML lambda
+#: testable at all; these two tests guard the properties that arrangement
+#: depends on.
+CPP_SUBSTITUTIONS = ("bin_first_led", "column_extent", "paint_column", "parse_bin_id")
+
+
+def test_both_nodes_ship_the_same_coordinate_map():
+    """Two racks, two files, one piece of arithmetic.
+
+    This is what a shared header used to buy and what the racks would quietly
+    lose without it: rack 2 drifting to a different pitch, or keeping the old
+    top-down indexing after rack 1 was rewired, would show up as two rooms
+    disagreeing about where a bottle is rather than as a failure anywhere.
+
+    Compared before substitution, so the parameters they legitimately differ
+    on - `${rack_cols}`, `${bin_pitch}` - are still references and only a real
+    difference in the maths registers.
+    """
+    for name in CPP_SUBSTITUTIONS:
+        one = NODE1["substitutions"][name]
+        two = NODE2["substitutions"][name]
+        assert one == two, f"the two nodes disagree about {name}"
+
+
+def test_a_node_is_one_file_with_nothing_beside_it():
+    """No `includes:`, and no C++ left in examples/ to forget to copy.
+
+    The whole point of moving the coordinate map into `substitutions:` is that
+    flashing a rack is copying one file. An `includes:` that crept back would
+    compile perfectly well here and fail for whoever copied only the YAML.
+    """
+    for node in (NODE1, NODE2):
+        assert "includes" not in node.get("esphome", {}), "the node needs a file beside it"
+
+    stray = sorted(p.name for p in (EXAMPLES / "esphome").glob("*.h"))
+    assert stray == [], f"C++ left beside the configs: {stray}"
+
+
+def test_the_lambdas_paste_the_map_rather_than_retyping_it():
+    """Every strand's lambda is its column number and three substitutions.
+
+    A lambda that spelled the arithmetic out again would pass every test in
+    this file and every test in tests/cpp - because neither would be reading
+    it - right up until it disagreed with the other twelve.
+    """
+    for node in (NODE1, NODE2):
+        for light in node["light"]:
+            body = light["effects"][0]["addressable_lambda"]["lambda"]
+            statements = [line.strip() for line in body.splitlines() if line.strip()]
+            assert statements == [
+                statements[0],
+                "${column_extent}",
+                "${bin_first_led}",
+                "${paint_column}",
+            ], f"{light['id']} has maths of its own"
+            assert re.fullmatch(r"constexpr int kCol = \d+;", statements[0]), light["id"]

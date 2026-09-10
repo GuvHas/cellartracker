@@ -482,10 +482,7 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 
 | File | What it is |
 |---|---|
-| `examples/esphome/rack_geometry.h` | The bin-to-pixel arithmetic, once — shared by both nodes and by the C++ tests |
-| `examples/esphome/winerack1_geometry.h` | Rack 1's shape: the column table that makes it a U |
-| `examples/esphome/winerack2_geometry.h` | Rack 2's shape: four numbers, because it is a rectangle |
-| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column |
+| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column. One file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
 
@@ -552,34 +549,61 @@ rebuild does not quietly swallow bottles.
 
 ### Changing the shape of a rack
 
-Neither node's YAML knows how big its rack is. The shape lives in one header per rack, and the
-arithmetic that turns a bin into a run of pixels lives in
-[`rack_geometry.h`](examples/esphome/rack_geometry.h), which both nodes include:
+Neither node's YAML knows how big its rack is up front, and neither needs a file
+beside it. The rack's shape and the arithmetic that turns a bin into a run of
+pixels are both `substitutions:` at the top of the node's own configuration:
 
-```cpp
-constexpr rack::Column kColumns[] = {
-    {0, 13},  // column 1   rows A-M   the U's left arm
-    // ...
-    {8, 5},   // column 5   rows I-M   the opening: no bins above row I
-};
-constexpr rack::Geometry kRack{kColumns, kEnvelopeColumns, kLedsPerBin, kBinPitch};
+```yaml
+  # {first row, bins} per bin column. Row A is 0, row M is 12.
+  rack_table: >-
+    {0, 13}, {0, 13}, {0, 13}, {0, 13},
+    {8, 5}, {8, 5}, {8, 5}, {8, 5}, {8, 5},
+    {0, 13}, {0, 13}, {0, 13}, {0, 13}
+
+  bin_first_led: |-
+    auto bin_first_led = [](int row, int first, int bins) -> int {
+      if (bins <= 0 || row < first || row >= first + bins) return -1;
+      return (first + bins - 1 - row) * ${bin_pitch};
+    };
 ```
 
-A column is a first row and a count, so a rack with an opening in it is a table rather than a
-special case, and a short column's first bin is that strand's first pixel — column 5 starts at
-row I and at pixel 0 at the same time. To rebuild a rack, edit its table and its `num_leds:`; the
-`static_assert`s in the header stop the build if the two stop agreeing, and
-`tests/test_rack_leds_example.py` fails if the YAML drifts from the header.
+A column is a first row and a count, so a rack with an opening in it is a table
+rather than a special case. Each strand's lambda is its column number and three
+`${...}` references — thirteen copies of an integer and one copy of the maths.
+To rebuild a rack, edit `rack_table` and the matching `num_leds:`;
+`tests/test_rack_leds_example.py` fails if the two stop agreeing.
 
-`Geometry` is `constexpr` throughout, so a rack's shape is computed by the compiler and stored in
-flash. Moving all of it out of the twenty inline lambdas it used to live in cost **no RAM at all**
-— 18.1% and 17.0% before and after, 1.7 KB more flash — which is the answer to whether geometry
-belongs in compile-time substitutions or in runtime Home Assistant entities: at this size,
-compile-time is free and cannot drift.
+**Data enters at the floor.** Pixel 0 of every column is that column's *lowest*
+bin — row M on rack 1, row G on rack 2 — and the row letters count backwards up
+the strand. That puts all thirteen feeds in a line along the bottom of the rack
+where a skirting board hides them, instead of thirteen wires coming over the
+top. To wire from the top instead, change `(first + bins - 1 - row)` back to
+`(row - first)`; it is one line, in one place, and the tests will tell you what
+it did.
 
-The header is plain C++ with no ESPHome in it, which is what lets
-[`tests/cpp`](tests/cpp) compile it under doctest and check the arithmetic on a workstation
-instead of on a cellar wall:
+### Testing C++ that lives inside a YAML string
+
+An `addressable_lambda` body is ordinary C++ that happens to be written inside a
+string, which normally makes it testable only by flashing a board.
+[`tests/cpp`](tests/cpp) does not flash anything and does not keep a copy:
+`yaml_lambda.py` lifts those blocks straight out of the configuration, and
+[`test_yaml_lambdas.cpp`](tests/cpp/test_yaml_lambdas.cpp) `#include`s them
+inside wrappers that supply the same names a lambda has in scope:
+
+```cpp
+void paint(FakeLight &it, int kCol) {
+#include "rack1/column_extent.inc"
+#include "rack1/bin_first_led.inc"
+#include "rack1/paint_column.inc"
+}
+```
+
+Those three lines are the strand's lambda, in the order the YAML has them. The
+text under test is the text that ships, so a test cannot pass against a copy
+that has drifted. `FakeLight::operator[]` goes through `std::vector::at`, which
+turns the bug this whole arrangement exists to catch — a short column indexed as
+a tall one, writing past the end of a 42-pixel strand — into a thrown exception
+a test can assert on rather than a flickering column somewhere else on the rack.
 
 ```console
 $ cmake -S tests/cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir build/cpp
@@ -587,13 +611,23 @@ $ cmake -S tests/cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir
 
 CI runs the same three commands.
 
+**Why the geometry is compile-time rather than Home Assistant entities.** Every
+number above is folded into flash by the compiler, so a rack's shape costs zero
+bytes of RAM and is readable before WiFi comes up. Measured on both nodes,
+moving all of it out of the twenty hand-written lambdas it used to live in cost
+no RAM at all. Runtime entities would buy re-shaping a rack without reflashing —
+which happens roughly never — at the price of heap and a new failure mode where
+an unavailable entity leaves the rack dark.
+
 ### Before you build it
 
 - **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
   own API. The package expects it in `secrets.yaml`.
 - **Power.** Rack 1 draws 3.9 A for a fully green overview and 6.3 A worst case; rack 2 adds
-  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the top of
-  each column is enough at 0.6 A per strand. Halve it all by dropping `bin_leds` from 6 to 3.
+  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the foot of
+  each column is enough at 0.6 A per strand — the same end the data line enters, so power and
+  signal share one run along the bottom of the rack. Halve it all by dropping `bin_leds` from 6
+  to 3.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
   dark column, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.

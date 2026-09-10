@@ -4,7 +4,8 @@
 # A U-shaped rack: rows A-H hold bins 1-4 and 10-13 with an opening across the
 # middle, and rows I-M run the full width. 129 bins in a 13 x 13 envelope.
 #
-# One WS2815 strand per bin COLUMN, running top to bottom - see note 2 for why
+# One WS2815 strand per bin COLUMN, fed from the floor and running upward -
+# see note 2 for why
 # the strips are vertical rather than one per row. Home Assistant tells the
 # board what to show; the board owns nothing but the pixels.
 #
@@ -107,7 +108,7 @@
 #      per strand, at that worst case ............  0.6 A   (a 13-bin column)
 #
 #    So: a 12 V supply of 8.5 A for this rack alone, a 10 A fuse protecting a
-#    16 AWG feed, and a single feed at the top of each column. A 1.1 m strand
+#    16 AWG feed, and a single feed at the FOOT of each column. A 1.1 m strand
 #    at 0.6 A drops about 0.3 V, against the 1.5 V of budget between 12 V and
 #    the 10.5 V a WS2815 wants. Measure your strip's copper before trusting
 #    that; over 1 ohm/m per rail, feed both ends.
@@ -131,10 +132,10 @@ substitutions:
   friendly_name: Wine Rack 1
 
   # --- Rack geometry -------------------------------------------------------
-  # The envelope is 13 x 13; which of those bins exist is decided by the column
-  # table in winerack1_geometry.h, which is also what the tests read. These
-  # substitutions are the same numbers for the parts of the config that need a
-  # literal - `num_leds` on each light, and the array sizes below.
+  # The envelope is 13 x 13; which of those bins exist is decided by the
+  # `rack_table` below. These are the same numbers for the parts of the config
+  # that need a plain literal - `num_leds` on each light, and the array sizes
+  # further down, neither of which can hold an expression.
   #
   # One column of the rack: N compartments of 6 LEDs separated by gaps of 3.
   # The last compartment has no gap after it, so a strand is N * 9 - 3.
@@ -145,6 +146,99 @@ substitutions:
   bin_pitch: "9" # LEDs from the start of one bin to the start of the next
   tall_strand: "114" # 13 bins, rows A..M  - columns 1-4 and 10-13
   short_strand: "42" # 5 bins, rows I..M   - columns 5-9, the U's opening
+
+  # --- The coordinate map --------------------------------------------------
+  # Everything from here to `redraw_interval` is C++, pasted into the lambdas
+  # that need it. There is one copy and this is it: tests/cpp lifts these exact
+  # characters out of this file and compiles them under doctest, so what the
+  # tests prove is literally what the board runs. Retyping any of it into a
+  # lambda below would put that guarantee back where it was.
+
+  # The rack's shape: {first row, bins} per bin column, in column order. Row A
+  # is 0, row M is 12. Columns 5-9 start at row I because the U's opening means
+  # they carry no bins above it.
+  rack_table: >-
+    {0, 13}, {0, 13}, {0, 13}, {0, 13},
+    {8, 5}, {8, 5}, {8, 5}, {8, 5}, {8, 5},
+    {0, 13}, {0, 13}, {0, 13}, {0, 13}
+
+  # Which bins column kCol carries. A strand only has to say which column it
+  # is; the table above answers the rest. `static const` puts it in flash.
+  column_extent: |-
+    static const int kTable[${rack_cols}][2] = {${rack_table}};
+    const int kFirst = (kCol >= 0 && kCol < ${rack_cols}) ? kTable[kCol][0] : 0;
+    const int kBins = (kCol >= 0 && kCol < ${rack_cols}) ? kTable[kCol][1] : 0;
+
+  # The first LED of `row` on a strand carrying `bins` bins from row `first`,
+  # or -1 for a row this column does not have.
+  #
+  # DIN enters at the FLOOR and the strip runs upward, so the column's LOWEST
+  # bin is pixel 0 and the row letters count backwards from there. That is the
+  # whole reason the thirteen feeds sit in a line along the bottom of the rack
+  # where a skirting board hides them, instead of thirteen wires coming over
+  # the top of it.
+  #
+  # `first + bins - 1` is the column's own bottom row, not the envelope's. On
+  # this rack they coincide - every column reaches row M - but anchoring on
+  # the column is what keeps a short strand from being indexed as a tall one.
+  #
+  # The `row < first` guard is not decoration: without it a negative row makes
+  # (first + bins - 1 - row) larger, not smaller, so an out-of-range request
+  # would return a plausible index off the end of the strand rather than -1.
+  bin_first_led: |-
+    auto bin_first_led = [](int row, int first, int bins) -> int {
+      if (bins <= 0 || row < first || row >= first + bins) return -1;
+      return (first + bins - 1 - row) * ${bin_pitch};
+    };
+
+  # Read a bin id like "A7" into a zero-indexed column and row. Accepts the
+  # ways a bin gets written down by hand and by CellarTracker: lower case, a
+  # leading zero, and a space, dash or underscore between letter and number.
+  #
+  # Hand-rolled rather than sscanf: it has to reject "12A" and "A1B", which a
+  # scanf format quietly accepts by stopping early. Not isdigit() either, whose
+  # argument is an int that must be representable as unsigned char - a signed
+  # char above 127 is undefined behaviour there.
+  parse_bin_id: |-
+    auto parse_bin_id = [](const char *bin_id, int *column, int *row) -> bool {
+      if (bin_id == nullptr || column == nullptr || row == nullptr) return false;
+      const char *p = bin_id;
+      while (*p == ' ' || *p == '\t') p++;
+      char letter = *p;
+      if (letter >= 'a' && letter <= 'z') letter = (char) (letter - ('a' - 'A'));
+      if (letter < 'A' || letter > 'Z') return false;
+      p++;
+      int number = 0;
+      bool any_digit = false;
+      for (; *p != '\0'; p++) {
+        const char ch = *p;
+        if (ch >= '0' && ch <= '9') {
+          number = number * 10 + (ch - '0');
+          any_digit = true;
+        } else if (ch == ' ' || ch == '\t' || ch == '-' || ch == '_') {
+          continue;
+        } else {
+          return false;
+        }
+      }
+      if (!any_digit || number < 1) return false;
+      *row = letter - 'A';
+      *column = number - 1;
+      return true;
+    };
+
+  # Paint one strand from cell_rgb. Needs kCol, and column_extent and
+  # bin_first_led declared ahead of it.
+  paint_column: |-
+    for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+    for (int b = 0; b < kBins; b++) {
+      const int row = kFirst + b;
+      const int base = bin_first_led(row, kFirst, kBins);
+      if (base < 0) continue;
+      const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + kCol) * 3];
+      for (int i = 0; i < ${bin_leds} && base + i < it.size(); i++)
+        it[base + i] = Color(rgb[0], rgb[1], rgb[2]);
+    }
 
   # How often a strand redraws itself. The picture is static between action
   # calls, so this is only how long a change takes to appear - 200 ms is
@@ -165,13 +259,8 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  # The coordinate mapping - which LEDs light bin (column, row) - lives in a
-  # header rather than in twenty copies of the same lambda. It includes nothing
-  # from ESPHome, which is what lets tests/cpp run it on a laptop; see
-  # rack_geometry.h for why it is constexpr rather than a set of HA entities.
-  includes:
-    - rack_geometry.h
-    - winerack1_geometry.h
+  # No `includes:`. The coordinate map is the `${...}` C++ in the substitutions
+  # above, so this node is one file with nothing beside it to copy or forget.
 
 esp32:
   board: esp32dev
@@ -244,9 +333,10 @@ api:
         - lambda: |-
             // "A2", "a-2" and "A 02" all mean the same bin; anything that is
             // not a row letter followed by digits is refused. Tested in
-            // tests/cpp rather than trusted.
+            // tests/cpp rather than trusted - the same characters, compiled.
+            ${parse_bin_id}
             int col = 0, row = 0;
-            if (!rack::parse_bin_id(bin_id.c_str(), &col, &row)) {
+            if (!parse_bin_id(bin_id.c_str(), &col, &row)) {
               ESP_LOGW("winerack", "light_bin: '%s' is not a bin id", bin_id.c_str());
               return;
             }
@@ -256,8 +346,12 @@ api:
             }
             // Inside the envelope but not a bin the U actually has - a bottle
             // still filed at A7 after the rebuild, say. Worth saying out loud,
-            // because the locator will simply light nothing.
-            if (!winerack1::kRack.has_bin(col, row)) {
+            // because the locator will simply light nothing. The column table
+            // answers this: a row outside the column's extent has no LED.
+            const int kCol = col;
+            ${column_extent}
+            ${bin_first_led}
+            if (bin_first_led(row, kFirst, kBins) < 0) {
               ESP_LOGI("winerack", "light_bin: '%s' is a bin this rack no longer has",
                        bin_id.c_str());
             }
@@ -432,15 +526,21 @@ script:
   default_transition_length: 0s
   gamma_correct: 1.0
 
-# The one effect every strand runs. Two literals per strand say where it is:
-# `col` is its bin column, 0-based, and `first_row` is the row its first pixel
-# sits at. The loop then walks down the column, one bin per bin_pitch pixels,
-# and stops when it runs off the end of the strand - which is what lets the
-# short columns share the same code as the tall ones.
+# The one effect every strand runs, and one literal per strand: which bin
+# column it is. `column_extent` looks that up in `rack_table` to get the rows
+# the column carries; `bin_first_led` turns a row into a run of pixels;
+# `paint_column` walks the column and paints them. All three are the
+# substitutions at the top of this file, so there are thirteen copies of a
+# column number and one copy of the arithmetic.
 #
-# Pixel 0 is the TOP bin of each column and the strand runs downward. Feed and
-# data enter at the top. If you would rather wire from the floor up, reverse
-# the strip and set `first_row` to the bottom row, counting up.
+# DATA AND POWER ENTER AT THE FLOOR of every column, and pixel 0 is that
+# column's LOWEST bin - row M here. The row letters count backwards up the
+# strand from there, which is what puts all thirteen feeds in a line along the
+# bottom of the rack where they can be hidden.
+#
+# To wire from the top instead, change the one line in `bin_first_led` that
+# says `(first + bins - 1 - row)` back to `(row - first)`. tests/cpp compiles
+# that line out of this file, so the suite will tell you what it did.
 #
 # It has to be an effect rather than direct pixel writes: with no effect
 # running, any light command (a brightness change, a toggle from the Home
@@ -459,12 +559,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 0;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_02
@@ -477,12 +574,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 1;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   # GPIO16 and GPIO17 are wired to the PSRAM on WROVER modules. Fine on the
   # plain WROOM this board uses; move these two columns if you reflash a WROVER.
@@ -497,12 +591,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 2;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_04
@@ -515,16 +606,14 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 3;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   # --- Columns 5-9: the base of the U only, rows I to M --------------------
-  # Five bins each. `first_row = 8` is row I, so pixel 0 of these strands sits
-  # at the top of the U's opening rather than at the top of the rack.
+  # Five bins each, rows I-M. Their feed is at the same floor as every other
+  # column's, so pixel 0 is row M here too and row I - the top of the U's
+  # opening - is the far end of a 42-pixel strand.
   - <<: *strand
     id: col_05
     name: "Column 5"
@@ -536,12 +625,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 4;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_06
@@ -554,12 +640,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 5;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_07
@@ -572,12 +655,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 6;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_08
@@ -590,12 +670,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 7;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_09
@@ -608,12 +685,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 8;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   # --- Columns 10-13: the right arm of the U, rows A to M ------------------
   - <<: *strand
@@ -627,12 +701,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 9;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_11
@@ -645,12 +716,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 10;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   - <<: *strand
     id: col_12
@@ -663,12 +731,9 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 11;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
 
   # GPIO32 rather than GPIO14: 14 is MTMS and emits a pulse during boot, which
   # would flick this column every time the board resets. 32 has no such habit.
@@ -683,9 +748,6 @@ light:
           update_interval: ${redraw_interval}
           lambda: |-
             constexpr int kCol = 12;
-            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-            rack::for_each_bin(winerack1::kRack, kCol, [&](int row, rack::Span s) {
-              const uint8_t *rgb = &id(cell_rgb)[(row * 13 + kCol) * 3];
-              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
-                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
-            });
+            ${column_extent}
+            ${bin_first_led}
+            ${paint_column}
