@@ -42,6 +42,24 @@ jobs:
 
       - run: python -m pytest -q
 
+  cpp:
+    name: C++ geometry tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # examples/esphome/rack_geometry.h is compiled twice: once by ESPHome
+      # into the firmware, and once here by doctest. The second is the only
+      # one that can fail fast, so it is the one CI runs.
+      - name: Configure
+        run: cmake -S tests/cpp -B build/cpp -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build/cpp
+
+      - name: Test
+        run: ctest --test-dir build/cpp --output-on-failure
+
   lint:
     name: Ruff
     runs-on: ubuntu-latest

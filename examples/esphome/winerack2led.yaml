@@ -82,6 +82,13 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+  # The coordinate mapping - which LEDs light bin (column, row) - lives in a
+  # header rather than in twenty copies of the same lambda. It includes nothing
+  # from ESPHome, which is what lets tests/cpp run it on a laptop; see
+  # rack_geometry.h for why it is constexpr rather than a set of HA entities.
+  includes:
+    - rack_geometry.h
+    - winerack2_geometry.h
 
 esp32:
   board: esp32dev
@@ -135,22 +142,17 @@ api:
         seconds: int
       then:
         - lambda: |-
-            if (bin_id.length() < 2) {
+            int col = 0, row = 0;
+            if (!rack::parse_bin_id(bin_id.c_str(), &col, &row)) {
               ESP_LOGW("winerack", "light_bin: '%s' is not a bin id", bin_id.c_str());
               return;
             }
-            const int row = toupper(bin_id[0]) - 'A';
-            int col = 0;
-            for (size_t i = 1; i < bin_id.length(); i++) {
-              if (isdigit((unsigned char) bin_id[i]))
-                col = col * 10 + (bin_id[i] - '0');
-            }
-            if (row < 0 || row >= ${rack_rows} || col < 1 || col > ${rack_cols}) {
+            if (!winerack2::kRack.has_bin(col, row)) {
               ESP_LOGW("winerack", "light_bin: '%s' is not a bin in this rack", bin_id.c_str());
               return;
             }
             const Color fallback(${colour_locate});
-            id(locate_cell) = row * ${rack_cols} + (col - 1);
+            id(locate_cell) = row * ${rack_cols} + col;
             id(locate_r) = (r | g | b) ? r : fallback.r;
             id(locate_g) = (r | g | b) ? g : fallback.g;
             id(locate_b) = (r | g | b) ? b : fallback.b;
@@ -301,16 +303,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 0, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 0;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   - <<: *strand
     id: col_02
@@ -321,16 +320,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 1, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 1;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   # GPIO16 and GPIO17 are PSRAM on a WROVER module. Fine on a plain WROOM.
   - <<: *strand
@@ -342,16 +338,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 2, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 2;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   - <<: *strand
     id: col_04
@@ -362,16 +355,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 3, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 3;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   - <<: *strand
     id: col_05
@@ -382,16 +372,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 4, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 4;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   - <<: *strand
     id: col_06
@@ -402,16 +389,13 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 5, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 5;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });
 
   - <<: *strand
     id: col_07
@@ -422,13 +406,10 @@ light:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            const int col = 6, first_row = 0;
-            for (int i = 0; ; i++) {
-              const int start = i * ${bin_pitch};
-              const int row = first_row + i;
-              if (start >= it.size() || row >= ${rack_rows}) break;
-              const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + col) * 3];
-              for (int j = 0; j < ${bin_pitch} && start + j < it.size(); j++) {
-                it[start + j] = j < ${bin_leds} ? Color(rgb[0], rgb[1], rgb[2]) : Color(0, 0, 0);
-              }
-            }
+            constexpr int kCol = 6;
+            for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+            rack::for_each_bin(winerack2::kRack, kCol, [&](int row, rack::Span s) {
+              const uint8_t *rgb = &id(cell_rgb)[(row * 7 + kCol) * 3];
+              for (int i = 0; i < s.count && s.first + i < it.size(); i++)
+                it[s.first + i] = Color(rgb[0], rgb[1], rgb[2]);
+            });

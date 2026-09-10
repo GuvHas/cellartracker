@@ -299,30 +299,71 @@ def test_a_full_rack_is_still_one_character_per_bin():
 # --------------------------------------------------------------------------
 # The wiring has to match the shape of the rack
 # --------------------------------------------------------------------------
+GEOMETRY_FILES = {
+    "winerack1led": EXAMPLES / "esphome" / "winerack1_geometry.h",
+    "winerack2led": EXAMPLES / "esphome" / "winerack2_geometry.h",
+}
+
+
+def geometry(node: dict) -> dict:
+    """Read a rack's shape out of its C++ geometry header.
+
+    The header is the single source of truth for which bins exist: the ESPHome
+    lambdas ask it, tests/cpp tests it, and this reads it so the Python side
+    checks the same table rather than a second description of it.
+    """
+    text = GEOMETRY_FILES[node["substitutions"]["device_name"]].read_text()
+
+    def constant(name: str) -> int:
+        m = re.search(rf"constexpr int {name} = (\d+);", text)
+        assert m, f"{name} missing from the geometry header"
+        return int(m.group(1))
+
+    table = re.search(r"constexpr rack::Column kColumns\[\] = \{(.*?)\};", text, re.S)
+    if table:
+        columns = [
+            (int(first), int(bins))
+            for first, bins in re.findall(r"\{\s*(\d+)\s*,\s*(\d+)\s*\}", table.group(1))
+        ]
+    else:
+        # A rectangular rack needs no table: every column is the same.
+        columns = [(0, constant("kBinsPerColumn"))] * constant("kEnvelopeColumns")
+
+    return {
+        "columns": columns,
+        "leds_per_bin": constant("kLedsPerBin"),
+        "bin_pitch": constant("kBinPitch"),
+    }
+
+
+def strand_leds(geo: dict, column: int) -> int:
+    """The same arithmetic rack_geometry.h does, so the two can be compared."""
+    bins = geo["columns"][column][1]
+    return bins * geo["bin_pitch"] - (geo["bin_pitch"] - geo["leds_per_bin"])
+
+
 def strands(node: dict) -> list[dict]:
-    """Each strand's column, first row, and how many bins it covers."""
-    pitch = subs(node, "bin_pitch")
-    leds = subs(node, "bin_leds")
+    """Each light, and the bin column its lambda says it is."""
     out = []
     for light in node["light"]:
         body = light["effects"][0]["addressable_lambda"]["lambda"]
-        m = re.search(r"const int col = (\d+), first_row = (\d+);", body)
+        m = re.search(r"constexpr int kCol = (\d+);", body)
         assert m, f"{light['id']} does not say which column it is"
-        # A strand of N bins is N * pitch minus the gap the last bin does not
-        # need, so the bin count follows from the length.
-        length = int(resolve(node, light["num_leds"]))
-        bins, rem = divmod(length + (pitch - leds), pitch)
-        assert rem == 0, f"{light['id']}: {length} LEDs is not a whole number of bins"
-        out.append({"id": light["id"], "col": int(m.group(1)),
-                    "first_row": int(m.group(2)), "bins": bins})
+        out.append({
+            "id": light["id"],
+            "col": int(m.group(1)),
+            "num_leds": int(resolve(node, light["num_leds"])),
+        })
     return out
 
 
 def covered(node: dict) -> set[tuple[int, int]]:
+    """Every (row, column) the geometry header says this rack has."""
+    geo = geometry(node)
     return {
-        (s["first_row"] + i, s["col"])
-        for s in strands(node)
-        for i in range(s["bins"])
+        (first + i, col)
+        for col, (first, bins) in enumerate(geo["columns"])
+        for i in range(bins)
     }
 
 
@@ -387,13 +428,37 @@ def test_no_strand_uses_a_pin_that_misbehaves_at_boot():
 
 def test_the_short_strands_are_the_ones_in_the_us_opening():
     """Columns 5-9 exist only for rows I-M, so they are five bins, not thirteen."""
-    by_col = {s["col"]: s for s in strands(NODE1)}
+    columns = geometry(NODE1)["columns"]
     for col in range(4, 9):
-        assert by_col[col]["bins"] == 5, f"column {col + 1}"
-        assert by_col[col]["first_row"] == 8, f"column {col + 1} should start at row I"
+        assert columns[col] == (8, 5), f"column {col + 1} should be rows I-M"
     for col in list(range(0, 4)) + list(range(9, 13)):
-        assert by_col[col]["bins"] == 13, f"column {col + 1}"
-        assert by_col[col]["first_row"] == 0, f"column {col + 1} should start at row A"
+        assert columns[col] == (0, 13), f"column {col + 1} should be rows A-M"
+
+
+def test_every_light_is_as_long_as_the_geometry_says_its_column_is():
+    """`num_leds` has to be a literal in YAML, so it is a second copy of a
+    number the header already knows. This is the only thing stopping the two
+    from drifting - and a light one pixel short truncates its last bin."""
+    for node in NODES.values():
+        geo = geometry(node)
+        for strand in strands(node):
+            assert strand["num_leds"] == strand_leds(geo, strand["col"]), strand["id"]
+
+
+def test_the_racks_agree_about_how_many_leds_light_a_bin():
+    """Two racks that lit bins differently would read as two different systems."""
+    assert geometry(NODE1)["leds_per_bin"] == geometry(NODE2)["leds_per_bin"]
+    assert geometry(NODE1)["bin_pitch"] == geometry(NODE2)["bin_pitch"]
+
+
+def test_the_geometry_headers_match_the_yaml_substitutions():
+    """The substitutions are what the config's own arithmetic and comments use."""
+    for node in NODES.values():
+        geo = geometry(node)
+        assert len(geo["columns"]) == subs(node, "rack_cols")
+        assert geo["leds_per_bin"] == subs(node, "bin_leds")
+        assert geo["bin_pitch"] == subs(node, "bin_pitch")
+        assert max(f + b for f, b in geo["columns"]) == subs(node, "rack_rows")
 
 
 # --------------------------------------------------------------------------

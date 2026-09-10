@@ -482,6 +482,9 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 
 | File | What it is |
 |---|---|
+| `examples/esphome/rack_geometry.h` | The bin-to-pixel arithmetic, once — shared by both nodes and by the C++ tests |
+| `examples/esphome/winerack1_geometry.h` | Rack 1's shape: the column table that makes it a U |
+| `examples/esphome/winerack2_geometry.h` | Rack 2's shape: four numbers, because it is a rectangle |
 | `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
@@ -546,6 +549,43 @@ Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins 
 are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
 the rebuild removed is not mis-lit — it is just dark, and a diagnostic sensor counts them so a
 rebuild does not quietly swallow bottles.
+
+### Changing the shape of a rack
+
+Neither node's YAML knows how big its rack is. The shape lives in one header per rack, and the
+arithmetic that turns a bin into a run of pixels lives in
+[`rack_geometry.h`](examples/esphome/rack_geometry.h), which both nodes include:
+
+```cpp
+constexpr rack::Column kColumns[] = {
+    {0, 13},  // column 1   rows A-M   the U's left arm
+    // ...
+    {8, 5},   // column 5   rows I-M   the opening: no bins above row I
+};
+constexpr rack::Geometry kRack{kColumns, kEnvelopeColumns, kLedsPerBin, kBinPitch};
+```
+
+A column is a first row and a count, so a rack with an opening in it is a table rather than a
+special case, and a short column's first bin is that strand's first pixel — column 5 starts at
+row I and at pixel 0 at the same time. To rebuild a rack, edit its table and its `num_leds:`; the
+`static_assert`s in the header stop the build if the two stop agreeing, and
+`tests/test_rack_leds_example.py` fails if the YAML drifts from the header.
+
+`Geometry` is `constexpr` throughout, so a rack's shape is computed by the compiler and stored in
+flash. Moving all of it out of the twenty inline lambdas it used to live in cost **no RAM at all**
+— 18.1% and 17.0% before and after, 1.7 KB more flash — which is the answer to whether geometry
+belongs in compile-time substitutions or in runtime Home Assistant entities: at this size,
+compile-time is free and cannot drift.
+
+The header is plain C++ with no ESPHome in it, which is what lets
+[`tests/cpp`](tests/cpp) compile it under doctest and check the arithmetic on a workstation
+instead of on a cellar wall:
+
+```console
+$ cmake -S tests/cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir build/cpp
+```
+
+CI runs the same three commands.
 
 ### Before you build it
 
