@@ -128,10 +128,17 @@ def test_an_empty_cellar_counts_zero():
     data = asyncio.run(coordinator._async_update_data())
     assert data["ready_to_drink"] == 1
 
-    # An export with no rows at all short-circuits before any counting.
-    hass.session = FakeSession(text=HEADER)
-    coordinator.data = None
-    empty = asyncio.run(coordinator._async_update_data())
+    # An export with no rows at all short-circuits before any counting. This is a
+    # separate coordinator with nothing on disk: polling an empty export from
+    # the one above would be a restart *with a stocked cache*, where the empty
+    # response is deliberately refused (see test_cache.py) rather than counted.
+    fresh = FakeHass()
+    fresh.session = FakeSession(text=HEADER)
+    empty = asyncio.run(
+        WineCellarData(
+            fresh, ConfigEntry(data={"username": "a", "password": "b"})
+        )._async_update_data()
+    )
     assert empty["ready_to_drink"] == 0
     assert empty["past_drink_window"] == 0
 

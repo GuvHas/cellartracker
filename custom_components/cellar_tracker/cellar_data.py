@@ -625,11 +625,8 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         bypass this entirely: they need the user, and masking them with old
         data would hide the reauth prompt.
         """
-        # Read before anything is awaited: Home Assistant assigns the result to
-        # .data only after this returns, so this is what the poll is compared to.
-        previous = self.data
         try:
-            payload, data = await self._async_poll_upstream()
+            payload, data, history = await self._async_poll_upstream()
         except ConfigEntryAuthFailed as err:
             self._last_error = str(err)
             raise
@@ -647,32 +644,33 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                     return cached
             raise
 
-        # After a restart there is no data yet, so the poll has nothing to be
-        # compared with - unless the disk remembers. Read it before the save
-        # below overwrites it. This is what makes bottles changed while Home
-        # Assistant was offline reach the event even when the first poll works,
-        # not only when the cache had to be served.
-        previous_bottles = (
-            await self._async_cached_bottles(payload) if previous is None else previous["bottles"]
-        )
-
         self._serving_cache = False
         self._last_error = None
         await self._async_save_cache(payload)
-        self._fire_inventory_changed(previous_bottles, data)
+        self._fire_inventory_changed(None if history is None else history["bottles"], data)
         return data
 
-    async def _async_cached_bottles(self, live_payload: str) -> list[dict[str, Any]] | None:
-        """The cached bottles, to compare a first live poll against, or None.
+    async def _async_history(self, live_payload: str) -> CellarData | None:
+        """What a poll is validated and compared against.
 
-        None means there is nothing to announce: no cache, an unusable one, or
-        one identical to the live response. The identical case skips the parse
-        entirely - equal bytes cannot differ - so an unchanged cellar costs a
-        restart one file read and a string comparison.
+        Normally the previous poll's data. After a restart there is none, and
+        the disk cache stands in: it is history, so it has to take part in
+        everything history is for - the empty-response and truncation checks as
+        well as the change event. Without it a first response that was
+        transiently empty was accepted as "no bottles", announced the removal of
+        the whole cellar, and overwrote the good cache with the empty payload.
+
+        None means there is nothing to compare with: no cache, an unusable one,
+        or one identical to the live response. The identical case skips the
+        parse entirely - equal bytes cannot differ - so an unchanged cellar
+        costs a restart one file read and a string comparison.
 
         Also records what is on disk, so the save that follows can tell an
         unchanged payload from a changed one.
         """
+        if self.data is not None:
+            return self.data
+
         cached = await self._async_load_cache()
         if cached is None:
             return None
@@ -682,6 +680,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
         if cached_payload == live_payload:
             return None
+
+        # Parsing the cache is not a poll, so it must not disturb the count of
+        # consecutive suspicious empty ones - _process_inventory resets it on
+        # any success, and a reset here would defeat "believe a repeat".
+        suspicious = self._suspicious_empty_polls
         try:
             return await self.hass.async_add_executor_job(
                 self._parse_for_comparison, cached_payload
@@ -690,17 +693,18 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             # An unusable cache is no history, and must not fail a poll that
             # itself succeeded.
             return None
+        finally:
+            self._suspicious_empty_polls = suspicious
 
-    def _parse_for_comparison(self, payload: str) -> list[dict[str, Any]]:
-        """Parse a cached payload only to compare it. Runs in an executor.
+    def _parse_for_comparison(self, payload: str) -> CellarData:
+        """Parse a cached payload only to use it as history. Runs in an executor.
 
         Deliberately not _parse_and_process: that also renders the pre-rendered
-        bodies the HTTP views serve, and this runs *after* the live poll has
-        rendered its own. Going through it would overwrite the live inventory
-        with the stale one.
+        bodies the HTTP views serve, and going through it here would overwrite
+        the live inventory with the stale one.
         """
         rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
-        return self._process_inventory(rows, previous=None)["bottles"]
+        return self._process_inventory(rows, previous=None)
 
     def _fire_inventory_changed(
         self, previous_bottles: list[dict[str, Any]] | None, current: CellarData
@@ -733,8 +737,12 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             },
         )
 
-    async def _async_poll_upstream(self) -> tuple[str, CellarData]:
-        """Fetch and process a live inventory. Returns the raw payload with it."""
+    async def _async_poll_upstream(self) -> tuple[str, CellarData, CellarData | None]:
+        """Fetch and process a live inventory.
+
+        Returns the raw payload, the processed data, and the history the data
+        was validated against - which the caller reuses to announce changes.
+        """
         try:
             payload = await self._fetch_payload()
         except AuthenticationError as err:
@@ -756,13 +764,15 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
             raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
 
+        # Resolved before the parse, not after: it is what the response is
+        # checked against, not merely what it is compared to.
+        history = await self._async_history(payload)
+
         # I/O no longer needs a thread, but parsing still does: a large cellar
         # means splitting 66 columns per row, hashing each one and copying every
-        # dict. self.data is the last successful result, or None on first poll.
+        # dict.
         try:
-            data = await self.hass.async_add_executor_job(
-                self._parse_and_process, payload, self.data
-            )
+            data = await self.hass.async_add_executor_job(self._parse_and_process, payload, history)
         except UpdateFailed:
             # _process_inventory's own refusals already carry their reasoning.
             raise
@@ -781,7 +791,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         data["last_success"] = self._last_success
 
         self._restore_interval()
-        return payload, data
+        return payload, data, history
 
     async def _async_save_cache(self, payload: str) -> None:
         """Persist a payload that has just parsed. Never raises.
@@ -840,11 +850,17 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             return None
         payload, saved_at = cached
 
+        # As in _async_history: this parse is not a poll and must leave the
+        # count of consecutive suspicious empty ones alone. It runs right after
+        # one was rejected, which is exactly when a reset would hurt.
+        suspicious = self._suspicious_empty_polls
         try:
             data = await self.hass.async_add_executor_job(self._parse_and_process, payload, None)
         except (UpdateFailed, csv.Error) as err:
             _LOGGER.warning("Ignoring an unusable CellarTracker inventory cache: %s", err)
             return None
+        finally:
+            self._suspicious_empty_polls = suspicious
 
         # The cache's own age, not now: "last synchronised" must not claim a
         # sync that did not happen.

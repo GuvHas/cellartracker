@@ -112,7 +112,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_get_wine_by_bin(call: ServiceCall) -> ServiceResponse:
         coordinator = _require_loaded(hass)[0]
         bin_name: str = call.data[ATTR_BIN]
-        location: str | None = call.data.get(ATTR_LOCATION)
+        # Normalised here too, so the response describes the query that was
+        # actually run: a blank location is no filter and is echoed as None.
+        location: str | None = (call.data.get(ATTR_LOCATION) or "").strip() or None
 
         data = coordinator.data
         found = (

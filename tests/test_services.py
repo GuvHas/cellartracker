@@ -361,3 +361,22 @@ def test_a_legacy_second_entry_is_served_deterministically():
         aaa=FakeCoordinator(bottles=BOTTLES),
     )
     assert lookup(hass, bin="A1", location="Cellar")["bottles"][0]["name"] == "Barolo"
+
+
+# --------------------------------------------------------------------------
+# A blank location is no filter (Codex, #23)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_location_searches_every_location(hass, blank):
+    result = lookup(hass, bin="A1", location=blank)
+    assert [b["name"] for b in result["bottles"]] == ["Barolo", "Rioja", "Chablis"]
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_location_is_echoed_as_none(hass, blank):
+    """The response describes the query that was actually run."""
+    assert lookup(hass, bin="A1", location=blank)["location"] is None
+
+
+def test_a_real_location_is_still_a_filter(hass):
+    assert lookup(hass, bin="A1", location="Fridge")["count"] == 1

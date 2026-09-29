@@ -192,7 +192,10 @@ def find_bottles(
     wanted_bin = bin_name.strip().casefold()
     if not wanted_bin:
         return []
-    wanted_location = None if location is None else location.strip().casefold()
+    # Blank is "not given", not "the empty location": an automation that renders
+    # an empty template passes "" here, and the action's own description says to
+    # leave the field empty to search every location.
+    wanted_location = (location or "").strip().casefold() or None
 
     positions: list[int] = []
     for loc, bins in index.items():

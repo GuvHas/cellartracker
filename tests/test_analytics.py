@@ -289,3 +289,24 @@ def test_a_blank_bin_query_does_not_match_unplaced_bottles():
 def test_find_returns_the_bottles_in_cellar_order():
     found = find_bottles(BOTTLES, index_by_location_bin(BOTTLES), bin_name="A1")
     assert found == [BOTTLES[0], BOTTLES[1], BOTTLES[3]]
+
+
+# --------------------------------------------------------------------------
+# A blank location means "no filter", not "unplaced bottles only"
+#
+# Reported by Codex on #23. `location: ""` - which an automation produces from an
+# empty template - became the filter "", matching only bottles with no location
+# and skipping every bin in a named one. The action's own description says to
+# leave it empty to search every location.
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("blank", ["", "   ", "\t", None])
+def test_a_blank_location_searches_every_location(blank):
+    found = find_bottles(BOTTLES, index_by_location_bin(BOTTLES), bin_name="A1", location=blank)
+    assert [b["iWine"] for b in found] == ["1", "2", "4"]
+
+
+def test_a_blank_location_is_not_the_same_as_unplaced_only():
+    unplaced_with_a_bin = [*BOTTLES, {"iWine": "9", "Location": "", "Bin": "A1"}]
+    index = index_by_location_bin(unplaced_with_a_bin)
+    found = find_bottles(unplaced_with_a_bin, index, bin_name="A1", location="")
+    assert [b["iWine"] for b in found] == ["1", "2", "4", "9"]

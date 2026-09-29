@@ -450,3 +450,92 @@ def test_a_timestamp_that_was_refreshed_is_what_the_restore_reports(monkeypatch)
     restarted.hass.storage_backend = coordinator.hass.storage_backend
     update(restarted)
     assert restarted.last_success == later
+
+
+# --------------------------------------------------------------------------
+# The first live poll is validated against the cache
+#
+# Reported by Codex on #23 (P1). After a restart self.data is None, so the first
+# response was parsed with no stock to compare against and the empty-response
+# safeguard was bypassed: a transiently empty or header-only answer was accepted
+# as zero bottles, announced the removal of the whole cellar, and - worst -
+# overwrote the good cache with the empty payload, destroying the very thing the
+# cache exists to protect. The cache is history, so it must count as history for
+# validation as well as for the event.
+# --------------------------------------------------------------------------
+HEADER_ONLY = HEADER
+TEN = "\n".join([HEADER, *(f"{n}\tWine {n}\t10.00\t2020\t2030" for n in range(1, 11))])
+
+
+def events_of(coordinator: WineCellarData) -> list[dict]:
+    return [
+        d for name, d in coordinator.hass.bus.events if name == "cellartracker_inventory_changed"
+    ]
+
+
+def test_a_transiently_empty_first_response_does_not_publish_zero():
+    coordinator = build(cached=LIVE, text=HEADER_ONLY)
+    data = update(coordinator)
+    assert data["total_bottles"] == 2, "an empty answer must not replace a stocked cellar"
+    assert coordinator.serving_cached_data is True
+
+
+def test_a_transiently_empty_first_response_does_not_overwrite_the_cache():
+    coordinator = build(cached=LIVE, text=HEADER_ONLY)
+    update(coordinator)
+    assert stored(coordinator)["payload"] == LIVE
+    assert coordinator.hass.storage_saves == 0
+
+
+def test_a_transiently_empty_first_response_does_not_announce_the_cellar_gone():
+    coordinator = build(cached=LIVE, text=HEADER_ONLY)
+    update(coordinator)
+    assert events_of(coordinator) == []
+
+
+def test_a_repeated_empty_response_is_believed_after_a_restart():
+    """The rule elsewhere: reject the first suspicious zero, believe a repeat.
+
+    The cache parse that serves the first rejection must not reset the counter,
+    or the repeat would be rejected again and again.
+    """
+    coordinator = build(cached=LIVE, text=HEADER_ONLY)
+    coordinator.data = update(coordinator)  # first empty: rejected, cache served
+    assert coordinator.data["total_bottles"] == 2
+
+    coordinator.data = update(coordinator)  # second empty: the cellar really is empty
+    assert coordinator.data["total_bottles"] == 0
+
+
+def test_an_empty_first_response_with_no_cache_is_still_an_empty_cellar():
+    coordinator = build(text=HEADER_ONLY)
+    assert update(coordinator)["total_bottles"] == 0
+
+
+def test_an_empty_first_response_against_an_empty_cache_is_accepted():
+    coordinator = build(cached=HEADER_ONLY, text=HEADER_ONLY)
+    assert update(coordinator)["total_bottles"] == 0
+    assert events_of(coordinator) == []
+
+
+def test_a_first_response_far_smaller_than_the_cache_is_flagged(caplog):
+    """The truncation warning reads history too, so it needs the cache as well."""
+    coordinator = build(cached=TEN, text="\n".join([HEADER, "1\tWine 1\t10.00\t2020\t2030"]))
+    with caplog.at_level("WARNING"):
+        data = update(coordinator)
+    assert data["total_bottles"] == 1
+    assert "dropped from 10 to 1" in caplog.text
+
+
+def test_a_normal_first_response_is_unaffected_by_the_history():
+    coordinator = build(cached=LIVE, text=LIVE)
+    data = update(coordinator)
+    assert data["total_bottles"] == 2
+    assert coordinator.serving_cached_data is False
+
+
+def test_the_history_parse_does_not_touch_the_suspicion_counter():
+    """Serving the cache after an empty first poll must leave the count alone."""
+    coordinator = build(cached=LIVE, text=HEADER_ONLY)
+    update(coordinator)
+    assert coordinator._suspicious_empty_polls == 1

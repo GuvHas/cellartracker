@@ -351,6 +351,11 @@ copy instead of leaving every sensor unavailable until the outage ends.
 - **It says it is stale.** *Last synchronised* shows when the cache was written, not now, so you
   can see how old the numbers are. While serving it the next poll comes sooner — the smaller of
   your interval and 15 minutes — and a live poll restores your schedule.
+- **It also guards the first poll after a restart.** The cache counts as history, so an empty or
+  drastically smaller first response is treated as suspect against the cached stock, exactly as it
+  would be mid-run: it is refused once (and the cache is kept, not overwritten) and believed if it
+  repeats. Without that, a transient blip right after a restart would have been recorded as an
+  empty cellar.
 - **Only a response that parsed is ever cached.** An error page cannot become the "last known"
   cellar.
 - **It is private and it is removed with the integration.** It holds your purchase history and
@@ -415,7 +420,9 @@ Each bottle in `rack.bottles` has `name`, `vintage`, `wine_id`, `location`, `bin
 `drink_window` (`begin` and `end`), `drink_status` (`ready`, `past`, `aging` or `unknown`),
 `peak` and `unique_bottle_id`. A non-vintage wine has `vintage: null` rather than `0`, and a bottle
 with no recorded window has `null` years. Bins are matched ignoring case and surrounding spaces,
-and an empty `bin` matches nothing. The tasting note, the price paid and the barcode are
+an empty `bin` matches nothing, and an empty `location` means the same as leaving it out — an
+automation that renders an empty template searches every location rather than only unplaced
+bottles. The tasting note, the price paid and the barcode are
 deliberately left out: responses land in automation traces, which are shared far more freely than
 the cellar itself.
 
