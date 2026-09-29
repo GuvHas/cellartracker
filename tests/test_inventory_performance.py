@@ -70,11 +70,23 @@ def time_process(count: int) -> float:
 # --------------------------------------------------------------------------
 # Complexity
 # --------------------------------------------------------------------------
+def best_of(count: int, repeats: int = 5) -> float:
+    """The fastest of several runs.
+
+    Scheduling noise, garbage collection and a busy CI host only ever make a
+    run slower, never faster, so the minimum is the honest estimate of what the
+    algorithm costs. A ratio of two single measurements at millisecond scale is
+    not: one hiccup on either side skews it, which is how this test came to
+    fail once in a full-suite run while passing 12 of 12 in isolation.
+    """
+    return min(time_process(count) for _ in range(repeats))
+
+
 def test_duplicate_resolution_scales_linearly():
     """Quadratic growth would make this ~16x, linear is ~4x."""
     time_process(200)  # warm up
-    baseline = max(time_process(1000), 1e-6)
-    scaled = time_process(4000)
+    baseline = max(best_of(1000), 1e-6)
+    scaled = best_of(4000)
     ratio = scaled / baseline
     assert ratio < 8, f"4x the rows took {ratio:.1f}x longer, which indicates quadratic scaling"
 
