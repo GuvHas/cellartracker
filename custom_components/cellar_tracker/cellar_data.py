@@ -68,6 +68,10 @@ TOLERATED_SUSPICIOUS_EMPTY_POLLS = 1
 # transport is no longer routed through it.
 REQUEST_TIMEOUT = 60
 
+_BACKOFF_ENDED_BY_ANOTHER_FAILURE = (
+    "The last poll failed for another reason, so the backoff has ended"
+)
+
 # A throttled cellar should wait, but a server must not be able to park the
 # integration indefinitely by sending an enormous Retry-After.
 MAX_BACKOFF = 21600
@@ -466,16 +470,21 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
         return timedelta(seconds=max(seconds, configured))
 
-    def _restore_interval(self) -> None:
-        """Undo a backoff once CellarTracker is answering again."""
+    def _end_backoff(self, why: str) -> None:
+        """End a backoff episode and return to the configured schedule.
+
+        Being asked to slow down is a statement about the upstream's load, so the
+        first poll that is not that statement ends the episode - whatever else
+        went wrong with it. Ending it only after a fully successful poll left a
+        429 followed by a timeout, an ordinary 4xx, an auth failure or a
+        malformed response on the stale slowed schedule, with a later 429 wrongly
+        counted as consecutive.
+        """
         # Reset unconditionally: a backoff that landed exactly on the configured
         # interval leaves nothing to restore, but the streak is over all the same.
         self._consecutive_backoffs = 0
         if self.update_interval != self._scan_interval:
-            _LOGGER.info(
-                "CellarTracker is responding again; restoring the %s poll interval",
-                self._scan_interval,
-            )
+            _LOGGER.info("%s; restoring the %s poll interval", why, self._scan_interval)
             self.update_interval = self._scan_interval
 
     def _process_inventory(
@@ -746,6 +755,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         try:
             payload = await self._fetch_payload()
         except AuthenticationError as err:
+            self._end_backoff(_BACKOFF_ENDED_BY_ANOTHER_FAILURE)
             # Surfaces as a reauth flow (see async_step_reauth in config_flow).
             raise ConfigEntryAuthFailed("Invalid CellarTracker credentials") from err
         except UpstreamBackoff as err:
@@ -758,11 +768,18 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             _LOGGER.info("CellarTracker asked us to slow down (%s); next poll in %s", err, backoff)
             raise UpdateFailed(f"CellarTracker asked us to slow down: {err}") from err
         except (CannotConnect, TimeoutError, OSError) as err:
+            self._end_backoff(_BACKOFF_ENDED_BY_ANOTHER_FAILURE)
             _LOGGER.warning("Temporary communication error with CellarTracker: %r", err)
             raise UpdateFailed(f"Cannot reach CellarTracker: {err!r}") from err
         except Exception as err:
+            self._end_backoff(_BACKOFF_ENDED_BY_ANOTHER_FAILURE)
             _LOGGER.exception("Unexpected error fetching CellarTracker inventory")
             raise UpdateFailed(f"Unexpected CellarTracker error: {err!r}") from err
+
+        # The upstream answered, and did not ask us to slow down. That ends any
+        # backoff here rather than at the end of the poll: what follows can still
+        # fail - an error page, a malformed export - and a 200 is not throttling.
+        self._end_backoff("CellarTracker is responding again")
 
         # Resolved before the parse, not after: it is what the response is
         # checked against, not merely what it is compared to.
@@ -790,7 +807,6 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         self._last_success = dt_util.utcnow()
         data["last_success"] = self._last_success
 
-        self._restore_interval()
         return payload, data, history
 
     async def _async_save_cache(self, payload: str) -> None:

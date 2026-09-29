@@ -264,3 +264,110 @@ def test_a_timeout_still_keeps_its_schedule(monkeypatch):
     with pytest.raises(UpdateFailed):
         asyncio.run(coordinator._async_update_data())
     assert coordinator.update_interval == timedelta(seconds=CONFIGURED)
+
+
+# --------------------------------------------------------------------------
+# A failure that is not a slow-down request ends the streak
+#
+# Reported by Codex on #23. The interval and the streak were only cleared by a
+# fully successful poll, so a 429 followed by a timeout, an ordinary 4xx, an
+# auth failure or a malformed response left the stale slowed schedule in place,
+# and a later 429 was wrongly counted as consecutive. Being asked to slow down
+# is a statement about the upstream's load; the next poll that is not that
+# statement ends the episode, whatever else went wrong with it.
+# --------------------------------------------------------------------------
+from cellartracker.const import NOT_LOGGED_REPONSE  # noqa: E402
+from homeassistant.exceptions import ConfigEntryAuthFailed  # noqa: E402
+
+OTHER_FAILURES = [
+    pytest.param({"error": aiohttp.ClientConnectionError("boom")}, id="connection-error"),
+    pytest.param({"raise_for_status": failing(404)}, id="not-found"),
+    pytest.param({"raise_for_status": failing(403)}, id="forbidden"),
+    pytest.param({"text": "<html>x</html>\n<p>not inventory</p>"}, id="malformed-200"),
+    pytest.param({"text": f"<html>{NOT_LOGGED_REPONSE}</html>"}, id="auth-failure"),
+]
+
+
+def fail_otherwise(coordinator: WineCellarData, **session) -> None:
+    coordinator.hass.session = FakeSession(**session)
+    with pytest.raises((UpdateFailed, ConfigEntryAuthFailed)):
+        asyncio.run(coordinator._async_update_data())
+
+
+@pytest.mark.parametrize("session", OTHER_FAILURES)
+def test_another_kind_of_failure_restores_the_configured_interval(session, no_jitter):
+    coordinator = build()
+    fail_once(coordinator, 503)
+    assert seconds(coordinator) > CONFIGURED
+
+    fail_otherwise(coordinator, **session)
+
+    assert coordinator.update_interval == timedelta(seconds=CONFIGURED)
+
+
+@pytest.mark.parametrize("session", OTHER_FAILURES)
+def test_another_kind_of_failure_ends_the_streak(session, no_jitter):
+    coordinator = build()
+    fail_once(coordinator, 503)
+    fail_once(coordinator, 503)
+    assert coordinator.consecutive_backoffs == 2
+
+    fail_otherwise(coordinator, **session)
+
+    assert coordinator.consecutive_backoffs == 0
+
+
+@pytest.mark.parametrize("session", OTHER_FAILURES)
+def test_a_slow_down_after_another_failure_starts_from_the_bottom(session, no_jitter):
+    """The reported symptom: the later 429/5xx was treated as consecutive."""
+    coordinator = build()
+    fail_once(coordinator, 503)
+    fail_once(coordinator, 503)
+    assert seconds(coordinator) == 3600
+
+    fail_otherwise(coordinator, **session)
+    fail_once(coordinator, 503)
+
+    assert seconds(coordinator) == 1800
+
+
+def test_a_timeout_also_ends_the_streak(monkeypatch, no_jitter):
+    coordinator = build()
+    fail_once(coordinator, 503)
+    monkeypatch.setattr(cellar_data, "REQUEST_TIMEOUT", 0.05)
+    fail_otherwise(coordinator, text=GOOD, delay=5)
+    assert coordinator.consecutive_backoffs == 0
+    assert coordinator.update_interval == timedelta(seconds=CONFIGURED)
+
+
+def test_consecutive_slow_downs_still_grow_when_nothing_intervenes(no_jitter):
+    """The control: a real streak must not be broken by this change."""
+    coordinator = build()
+    fail_once(coordinator, 503)
+    fail_once(coordinator, 429)
+    fail_once(coordinator, 503)
+    assert seconds(coordinator) == 7200
+    assert coordinator.consecutive_backoffs == 3
+
+
+def test_ending_a_backoff_by_another_failure_says_so_quietly(caplog, no_jitter):
+    coordinator = build()
+    fail_once(coordinator, 503)
+    with caplog.at_level("INFO"):
+        fail_otherwise(coordinator, error=aiohttp.ClientConnectionError("boom"))
+    assert "backoff has ended" in caplog.text
+
+
+def test_another_failure_with_no_backoff_in_progress_says_nothing_new(caplog):
+    coordinator = build()
+    with caplog.at_level("INFO"):
+        fail_otherwise(coordinator, error=aiohttp.ClientConnectionError("boom"))
+    assert "backoff has ended" not in caplog.text
+
+
+def test_a_parse_failure_after_a_backoff_counts_as_the_server_answering(no_jitter):
+    """A 200 with garbage is not throttling: the upstream responded."""
+    coordinator = build()
+    fail_once(coordinator, 503)
+    fail_otherwise(coordinator, text="<html>maintenance</html>\n<p>back soon</p>")
+    assert coordinator.update_interval == timedelta(seconds=CONFIGURED)

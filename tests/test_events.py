@@ -5,9 +5,10 @@ what was added, what was removed and the new total.
 
 Deliberate edges:
 
-- No event without history. On the first poll after a restart there is nothing
-  to compare with, and announcing the whole cellar as "added" would be noise
-  every time Home Assistant restarts.
+- No event without history. With nothing on disk to compare with - a fresh
+  install, or a deleted cache - announcing the whole cellar as "added" would be
+  noise, so the first poll is silent. A restart *with* a cache is history: see
+  the last item below.
 - No event for a revaluation alone. Prices drift constantly; an event for each
   would make it useless to automate on. Only the bottles themselves count.
 - A bottle's identity includes its Location and Bin, so moving one shows as

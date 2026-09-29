@@ -455,11 +455,14 @@ The payload has `added_bottles`, `removed_bottles` and `total_count`, plus `adde
 `unique_bottle_id`, `iWine`, `Wine`, `Vintage`, `Location` and `Bin` — a large first sync cannot
 push hundreds of kilobytes through the event bus, and `truncated` tells you if the lists were cut.
 
-It deliberately **does not fire** on the first poll after a restart (there is nothing to compare
-with), for a revaluation or an edited note, or for a failed poll. Moving a bottle to another bin
-is reported as removed from the old one and added to the new. A restart *does* remember: the first
-live poll after one is compared against the cached inventory, so bottles changed while Home
-Assistant was offline are announced.
+It deliberately **does not fire** when there is no history to compare with — a fresh install, or
+after the [cache](#the-disk-cache) has been deleted — nor for a revaluation or an edited note, nor
+for a failed poll. Moving a bottle to another bin is reported as removed from the old one and added
+to the new.
+
+**A restart does remember.** After one, the first live poll is compared against the cached
+inventory, so bottles added, removed or moved while Home Assistant was offline *are* announced. If
+the inventory is unchanged, nothing fires.
 
 ---
 
