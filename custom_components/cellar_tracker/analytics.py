@@ -73,20 +73,25 @@ def drink_status(bottle: Mapping[str, Any], year: int) -> DrinkStatus:
 
 
 def is_peak(bottle: Mapping[str, Any], year: int) -> bool:
-    """True from the start of the window up to its midpoint.
+    """True in the middle third of a bottle's drinking window.
 
-    ``BeginConsume <= year <= (BeginConsume + EndConsume) / 2``. That is the
-    first half of the window, not its middle. It needs both ends: with either
-    missing there is no midpoint, so an open-ended window is never "peak".
+    ``BeginConsume + span/3 <= year <= EndConsume - span/3``, where
+    ``span = EndConsume - BeginConsume``. The first and last thirds are still
+    ready to drink - just not at their best - so a wine's opening and closing
+    years are never peak. It needs both ends: with either missing there is no
+    span to divide, so an open-ended window is never "peak".
 
-    Compared as ``2 * year <= begin + end`` so an odd span cannot pick up a
-    float rounding surprise.
+    Worked in integers. Multiplying through by three gives
+    ``2*begin + end <= 3*year <= begin + 2*end``, so a span that is not a
+    multiple of three cannot pick up a float rounding surprise at a boundary.
+    An inverted window (begin after end) satisfies neither side, and a
+    one-year window is peak in that year.
     """
     begin = consume_year(bottle.get("BeginConsume"))
     end = consume_year(bottle.get("EndConsume"))
     if begin is None or end is None:
         return False
-    return begin <= year and 2 * year <= begin + end
+    return 2 * begin + end <= 3 * year <= begin + 2 * end
 
 
 def drink_window_breakdown(bottles: Sequence[Mapping[str, Any]], year: int) -> DrinkWindowBreakdown:

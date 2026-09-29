@@ -275,12 +275,32 @@ def test_a_missing_window_is_null_not_zero(hass):
 
 @pytest.mark.parametrize(
     ("bin_name", "status", "peak"),
-    [("A1", "ready", True), ("B2", "aging", False)],
+    [("A1", "ready", False), ("B2", "aging", False)],
 )
 def test_status_and_peak_are_worked_out_for_the_current_year(hass, bin_name, status, peak):
     bottle = lookup(hass, bin=bin_name, location="Cellar")["bottles"][0]
     assert bottle["drink_status"] == status
     assert bottle["peak"] is peak
+
+
+@pytest.mark.parametrize(
+    ("year", "peak"),
+    [
+        (2020, False),
+        (2026, False),
+        (2027, True),
+        (2030, True),
+        (2033, True),
+        (2034, False),
+        (2040, False),
+    ],
+)
+def test_peak_follows_the_middle_third_of_the_window(year, peak):
+    """Barolo is 2020-2040: the middle third is 2026.67..2033.33."""
+    hass = make_hass(a=FakeCoordinator(bottles=BOTTLES, year=year))
+    bottle = lookup(hass, bin="A1", location="Cellar")["bottles"][0]
+    assert bottle["peak"] is peak
+    assert bottle["drink_status"] == "ready"
 
 
 def test_a_past_bottle_is_reported_past(hass):

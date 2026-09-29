@@ -418,9 +418,12 @@ and an empty `bin` matches nothing. The tasting note, the price paid and the bar
 deliberately left out: responses land in automation traces, which are shared far more freely than
 the cellar itself.
 
-**`peak`** is true from the first year of a window to its midpoint, that is
-`BeginConsume <= this year <= (BeginConsume + EndConsume) / 2` — the first half of the window,
-and never true for a window with only one end.
+**`peak`** is true in the **middle third** of a bottle's drinking window: with
+`span = EndConsume - BeginConsume`, from `BeginConsume + span/3` to `EndConsume - span/3`. The
+first and last thirds are still ready to drink — just not at their best — so a wine's opening and
+closing years are never `peak`. For a window of 2020–2030 that is 2024 to 2026. It is never true for
+a window with only one end, since there is no span to divide, and it is always a subset of
+`ready`. A bottle is `peak` only while its `drink_status` is `ready`.
 
 ### The `cellartracker_inventory_changed` event
 

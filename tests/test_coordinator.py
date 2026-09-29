@@ -10,6 +10,7 @@ import asyncio
 
 import pytest
 
+from cellar_tracker.analytics import is_peak
 from cellar_tracker.cellar_data import WineCellarData
 from conftest import ConfigEntry, FakeHass, FakeSession
 
@@ -34,8 +35,8 @@ def update(coordinator: WineCellarData):
 
 
 CELLAR = tsv(
-    "1\tBarolo\tCellar\tA1\t50\t2020\t2040",  # ready + peak
-    "2\tRioja\tCellar\tA1\t20\t2020\t2030",  # ready
+    "1\tBarolo\tCellar\tA1\t50\t2020\t2040",  # ready, still in its first third
+    "2\tRioja\tCellar\tA1\t20\t2020\t2030",  # ready + peak (2023.33..2026.67)
     "3\tPort\tCellar\tB2\t30\t2030\t2050",  # needs aging
     "4\tChablis\tFridge\tA1\t10\t2010\t2020",  # past
     "5\tMystery\t\t\t5\t\t",  # no window, unplaced
@@ -47,6 +48,14 @@ def test_payload_carries_every_drink_window_count():
     assert data["ready_to_drink"] == 2
     assert data["past_drink_window"] == 1
     assert data["needs_aging"] == 1
+    assert data["peak_drinking"] == 1
+
+
+def test_peak_counts_the_bottle_in_its_middle_third_not_the_one_that_merely_began():
+    """Barolo (2020-2040) is ready but early; Rioja (2020-2030) is at its peak."""
+    data = update(build(CELLAR))
+    peak = [b["Wine"] for b in data["bottles"] if is_peak(b, 2026)]
+    assert peak == ["Rioja"]
     assert data["peak_drinking"] == 1
 
 
