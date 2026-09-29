@@ -33,6 +33,13 @@ from homeassistant.helpers.json import json_bytes
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .analytics import (
+    LocationIndex,
+    drink_window_breakdown,
+    index_by_location_bin,
+)
+from .analytics import consume_year as _consume_year  # noqa: F401
+from .analytics import drink_window_counts as _drink_window_counts  # noqa: F401
 from .const import (
     COMPACT_FIELDS,
     CONF_CURRENCY,
@@ -72,6 +79,10 @@ class CellarData(TypedDict):
     bottles: list[dict[str, Any]]
     ready_to_drink: int
     past_drink_window: int
+    # Not sensors: carried for the views, the services and diagnostics.
+    needs_aging: int
+    peak_drinking: int
+    location_index: LocationIndex
     # Attached after the parse returns, so it is absent from the executor's
     # own result for the moment between the two.
     last_success: NotRequired[datetime]
@@ -117,46 +128,6 @@ IDENTITY_FIELDS = ("iWine", "PurchaseDate", "Barcode", "Location", "Bin")
 # Unit separator: cannot occur in CellarTracker's tab-separated payload, so it
 # cannot be forged by field contents to collide with another row's identity.
 _FIELD_SEPARATOR = "\x1f"
-
-
-def _consume_year(value: object) -> int | None:
-    """Read a BeginConsume/EndConsume cell as a year, or None if absent.
-
-    CellarTracker gives these as plain years, and cellar.html already reads
-    them that way - ``parseInt`` compared against the current year, with a
-    blank collapsing to 0. Anything that is not a whole positive number means
-    "no window given" rather than an error: a cellar is full of wines nobody
-    has assigned a drinking window to.
-    """
-    try:
-        year = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return year if year > 0 else None
-
-
-def _drink_window_counts(bottles: list, year: int) -> tuple[int, int]:
-    """Count bottles drinkable now, and bottles past their window.
-
-    A bottle with no window at all is counted in neither: the export does not
-    say, and guessing would be worse than reporting nothing.
-
-    The last year of a window counts as ready, not past - it is still inside
-    the window. The dashboard paints that year red, but that is urgency rather
-    than expiry.
-    """
-    ready = past = 0
-    for bottle in bottles:
-        begin = _consume_year(bottle.get("BeginConsume"))
-        end = _consume_year(bottle.get("EndConsume"))
-
-        if end is not None and end < year:
-            past += 1
-        elif (begin is not None or end is not None) and (
-            (begin is None or begin <= year) and (end is None or end >= year)
-        ):
-            ready += 1
-    return ready, past
 
 
 def _bottle_identity(bottle: dict) -> str:
@@ -431,6 +402,9 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 "bottles": [],
                 "ready_to_drink": 0,
                 "past_drink_window": 0,
+                "needs_aging": 0,
+                "peak_drinking": 0,
+                "location_index": {},
             }
 
         total_value = 0.0
@@ -500,14 +474,17 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 len(processed_bottles),
             )
 
-        ready, past = _drink_window_counts(processed_bottles, self._current_year())
+        window = drink_window_breakdown(processed_bottles, self._current_year())
 
         return {
             "total_bottles": len(processed_bottles),
             "total_value": round(total_value, 2),
             "bottles": processed_bottles,
-            "ready_to_drink": ready,
-            "past_drink_window": past,
+            "ready_to_drink": window["ready_to_drink"],
+            "past_drink_window": window["past_drink_window"],
+            "needs_aging": window["needs_aging"],
+            "peak_drinking": window["peak_drinking"],
+            "location_index": index_by_location_bin(processed_bottles),
         }
 
     async def _fetch_payload(self) -> str:

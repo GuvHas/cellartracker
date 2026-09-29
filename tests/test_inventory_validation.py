@@ -46,6 +46,9 @@ EMPTY = {
     # present rather than absent so consumers never have to guess.
     "ready_to_drink": 0,
     "past_drink_window": 0,
+    "needs_aging": 0,
+    "peak_drinking": 0,
+    "location_index": {},
 }
 
 REAL_ROWS = [
