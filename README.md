@@ -337,10 +337,11 @@ up fixes to the page. Point your card at `/cellartracker/cellar.html` and delete
 
 ### The disk cache
 
-Every successful poll writes the inventory to Home Assistant's `.storage/` directory
-(`cellar_tracker.inventory_cache_<entry id>`). If Home Assistant **restarts while CellarTracker is
-unreachable**, the integration starts from that copy instead of leaving every sensor unavailable
-until the outage ends.
+The inventory is kept in Home Assistant's `.storage/` directory
+(`cellar_tracker.inventory_cache_<entry id>`): rewritten whenever it changes, and — so that its
+timestamp stays true for a cellar that does not — at least once an hour for an unchanged one. If
+Home Assistant **restarts while CellarTracker is unreachable**, the integration starts from that
+copy instead of leaving every sensor unavailable until the outage ends.
 
 - **Only ever a stand-in for the first refresh.** Once there is data, a failing poll behaves as it
   always did: the entities go unavailable rather than quietly showing something older than what

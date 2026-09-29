@@ -351,3 +351,102 @@ def test_removing_the_integration_deletes_the_cache():
 def test_removing_an_entry_that_never_cached_is_harmless():
     hass = FakeHass()
     asyncio.run(async_remove_entry(hass, ConfigEntry(entry_id="never-cached")))
+
+
+# --------------------------------------------------------------------------
+# The timestamp must advance even when the inventory does not change
+#
+# Reported by Codex on #23. An unchanged payload returned early, so saved_at was
+# never refreshed: a cellar untouched for months, then a restart during an
+# outage, reported a "last synchronised" months in the past. That defeats the
+# point of the cache's own timestamp, which exists to tell the truth about age.
+#
+# Rewriting the whole file every poll would fix it, but the writes are pointless
+# for an unchanged cellar; so an unchanged payload is rewritten at most hourly.
+# That is exact at the six-hour default and bounds the lag at one hour at the
+# fifteen-minute minimum.
+# --------------------------------------------------------------------------
+T0 = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+
+
+def clock(monkeypatch, moments: list[datetime]):
+    """Make dt_util.utcnow return each moment in turn, then repeat the last."""
+    remaining = list(moments)
+
+    def now():
+        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+    monkeypatch.setattr(cellar_data.dt_util, "utcnow", now)
+
+
+def saved_at(coordinator: WineCellarData) -> datetime:
+    return datetime.fromisoformat(stored(coordinator)["saved_at"])
+
+
+def test_an_unchanged_payload_refreshes_the_timestamp_after_the_refresh_interval(monkeypatch):
+    coordinator = build(text=LIVE)
+    later = T0 + cellar_data.CACHE_REFRESH_INTERVAL + timedelta(minutes=1)
+    clock(monkeypatch, [T0, T0, later, later])  # a poll reads the clock twice
+
+    update(coordinator)
+    assert saved_at(coordinator) == T0
+    update(coordinator)
+
+    assert saved_at(coordinator) == later
+    assert coordinator.hass.storage_saves == 2
+
+
+def test_an_unchanged_payload_is_not_rewritten_within_the_refresh_interval(monkeypatch):
+    coordinator = build(text=LIVE)
+    soon = T0 + timedelta(minutes=5)
+    clock(monkeypatch, [T0, T0, soon, soon])
+
+    update(coordinator)
+    update(coordinator)
+
+    assert coordinator.hass.storage_saves == 1
+
+
+def test_the_refresh_interval_is_short_next_to_a_default_poll():
+    """At the six-hour default every poll refreshes the stamp; it is exact there."""
+    assert timedelta(hours=6) > cellar_data.CACHE_REFRESH_INTERVAL
+    assert timedelta(hours=1) >= cellar_data.CACHE_REFRESH_INTERVAL
+
+
+def test_a_cellar_unchanged_for_a_month_still_reports_recent_when_restored(monkeypatch):
+    """The scenario reported: months unchanged, then a restart during an outage."""
+    coordinator = build(text=LIVE)
+    polls = [T0 + timedelta(hours=6 * n) for n in range(4 * 30)]  # a month, 6-hourly
+    clock(monkeypatch, [moment for poll in polls for moment in (poll, poll)])
+    for _ in polls:
+        update(coordinator)
+
+    last_poll = polls[-1]
+    restarted = build(cached=None, error=aiohttp.ClientConnectionError("boom"))
+    restarted.hass.storage_backend = coordinator.hass.storage_backend
+    update(restarted)
+
+    assert restarted.last_success == last_poll
+    assert last_poll - restarted.last_success < cellar_data.CACHE_REFRESH_INTERVAL
+
+
+def test_a_changed_payload_is_always_rewritten_whatever_the_time(monkeypatch):
+    coordinator = build(text=LIVE)
+    clock(monkeypatch, [T0, T0, T0 + timedelta(seconds=1), T0 + timedelta(seconds=1)])
+    update(coordinator)
+    coordinator.hass.session = FakeSession(text=LIVE + "\n3\tChablis\t12.00\t2018\t2024")
+    update(coordinator)
+    assert coordinator.hass.storage_saves == 2
+
+
+def test_a_timestamp_that_was_refreshed_is_what_the_restore_reports(monkeypatch):
+    coordinator = build(text=LIVE)
+    later = T0 + timedelta(hours=6)
+    clock(monkeypatch, [T0, T0, later, later])
+    update(coordinator)
+    update(coordinator)
+
+    restarted = build(error=aiohttp.ClientConnectionError("boom"))
+    restarted.hass.storage_backend = coordinator.hass.storage_backend
+    update(restarted)
+    assert restarted.last_success == later

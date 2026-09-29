@@ -289,3 +289,121 @@ def test_delta_lists_additions_and_removals_in_cellar_order():
     assert delta is not None
     assert [b["unique_bottle_id"] for b in delta["added"]] == ["c", "d"]
     assert [b["unique_bottle_id"] for b in delta["removed"]] == ["a"]
+
+
+# --------------------------------------------------------------------------
+# Restarting: history comes from the disk cache even when the first poll works
+#
+# Reported by Codex on #23. After a normal restart coordinator.data is None, and
+# the cache was only read on the failure path - so a *successful* first poll,
+# the common case, had no history and silently missed bottles added, removed or
+# moved while Home Assistant was offline. The documented promise held only when
+# the cache had already been served.
+# --------------------------------------------------------------------------
+def with_cache(coordinator: WineCellarData, payload: str) -> WineCellarData:
+    from cellar_tracker.cellar_data import cache_key
+
+    coordinator.hass.storage_backend[cache_key("test_entry")] = {
+        "payload": payload,
+        "saved_at": "2026-01-01T00:00:00+00:00",
+    }
+    return coordinator
+
+
+def first_live_poll(coordinator: WineCellarData, text: str) -> None:
+    """The first refresh after a restart: no data yet, upstream answers."""
+    assert coordinator.data is None
+    poll(coordinator, text)
+
+
+def test_a_live_first_poll_announces_what_changed_while_offline():
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+
+    (event,) = events(coordinator)
+    assert [b["Wine"] for b in event["added_bottles"]] == ["Rioja"]
+    assert event["removed_bottles"] == []
+    assert event["total_count"] == 2
+
+
+def test_a_live_first_poll_announces_a_bottle_consumed_while_offline():
+    coordinator = with_cache(build(), cellar(BAROLO, RIOJA))
+    first_live_poll(coordinator, cellar(RIOJA))
+
+    (event,) = events(coordinator)
+    assert [b["Wine"] for b in event["removed_bottles"]] == ["Barolo"]
+
+
+def test_a_live_first_poll_announces_a_bottle_moved_while_offline():
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO.replace("\tA1\t", "\tZ9\t")))
+
+    (event,) = events(coordinator)
+    assert event["removed_bottles"][0]["Bin"] == "A1"
+    assert event["added_bottles"][0]["Bin"] == "Z9"
+
+
+def test_a_live_first_poll_matching_the_cache_fires_nothing():
+    coordinator = with_cache(build(), cellar(BAROLO, RIOJA))
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+    assert events(coordinator) == []
+
+
+def test_an_identical_cache_is_not_parsed_at_all():
+    """Nothing to compare when the bytes match - so no second parse at startup."""
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO))
+    assert coordinator.hass.executor_jobs == ["_parse_and_process"]
+
+
+def test_a_revaluation_while_offline_fires_nothing():
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO.replace("\t50\t", "\t999\t")))
+    assert events(coordinator) == []
+
+
+def test_with_no_cache_the_first_live_poll_still_fires_nothing():
+    coordinator = build()
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+    assert events(coordinator) == []
+
+
+def test_the_comparison_does_not_disturb_what_the_views_serve():
+    """Parsing the cache to compare must not overwrite the live pre-rendered bodies."""
+    import json
+
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+
+    served = {b["Wine"] for b in json.loads(coordinator.inventory_body)}
+    assert served == {"Barolo", "Rioja"}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param("<html>maintenance</html>\n<body>back soon</body>", id="error-page"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_an_unusable_cache_gives_no_history_but_does_not_break_the_poll(bad):
+    coordinator = with_cache(build(), bad)
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+    assert coordinator.data["total_bottles"] == 2
+    assert events(coordinator) == []
+
+
+def test_an_unreadable_cache_gives_no_history_but_does_not_break_the_poll():
+    coordinator = with_cache(build(), cellar(BAROLO))
+    coordinator.hass.storage_load_error = OSError("disk unplugged")
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+    assert coordinator.data["total_bottles"] == 2
+    assert events(coordinator) == []
+
+
+def test_the_restart_event_fires_once_not_on_every_poll():
+    coordinator = with_cache(build(), cellar(BAROLO))
+    first_live_poll(coordinator, cellar(BAROLO, RIOJA))
+    poll(coordinator, cellar(BAROLO, RIOJA))
+    poll(coordinator, cellar(BAROLO, RIOJA))
+    assert len(events(coordinator)) == 1

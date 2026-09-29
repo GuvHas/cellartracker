@@ -86,6 +86,13 @@ MAX_BACKOFF_EXPONENT = 16
 # migration to us rather than to whatever happens to parse.
 CACHE_VERSION = 1
 
+# An unchanged payload is rewritten to disk at most this often. The write exists
+# to advance the stored timestamp, so the age a restart reports stays true; the
+# bytes are the same, so doing it every poll would be pointless flash wear at the
+# fifteen-minute minimum. An hour is exact at the six-hour default - every poll
+# is later than that - and bounds the timestamp's lag at one hour at the minimum.
+CACHE_REFRESH_INTERVAL = timedelta(hours=1)
+
 
 def cache_key(entry_id: str) -> str:
     """The storage key for one entry's inventory cache.
@@ -341,8 +348,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         self._store: Store[dict[str, Any]] = Store(
             hass, CACHE_VERSION, cache_key(entry.entry_id), private=True
         )
-        # What is on disk, so an unchanged payload is not rewritten every poll.
+        # What is on disk and when it was written, so an unchanged payload is
+        # not rewritten on every poll - but is still refreshed often enough that
+        # its timestamp does not drift from the truth.
         self._cached_payload: str | None = None
+        self._cache_saved_at: datetime | None = None
         # True while the data on show came from disk rather than from a poll.
         self._serving_cache = False
 
@@ -637,24 +647,75 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                     return cached
             raise
 
+        # After a restart there is no data yet, so the poll has nothing to be
+        # compared with - unless the disk remembers. Read it before the save
+        # below overwrites it. This is what makes bottles changed while Home
+        # Assistant was offline reach the event even when the first poll works,
+        # not only when the cache had to be served.
+        previous_bottles = (
+            await self._async_cached_bottles(payload) if previous is None else previous["bottles"]
+        )
+
         self._serving_cache = False
         self._last_error = None
         await self._async_save_cache(payload)
-        self._fire_inventory_changed(previous, data)
+        self._fire_inventory_changed(previous_bottles, data)
         return data
 
-    def _fire_inventory_changed(self, previous: CellarData | None, current: CellarData) -> None:
+    async def _async_cached_bottles(self, live_payload: str) -> list[dict[str, Any]] | None:
+        """The cached bottles, to compare a first live poll against, or None.
+
+        None means there is nothing to announce: no cache, an unusable one, or
+        one identical to the live response. The identical case skips the parse
+        entirely - equal bytes cannot differ - so an unchanged cellar costs a
+        restart one file read and a string comparison.
+
+        Also records what is on disk, so the save that follows can tell an
+        unchanged payload from a changed one.
+        """
+        cached = await self._async_load_cache()
+        if cached is None:
+            return None
+        cached_payload, cached_at = cached
+        self._cached_payload = cached_payload
+        self._cache_saved_at = cached_at
+
+        if cached_payload == live_payload:
+            return None
+        try:
+            return await self.hass.async_add_executor_job(
+                self._parse_for_comparison, cached_payload
+            )
+        except (UpdateFailed, csv.Error):
+            # An unusable cache is no history, and must not fail a poll that
+            # itself succeeded.
+            return None
+
+    def _parse_for_comparison(self, payload: str) -> list[dict[str, Any]]:
+        """Parse a cached payload only to compare it. Runs in an executor.
+
+        Deliberately not _parse_and_process: that also renders the pre-rendered
+        bodies the HTTP views serve, and this runs *after* the live poll has
+        rendered its own. Going through it would overwrite the live inventory
+        with the stale one.
+        """
+        rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
+        return self._process_inventory(rows, previous=None)["bottles"]
+
+    def _fire_inventory_changed(
+        self, previous_bottles: list[dict[str, Any]] | None, current: CellarData
+    ) -> None:
         """Announce a change in which bottles the cellar holds.
 
-        Silent with no history: on the first poll after a restart there is
-        nothing to compare with, and announcing the whole cellar as "added"
-        would be noise every time Home Assistant restarts. Data restored from
-        the disk cache does count as history, so bottles changed while offline
-        are announced by the first live poll.
+        Silent with no history: announcing the whole cellar as "added" would be
+        noise every time Home Assistant restarts with nothing on disk to compare
+        with. History is the previous poll's bottles or, on the first poll after
+        a restart, the disk cache - whether or not that poll needed the cache
+        served - so bottles changed while offline are announced either way.
         """
-        if previous is None:
+        if previous_bottles is None:
             return
-        delta = inventory_delta(previous["bottles"], current["bottles"])
+        delta = inventory_delta(previous_bottles, current["bottles"])
         if delta is None:
             return
 
@@ -729,15 +790,20 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         the last known inventory. A failure to write is logged and swallowed:
         the cache exists to help a bad day, and must not cause one.
         """
-        if payload == self._cached_payload:
-            return
         saved_at = self._last_success or dt_util.utcnow()
+        if (
+            payload == self._cached_payload
+            and self._cache_saved_at is not None
+            and saved_at - self._cache_saved_at < CACHE_REFRESH_INTERVAL
+        ):
+            return
         try:
             await self._store.async_save({"payload": payload, "saved_at": saved_at.isoformat()})
         except Exception as err:  # noqa: BLE001 - whatever the disk throws
             _LOGGER.warning("Could not write the CellarTracker inventory cache: %s", err)
             return
         self._cached_payload = payload
+        self._cache_saved_at = saved_at
 
     async def _async_load_cache(self) -> tuple[str, datetime] | None:
         """Read the cache, or None if it is absent, unreadable or malformed."""
@@ -785,6 +851,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         self._last_success = saved_at
         data["last_success"] = saved_at
         self._cached_payload = payload
+        self._cache_saved_at = saved_at
         self._serving_cache = True
 
         # Stale data is worth replacing soon, not in six hours. Skipped while
