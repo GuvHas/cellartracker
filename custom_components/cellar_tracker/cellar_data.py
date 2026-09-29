@@ -8,7 +8,7 @@ import logging
 import random
 from collections import defaultdict
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, NotRequired, TypedDict
 
 # The library still owns the endpoint contract - its URL, the marker that
@@ -31,6 +31,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import json_bytes
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -47,6 +48,7 @@ from .const import (
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MIN_SCAN_INTERVAL,
     normalize_currency,
 )
 
@@ -75,6 +77,26 @@ JITTER_FLOOR = 0.75
 # Bounds the exponent so a very long streak cannot build an absurd integer
 # before the cap is applied. 2**16 is far past any cap this can meet.
 MAX_BACKOFF_EXPONENT = 16
+
+# Bumped only if the stored shape changes incompatibly; Store then hands
+# migration to us rather than to whatever happens to parse.
+CACHE_VERSION = 1
+
+
+def cache_key(entry_id: str) -> str:
+    """The storage key for one entry's inventory cache.
+
+    Per entry, so a legacy install still holding two of them cannot have one
+    overwrite the other. The file lands in ``.storage/`` under this name.
+    """
+    return f"{DOMAIN}.inventory_cache_{entry_id}"
+
+
+async def async_remove_cache(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete an entry's cache. The cellar must not outlive the integration."""
+    await Store[dict[str, Any]](
+        hass, CACHE_VERSION, cache_key(entry_id), private=True
+    ).async_remove()
 
 
 class CellarData(TypedDict):
@@ -307,6 +329,18 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         self._inventory_body: bytes = b"[]"
         self._compact_body: bytes = b"[]"
 
+        # The cache holds personal data - purchases, stores, free-form notes -
+        # so the file is private. Home Assistant's Store also brings atomic
+        # writes and keeps the file I/O off the event loop, which a hand-rolled
+        # json.dump into .storage/ would not.
+        self._store: Store[dict[str, Any]] = Store(
+            hass, CACHE_VERSION, cache_key(entry.entry_id), private=True
+        )
+        # What is on disk, so an unchanged payload is not rewritten every poll.
+        self._cached_payload: str | None = None
+        # True while the data on show came from disk rather than from a poll.
+        self._serving_cache = False
+
         # Consecutive polls the upstream asked us to slow down for. Drives the
         # exponential growth; forgotten on the first success.
         self._consecutive_backoffs = 0
@@ -314,6 +348,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
         self._last_success: datetime | None = None
+
+    @property
+    def serving_cached_data(self) -> bool:
+        """True while what is on show came from the disk cache, not a live poll."""
+        return self._serving_cache
 
     @property
     def consecutive_backoffs(self) -> int:
@@ -542,7 +581,39 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         )
 
     async def _async_update_data(self) -> CellarData:
-        """Fetch inventory from CellarTracker."""
+        """Fetch inventory from CellarTracker, or fall back to the disk cache.
+
+        The cache is only ever a stand-in for a first refresh that could not
+        reach a live inventory - typically a restart during an outage. Once
+        there is data, a failing poll keeps the standard behaviour: entities go
+        unavailable rather than silently swapping in something older than what
+        they were already showing.
+
+        ConfigEntryAuthFailed is not an UpdateFailed, so bad credentials
+        bypass this entirely: they need the user, and masking them with old
+        data would hide the reauth prompt.
+        """
+        try:
+            payload, data = await self._async_poll_upstream()
+        except UpdateFailed as err:
+            if self.data is None:
+                cached = await self._async_data_from_cache()
+                if cached is not None:
+                    _LOGGER.warning(
+                        "CellarTracker is unavailable (%s); showing the inventory "
+                        "cached at %s until it responds",
+                        err,
+                        cached["last_success"],
+                    )
+                    return cached
+            raise
+
+        self._serving_cache = False
+        await self._async_save_cache(payload)
+        return data
+
+    async def _async_poll_upstream(self) -> tuple[str, CellarData]:
+        """Fetch and process a live inventory. Returns the raw payload with it."""
         try:
             payload = await self._fetch_payload()
         except AuthenticationError as err:
@@ -593,6 +664,85 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         data["last_success"] = self._last_success
 
         self._restore_interval()
+        return payload, data
+
+    async def _async_save_cache(self, payload: str) -> None:
+        """Persist a payload that has just parsed. Never raises.
+
+        Called only after a successful parse, so an error page can never become
+        the last known inventory. A failure to write is logged and swallowed:
+        the cache exists to help a bad day, and must not cause one.
+        """
+        if payload == self._cached_payload:
+            return
+        saved_at = self._last_success or dt_util.utcnow()
+        try:
+            await self._store.async_save(
+                {"payload": payload, "saved_at": saved_at.isoformat()}
+            )
+        except Exception as err:  # noqa: BLE001 - whatever the disk throws
+            _LOGGER.warning("Could not write the CellarTracker inventory cache: %s", err)
+            return
+        self._cached_payload = payload
+
+    async def _async_load_cache(self) -> tuple[str, datetime] | None:
+        """Read the cache, or None if it is absent, unreadable or malformed."""
+        try:
+            stored = await self._store.async_load()
+        except Exception as err:  # noqa: BLE001 - a bad cache is no cache
+            _LOGGER.warning("Could not read the CellarTracker inventory cache: %s", err)
+            return None
+
+        if not isinstance(stored, dict):
+            return None
+        payload = stored.get("payload")
+        raw_saved_at = stored.get("saved_at")
+        if not isinstance(payload, str) or not payload or not isinstance(raw_saved_at, str):
+            return None
+
+        try:
+            saved_at = datetime.fromisoformat(raw_saved_at)
+        except ValueError:
+            return None
+        if saved_at.tzinfo is None:
+            saved_at = saved_at.replace(tzinfo=UTC)
+        return payload, saved_at
+
+    async def _async_data_from_cache(self) -> CellarData | None:
+        """Build a payload from the cache, or None if there is nothing usable.
+
+        Parsed exactly like a live response, so the drink-window counts are
+        computed for the current year rather than trusted from when it was
+        stored, and the HTTP views get their pre-rendered bodies.
+        """
+        cached = await self._async_load_cache()
+        if cached is None:
+            return None
+        payload, saved_at = cached
+
+        try:
+            data = await self.hass.async_add_executor_job(
+                self._parse_and_process, payload, None
+            )
+        except (UpdateFailed, csv.Error) as err:
+            _LOGGER.warning("Ignoring an unusable CellarTracker inventory cache: %s", err)
+            return None
+
+        # The cache's own age, not now: "last synchronised" must not claim a
+        # sync that did not happen.
+        self._last_success = saved_at
+        data["last_success"] = saved_at
+        self._cached_payload = payload
+        self._serving_cache = True
+
+        # Stale data is worth replacing soon, not in six hours. Skipped while
+        # backing off - decided by the streak, not by comparing intervals,
+        # because a backoff can land exactly on the configured interval and
+        # would then look like no backoff at all.
+        if self._consecutive_backoffs == 0:
+            self.update_interval = min(
+                self._scan_interval, timedelta(seconds=MIN_SCAN_INTERVAL)
+            )
         return data
 
     def _parse_and_process(self, payload: str, previous: CellarData | None) -> CellarData:

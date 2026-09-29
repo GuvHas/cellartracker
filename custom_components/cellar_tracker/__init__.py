@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .cellar_data import CellarTrackerConfigEntry, WineCellarData
+from .cellar_data import CellarTrackerConfigEntry, WineCellarData, async_remove_cache
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
 from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 
@@ -94,3 +94,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntr
 
 async def update_listener(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
+    """Delete what the integration stored for an entry that is being removed.
+
+    The inventory cache holds purchase history and free-form notes. Leaving it
+    in .storage/ would mean removing the integration did not remove the user's
+    cellar from their disk.
+    """
+    await async_remove_cache(hass, entry.entry_id)

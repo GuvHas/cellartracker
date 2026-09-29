@@ -527,12 +527,30 @@ class _SetupEntries:
         return []
 
 
+class FakeBus:
+    """Records the events the integration fires."""
+
+    def __init__(self):
+        self.events = []
+
+    def async_fire(self, event_type, event_data=None, **kwargs):
+        self.events.append((event_type, dict(event_data or {})))
+
+
 class FakeHass:
     """Just enough HomeAssistant to run executor jobs inline."""
 
     def __init__(self, entries=None):
         self.config_entries = _FakeEntryManager(entries or {})
         self.executor_jobs = []
+        self.bus = FakeBus()
+        # helpers.storage.Store keeps its files here, keyed like the real one.
+        self.storage_backend = {}
+        self.storage_saves = 0
+        self.storage_removed = []
+        # Set to an exception instance to make the next load/save raise it.
+        self.storage_load_error = None
+        self.storage_save_error = None
 
     async def async_add_executor_job(self, func, *args):
         self.executor_jobs.append(getattr(func, "__name__", repr(func)))
@@ -611,3 +629,48 @@ _module(
     "homeassistant.helpers.aiohttp_client",
     async_get_clientsession=lambda hass, *a, **kw: getattr(hass, "session", FakeSession()),
 )
+
+
+# --- homeassistant.helpers.storage --------------------------------------------
+_StoreT = typing.TypeVar("_StoreT")
+
+
+def _storage_backend(hass):
+    """The dict standing in for .storage, whichever hass double this is."""
+    return hass.__dict__.setdefault("storage_backend", {})
+
+
+class Store(typing.Generic[_StoreT]):  # noqa: UP046
+    """In-memory stand-in for helpers.storage.Store.
+
+    Round-trips through JSON on save, as the real one does, so a test cannot
+    pass by storing something Home Assistant would refuse to write.
+    """
+
+    def __init__(self, hass, version, key, *, private=False, atomic_writes=False, **kwargs):
+        self.hass = hass
+        self.version = version
+        self.key = key
+        self.private = private
+        self.atomic_writes = atomic_writes
+
+    async def async_load(self):
+        error = getattr(self.hass, "storage_load_error", None)
+        if error is not None:
+            raise error
+        stored = _storage_backend(self.hass).get(self.key)
+        return None if stored is None else _json.loads(_json.dumps(stored))
+
+    async def async_save(self, data):
+        error = getattr(self.hass, "storage_save_error", None)
+        if error is not None:
+            raise error
+        _storage_backend(self.hass)[self.key] = _json.loads(_json.dumps(data))
+        self.hass.__dict__["storage_saves"] = getattr(self.hass, "storage_saves", 0) + 1
+
+    async def async_remove(self):
+        _storage_backend(self.hass).pop(self.key, None)
+        self.hass.__dict__.setdefault("storage_removed", []).append(self.key)
+
+
+_module("homeassistant.helpers.storage", Store=Store)

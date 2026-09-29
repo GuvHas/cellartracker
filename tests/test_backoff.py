@@ -69,7 +69,10 @@ def fail_once(coordinator: WineCellarData, status: int, retry_after: str | None 
 
 def succeed(coordinator: WineCellarData) -> None:
     coordinator.hass.session = FakeSession(text=GOOD)
-    asyncio.run(coordinator._async_update_data())
+    # Home Assistant assigns the result to .data after a successful refresh;
+    # calling _async_update_data directly skips that, and without it the next
+    # failure would look like a first poll and be answered from the cache.
+    coordinator.data = asyncio.run(coordinator._async_update_data())
 
 
 @pytest.fixture
