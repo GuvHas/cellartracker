@@ -9,6 +9,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .cellar_data import CellarTrackerConfigEntry, WineCellarData, async_remove_cache
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
+from .services import async_setup_services
 from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(CellarTrackerInventoryView(hass))
     hass.http.register_view(CellarTrackerSettingsView(hass))
     await _async_register_dashboard(hass)
+    async_setup_services(hass)
     return True
 
 async def _async_register_dashboard(hass: HomeAssistant) -> None:

@@ -1,0 +1,14 @@
+refresh:
+
+get_wine_by_bin:
+  fields:
+    bin:
+      required: true
+      example: "A1"
+      selector:
+        text:
+    location:
+      required: false
+      example: "Cellar"
+      selector:
+        text:

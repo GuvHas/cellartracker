@@ -60,5 +60,30 @@
         "name": "Past drinking window"
       }
     }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Fetches the inventory from CellarTracker now, instead of waiting for the next scheduled poll. Repeated calls are rate-limited."
+    },
+    "get_wine_by_bin": {
+      "name": "Get wine by bin",
+      "description": "Returns the bottles in a rack bin, with their vintage and drinking window, for use in scripts and automations.",
+      "fields": {
+        "bin": {
+          "name": "Bin",
+          "description": "The bin to look up, as written in CellarTracker. Case and surrounding spaces are ignored."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Only look in this location. Leave empty to search every location."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "CellarTracker is not set up or has not finished loading yet."
+    }
   }
 }

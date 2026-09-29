@@ -395,6 +395,10 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         """
         return dt_util.utcnow().year
 
+    def current_year(self) -> int:
+        """This year, as the coordinator counts it - for the services to share."""
+        return self._current_year()
+
     @property
     def last_success(self) -> datetime | None:
         """When the last poll succeeded, or None if none has yet.
