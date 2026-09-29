@@ -46,7 +46,7 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _async_check_credentials(self, username: str, password: str) -> dict:
+    async def _async_check_credentials(self, username: str, password: str) -> dict[str, str]:
         """Return a form-errors dict; empty means the credentials are valid."""
         try:
             # The same non-blocking fetch the coordinator uses, so a hung

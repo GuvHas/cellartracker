@@ -184,7 +184,7 @@ IDENTITY_FIELDS = ("iWine", "PurchaseDate", "Barcode", "Location", "Bin")
 _FIELD_SEPARATOR = "\x1f"
 
 
-def _bottle_identity(bottle: dict) -> str:
+def _bottle_identity(bottle: Mapping[str, Any]) -> str:
     """Return the 16-hex-character identity of a physical bottle.
 
     Truncating to 64 bits keeps the id readable; at cellar scale (thousands of
@@ -196,7 +196,7 @@ def _bottle_identity(bottle: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _row_fingerprint(bottle: dict) -> str:
+def _row_fingerprint(bottle: Mapping[str, Any]) -> str:
     """Order-independent digest of a row's full contents.
 
     Used only to rank bottles that share an identity, so that duplicate

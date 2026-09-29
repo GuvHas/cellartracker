@@ -209,6 +209,7 @@ _module(
     CONF_PASSWORD="password",
     CONF_USERNAME="username",
     CONF_SCAN_INTERVAL="scan_interval",
+    EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
 _module(
     "homeassistant.config_entries",
@@ -308,6 +309,8 @@ _module(
 )
 
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+# HomeAssistantView lives here canonically; components.http merely re-exports it.
+_module("homeassistant.helpers.http", HomeAssistantView=object)
 # The real ConfigType is dict[str, Any]; async_setup takes one.
 _module("homeassistant.helpers.typing", ConfigType=dict)
 _module("homeassistant.util")

@@ -6,8 +6,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import web
-from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.http import HomeAssistantView
 
 from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
 
