@@ -1,4 +1,5 @@
 """The CellarTracker integration."""
+
 import logging
 from pathlib import Path
 
@@ -7,8 +8,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .cellar_data import CellarTrackerConfigEntry, WineCellarData
+from .cellar_data import CellarTrackerConfigEntry, WineCellarData, async_remove_cache
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
+from .services import async_setup_services
 from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,6 +22,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # Shipped inside the integration directory, so that whichever way the
 # integration was installed - HACS or a manual copy - the page is present.
 DASHBOARD_FILE = Path(__file__).parent / "www" / DASHBOARD_FILENAME
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the component.
@@ -34,7 +37,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(CellarTrackerInventoryView(hass))
     hass.http.register_view(CellarTrackerSettingsView(hass))
     await _async_register_dashboard(hass)
+    async_setup_services(hass)
     return True
+
 
 async def _async_register_dashboard(hass: HomeAssistant) -> None:
     """Serve the bundled dashboard page at DASHBOARD_URL.
@@ -62,6 +67,7 @@ async def _async_register_dashboard(hass: HomeAssistant) -> None:
         [StaticPathConfig(DASHBOARD_URL, str(DASHBOARD_FILE), False)]
     )
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Set up CellarTracker from a config entry."""
     coordinator = WineCellarData(hass, entry)
@@ -78,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry
 
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -92,5 +99,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntr
         entry.runtime_data = None  # type: ignore[assignment]
     return unload_ok
 
+
 async def update_listener(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
+    """Delete what the integration stored for an entry that is being removed.
+
+    The inventory cache holds purchase history and free-form notes. Leaving it
+    in .storage/ would mean removing the integration did not remove the user's
+    cellar from their disk.
+    """
+    await async_remove_cache(hass, entry.entry_id)

@@ -52,8 +52,7 @@ CELLAR = [
 def python_counts() -> tuple[int, int]:
     """What the sensors will report for this cellar."""
     rows = "\n".join(
-        f"{i}\tWine {i}\t10.00\t{begin}\t{end}"
-        for i, (begin, end) in enumerate(CELLAR, start=1)
+        f"{i}\tWine {i}\t10.00\t{begin}\t{end}" for i, (begin, end) in enumerate(CELLAR, start=1)
     )
     hass = FakeHass()
     hass.session = FakeSession(text="\n".join([HEADER, rows]))
@@ -68,8 +67,12 @@ def javascript_counts() -> dict:
     wines = json.dumps(
         [
             {
-                "iWine": str(i), "Wine": f"Wine {i}", "Vintage": "2020",
-                "Valuation": "10.00", "BeginConsume": begin, "EndConsume": end,
+                "iWine": str(i),
+                "Wine": f"Wine {i}",
+                "Vintage": "2020",
+                "Valuation": "10.00",
+                "BeginConsume": begin,
+                "EndConsume": end,
             }
             for i, (begin, end) in enumerate(CELLAR, start=1)
         ]

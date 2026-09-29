@@ -30,7 +30,10 @@ import pytest
 
 CELLAR_HTML = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "custom_components" / "cellar_tracker" / "www" / "cellar.html"
+    / "custom_components"
+    / "cellar_tracker"
+    / "www"
+    / "cellar.html"
 )
 
 requires_node = pytest.mark.skipif(
@@ -174,12 +177,10 @@ let failures = 0;
 """
 
 
-def run_js(checks: str, *, wines=None, search="", clipboard="async",
-           exec_command=True) -> str:
+def run_js(checks: str, *, wines=None, search="", clipboard="async", exec_command=True) -> str:
     """Load the page script, then run `checks`. Non-zero exit means a failure."""
     fixture = json.dumps(
-        {"wines": wines, "search": search,
-         "clipboard": clipboard, "execCommand": exec_command}
+        {"wines": wines, "search": search, "clipboard": clipboard, "execCommand": exec_command}
     )
     source = "\n".join(
         [
@@ -191,7 +192,9 @@ def run_js(checks: str, *, wines=None, search="", clipboard="async",
     )
     result = subprocess.run(
         ["node", "--input-type=commonjs", "-e", source],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, (result.stdout + result.stderr).strip()
     return result.stdout

@@ -34,6 +34,19 @@ COMPACT_FIELDS = (
     "Valuation",
 )
 
+# Fired when the set of bottles changes between two successful polls. The name
+# is fixed by the integration's public contract; it does not derive from DOMAIN.
+EVENT_INVENTORY_CHANGED = "cellartracker_inventory_changed"
+
+# What an event carries per bottle: enough to say which bottle and where it
+# was, and nothing that belongs to the owner alone. The event bus is not a
+# place for tasting notes or what was paid.
+EVENT_BOTTLE_FIELDS = ("unique_bottle_id", "iWine", "Wine", "Vintage", "Location", "Bin")
+
+# Per list. A large first sync from an empty cellar would otherwise push
+# hundreds of kilobytes through the event bus in one message.
+MAX_EVENT_BOTTLES = 50
+
 CONF_CURRENCY = "currency"
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600

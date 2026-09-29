@@ -93,10 +93,7 @@ def test_entity_names_do_not_repeat_the_integration_name(sensor_name):
 
 def test_entity_names_are_the_expected_short_labels():
     sensors = build_sensors()
-    labels = {
-        cls: ENTITY_NAMES[sensor.translation_key]["name"]
-        for cls, sensor in sensors.items()
-    }
+    labels = {cls: ENTITY_NAMES[sensor.translation_key]["name"] for cls, sensor in sensors.items()}
     assert labels == {
         "TotalBottlesSensor": "Total bottles",
         "TotalValueSensor": "Total value",

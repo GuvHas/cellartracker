@@ -6,8 +6,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import web
-from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.http import HomeAssistantView
 
 from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
 
@@ -55,9 +55,7 @@ class _CellarTrackerView(HomeAssistantView):
         # ConfigEntry[Any]; naming the type here is what stops runtime_data
         # laundering Any into everything this method returns. Only entries of
         # our own domain are asked for, so the claim holds.
-        entries: list[CellarTrackerConfigEntry] = self.hass.config_entries.async_entries(
-            DOMAIN
-        )
+        entries: list[CellarTrackerConfigEntry] = self.hass.config_entries.async_entries(DOMAIN)
         coordinators = {
             entry.entry_id: entry.runtime_data
             for entry in entries

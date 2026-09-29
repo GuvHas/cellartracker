@@ -27,18 +27,50 @@ PREAMBLE = "currentYear = 2026; currencySymbol = 'kr';"
 def cellar() -> list:
     """One bottle in each state, plus one with nothing recorded."""
     return [
-        {"iWine": "1", "Wine": "Ready Red", "Vintage": "2019", "Location": "Cellar",
-         "Bin": "A1", "Barcode": "7350001", "BeginConsume": "2020",
-         "EndConsume": "2030", "Valuation": "450.00"},
-        {"iWine": "2", "Wine": "Last Call", "Vintage": "2015", "Location": "Cellar",
-         "Bin": "B2", "Barcode": "7350002", "BeginConsume": "2018",
-         "EndConsume": "2026", "Valuation": "265.00"},
-        {"iWine": "3", "Wine": "Gone By", "Vintage": "2010", "Location": "", "Bin": "",
-         "Barcode": "", "BeginConsume": "2012", "EndConsume": "2020",
-         "Valuation": "89.00"},
-        {"iWine": "4", "Wine": "Laid Down", "Vintage": "2021", "Location": "Cellar",
-         "Bin": "C3", "Barcode": "7350004", "BeginConsume": "2030",
-         "EndConsume": "2040", "Valuation": "4200.00"},
+        {
+            "iWine": "1",
+            "Wine": "Ready Red",
+            "Vintage": "2019",
+            "Location": "Cellar",
+            "Bin": "A1",
+            "Barcode": "7350001",
+            "BeginConsume": "2020",
+            "EndConsume": "2030",
+            "Valuation": "450.00",
+        },
+        {
+            "iWine": "2",
+            "Wine": "Last Call",
+            "Vintage": "2015",
+            "Location": "Cellar",
+            "Bin": "B2",
+            "Barcode": "7350002",
+            "BeginConsume": "2018",
+            "EndConsume": "2026",
+            "Valuation": "265.00",
+        },
+        {
+            "iWine": "3",
+            "Wine": "Gone By",
+            "Vintage": "2010",
+            "Location": "",
+            "Bin": "",
+            "Barcode": "",
+            "BeginConsume": "2012",
+            "EndConsume": "2020",
+            "Valuation": "89.00",
+        },
+        {
+            "iWine": "4",
+            "Wine": "Laid Down",
+            "Vintage": "2021",
+            "Location": "Cellar",
+            "Bin": "C3",
+            "Barcode": "7350004",
+            "BeginConsume": "2030",
+            "EndConsume": "2040",
+            "Valuation": "4200.00",
+        },
     ]
 
 
@@ -76,8 +108,11 @@ def window_row(name: str) -> str:
 # --------------------------------------------------------------------------
 def test_one_card_is_built_per_selected_bottle():
     load(
-        equals("document.getElementById('list').children.length", 4,
-               "the list should hold one card per bottle")
+        equals(
+            "document.getElementById('list').children.length",
+            4,
+            "the list should hold one card per bottle",
+        )
     )
 
 
@@ -128,8 +163,11 @@ def test_the_final_year_of_a_window_is_called_out_rather_than_shown_as_expired()
 def test_the_bar_is_filled_in_proportion_to_the_window():
     """2020-2030, currently 2026: six years into a ten-year window."""
     load(
-        equals(f"{window_row('Ready Red')}.children[0].children[0].style.width", "60%",
-               "the fill does not match where this year sits in the window")
+        equals(
+            f"{window_row('Ready Red')}.children[0].children[0].style.width",
+            "60%",
+            "the fill does not match where this year sits in the window",
+        )
     )
 
 
@@ -152,8 +190,11 @@ def test_tapping_a_card_opens_its_drawer():
         f"const bottle = {card('Ready Red')};\n"
         "bottle.children[0].dispatch('click');\n"
         + equals("bottle.getAttribute('data-open')", "true", "the card did not open")
-        + equals("bottle.children[0].getAttribute('aria-expanded')", "true",
-                 "the summary button did not announce that it opened")
+        + equals(
+            "bottle.children[0].getAttribute('aria-expanded')",
+            "true",
+            "the summary button did not announce that it opened",
+        )
         + equals("bottle.children.length", 2, "no drawer was added")
     )
 
@@ -185,8 +226,10 @@ def test_a_bottle_with_no_bin_offers_no_copy_button():
     load(
         f"const gone = {card('Gone By')};\n"
         "gone.children[0].dispatch('click');\n"
-        + check("JSON.stringify(gone.children[1]).indexOf('Copy bin') === -1",
-                "offered to copy a bin that does not exist")
+        + check(
+            "JSON.stringify(gone.children[1]).indexOf('Copy bin') === -1",
+            "offered to copy a bin that does not exist",
+        )
     )
 
 
@@ -203,18 +246,26 @@ def test_a_refresh_keeps_the_chip_the_search_and_the_sort():
         + equals("view.term", "gone", "the search box was cleared by new data")
         + equals("view.sort", "Valuation", "the sort column was reset")
         + equals("view.direction", "desc", "the sort direction was reset")
-        + equals("document.getElementById('list').children.length", 1,
-                 "the refreshed list ignored the filter that was in force")
+        + equals(
+            "document.getElementById('list').children.length",
+            1,
+            "the refreshed list ignored the filter that was in force",
+        )
     )
 
 
 def test_an_empty_result_says_so_instead_of_showing_nothing():
     load(
         "view.term = 'no such wine anywhere';\nrender();\n"
-        + equals("document.getElementById('list').children.length", 0,
-                 "rows survived a filter that matches nothing")
-        + check("document.getElementById('status').textContent.length > 0",
-                "an empty list with no explanation reads as a broken page")
+        + equals(
+            "document.getElementById('list').children.length",
+            0,
+            "rows survived a filter that matches nothing",
+        )
+        + check(
+            "document.getElementById('status').textContent.length > 0",
+            "an empty list with no explanation reads as a broken page",
+        )
     )
 
 

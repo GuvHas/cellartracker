@@ -9,9 +9,9 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -123,9 +123,7 @@ class TotalBottlesSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     # comes from strings.json via the translation key, not from a literal here.
     _attr_has_entity_name = True
 
-    def __init__(
-        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
-    ) -> None:
+    def __init__(self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str) -> None:
         super().__init__(coordinator)
         self.entity_description = DESCRIPTIONS_BY_KEY["total_bottles"]
         self._attr_unique_id = f"{entry_id}_total_bottles"
@@ -181,9 +179,7 @@ class _BottleCountSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     # and only a literal lets the checker confirm the key exists at all.
     _data_key: Literal["ready_to_drink", "past_drink_window"]
 
-    def __init__(
-        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
-    ) -> None:
+    def __init__(self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str) -> None:
         super().__init__(coordinator)
         self.entity_description = DESCRIPTIONS_BY_KEY[self._data_key]
         self._attr_unique_id = f"{entry_id}_{self._data_key}"
@@ -225,9 +221,7 @@ class CellarLastSyncSensor(CoordinatorEntity[WineCellarData], SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(
-        self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str
-    ) -> None:
+    def __init__(self, coordinator: WineCellarData, device_info: DeviceInfo, entry_id: str) -> None:
         super().__init__(coordinator)
         self.entity_description = DESCRIPTIONS_BY_KEY["last_synchronised"]
         self._attr_unique_id = f"{entry_id}_inventory_status"

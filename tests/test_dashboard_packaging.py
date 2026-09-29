@@ -139,8 +139,13 @@ def test_the_readme_counts_the_compact_columns_correctly():
     from cellar_tracker.const import COMPACT_FIELDS
 
     words = {
-        9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
-        14: "fourteen", 15: "fifteen",
+        9: "nine",
+        10: "ten",
+        11: "eleven",
+        12: "twelve",
+        13: "thirteen",
+        14: "fourteen",
+        15: "fifteen",
     }
     expected = words.get(len(COMPACT_FIELDS))
     assert expected, f"add {len(COMPACT_FIELDS)} to this table"

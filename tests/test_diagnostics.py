@@ -47,12 +47,19 @@ BOTTLE = {
 
 
 class _Coordinator:
-    def __init__(self, data=None, last_update_success=True):
+    def __init__(self, data=None, last_update_success=True, **state):
         self.data = data
         self.currency = "SEK"
         self.last_update_success = last_update_success
         self.update_interval = "6:00:00"
         self.last_success = None
+        # Resilience state; defaults describe a healthy, freshly polled coordinator.
+        self.scan_interval = "6:00:00"
+        self.serving_cached_data = False
+        self.consecutive_backoffs = 0
+        self.last_error = None
+        for name, value in state.items():
+            setattr(self, name, value)
 
 
 def diagnostics(coordinator) -> dict:
@@ -170,3 +177,114 @@ def test_an_unknown_column_is_omitted_rather_than_published():
     assert "SomeColumnAddedNextYear" not in report["sample_bottle"]
     # ...but its existence is still visible, which is what schema drift needs.
     assert "SomeColumnAddedNextYear" in report["columns"]
+
+
+# --------------------------------------------------------------------------
+# Resilience state: cache, backoff, last error, analytics
+# --------------------------------------------------------------------------
+from datetime import UTC, datetime  # noqa: E402
+
+CACHED_AT = datetime(2026, 1, 15, 8, 30, tzinfo=UTC)
+
+
+def with_analytics() -> dict:
+    return {
+        **stocked(),
+        "ready_to_drink": 4,
+        "past_drink_window": 2,
+        "needs_aging": 7,
+        "peak_drinking": 3,
+        # Rack names: exactly what the sample allowlist keeps out of a report.
+        "location_index": {"Cellar under the stairs": {"A4": [0]}},
+    }
+
+
+def test_the_cache_state_is_reported():
+    coordinator = _Coordinator(stocked(), serving_cached_data=True, last_success=CACHED_AT)
+    report = diagnostics(coordinator)
+    assert report["cache"]["serving_cached_data"] is True
+    assert report["cache"]["cached_at"] == CACHED_AT.isoformat()
+
+
+def test_a_live_coordinator_reports_no_cache_age():
+    report = diagnostics(_Coordinator(stocked(), last_success=CACHED_AT))
+    assert report["cache"]["serving_cached_data"] is False
+    assert report["cache"]["cached_at"] is None
+
+
+def test_the_backoff_state_is_reported():
+    coordinator = _Coordinator(stocked(), consecutive_backoffs=3)
+    coordinator.update_interval = "12:00:00"
+    report = diagnostics(coordinator)
+    assert report["backoff"] == {
+        "consecutive_backoffs": 3,
+        "configured_interval": "6:00:00",
+        "current_interval": "12:00:00",
+    }
+
+
+def test_the_drink_window_breakdown_is_reported():
+    report = diagnostics(_Coordinator(with_analytics()))
+    assert report["drink_window"] == {
+        "ready_to_drink": 4,
+        "past_drink_window": 2,
+        "needs_aging": 7,
+        "peak_drinking": 3,
+    }
+
+
+def test_a_payload_that_predates_the_analytics_still_reports():
+    """A cache or an older poll may lack keys added later."""
+    report = diagnostics(_Coordinator(stocked()))
+    assert report["drink_window"] == {
+        "ready_to_drink": None,
+        "past_drink_window": None,
+        "needs_aging": None,
+        "peak_drinking": None,
+    }
+
+
+def test_the_last_error_is_reported():
+    report = diagnostics(_Coordinator(stocked(), last_error="HTTP 503 from CellarTracker"))
+    assert report["coordinator"]["last_error"] == "HTTP 503 from CellarTracker"
+
+
+def test_no_error_is_reported_as_none():
+    assert diagnostics(_Coordinator(stocked()))["coordinator"]["last_error"] is None
+
+
+# --- scrubbing --------------------------------------------------------------
+def test_a_credential_inside_the_last_error_is_scrubbed():
+    coordinator = _Coordinator(
+        stocked(), last_error=f"login failed for {USERNAME} using {PASSWORD}"
+    )
+    report = rendered(diagnostics(coordinator))
+    assert PASSWORD not in report
+    assert USERNAME not in report
+
+
+def test_a_query_string_credential_is_scrubbed_even_if_it_is_not_ours():
+    """Defence in depth: whatever text ends up here, URL-shaped secrets go."""
+    leaked = "GET https://www.cellartracker.com/xlquery.asp?User=bob&Password=whatever&Table=x"
+    report = rendered(diagnostics(_Coordinator(stocked(), last_error=leaked)))
+    assert "whatever" not in report
+    assert "User=bob" not in report
+    assert "Table=x" in report, "only the credential parameters may be removed"
+
+
+def test_scrubbing_leaves_an_ordinary_message_intact():
+    message = "Cannot reach CellarTracker: ClientConnectionError"
+    report = diagnostics(_Coordinator(stocked(), last_error=message))
+    assert report["coordinator"]["last_error"] == message
+
+
+# --- what must stay out -----------------------------------------------------
+def test_rack_names_do_not_leak_through_the_analytics():
+    report = rendered(diagnostics(_Coordinator(with_analytics())))
+    assert "Cellar under the stairs" not in report
+    assert "location_index" not in report
+
+
+def test_the_cached_payload_is_never_exported():
+    coordinator = _Coordinator(stocked(), _cached_payload="iWine\tBottleNote\n1\tsecret note")
+    assert "secret note" not in rendered(diagnostics(coordinator))

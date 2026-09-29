@@ -35,9 +35,7 @@ from cellar_tracker.sensor import SENSOR_DESCRIPTIONS
 from cellar_tracker.sensor import async_setup_entry as sensor_setup_entry
 from conftest import ConfigEntry, ViewHass
 
-COMPONENT = (
-    pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
-)
+COMPONENT = pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
 STRINGS = json.loads((COMPONENT / "strings.json").read_text())
 CI = (
     pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yml"
@@ -82,9 +80,7 @@ def test_the_coordinator_is_generic_over_the_payload():
     """Otherwise self.data is Any in every module that reads it."""
     bases = getattr(WineCellarData, "__orig_bases__", ())
     args = [arg for base in bases for arg in typing.get_args(base)]
-    assert CellarData in args, (
-        "WineCellarData must be DataUpdateCoordinator[CellarData]"
-    )
+    assert CellarData in args, "WineCellarData must be DataUpdateCoordinator[CellarData]"
 
 
 def test_the_entry_type_alias_carries_the_coordinator():
@@ -199,6 +195,6 @@ def test_ci_runs_mypy():
 
 
 def test_mypy_is_configured():
-    config = (pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml")
+    config = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
     assert config.is_file(), "mypy needs a configuration file to be reproducible"
     assert "[tool.mypy]" in config.read_text()

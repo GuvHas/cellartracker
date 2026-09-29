@@ -29,6 +29,8 @@ MULTILINE_ERROR_PAGE = (
 SINGLE_LINE_ERROR_PAGE = "<html><title>503 Service Unavailable</title></html>"
 
 STOCKED = {"total_bottles": 412, "total_value": 9000.0, "bottles": []}
+
+
 def inventory_of(data: dict) -> dict:
     """The payload without the poll timestamp.
 
@@ -46,6 +48,9 @@ EMPTY = {
     # present rather than absent so consumers never have to guess.
     "ready_to_drink": 0,
     "past_drink_window": 0,
+    "needs_aging": 0,
+    "peak_drinking": 0,
+    "location_index": {},
 }
 
 REAL_ROWS = [
@@ -131,12 +136,65 @@ def test_shrinking_to_zero_bottles_is_rejected_even_with_rows():
         process([{"NotAWine": "x"}], previous=STOCKED)
 
 
-def test_a_large_unexplained_drop_is_logged(caplog):
-    """A truncated response can still yield *some* valid rows."""
+def test_a_large_unexplained_drop_is_refused_the_first_time():
+    """A truncated response can still yield *some* valid rows.
+
+    It used to be published with a warning. Publishing now also overwrites the
+    disk cache and announces every missing bottle as removed, so a drastic drop
+    is treated like a suspicious empty response: refused once, believed if it
+    repeats. Reported by Codex on #23.
+    """
+    with pytest.raises(UpdateFailed, match="412"):
+        process(REAL_ROWS, previous=STOCKED)
+
+
+def test_a_repeated_large_drop_is_believed_and_flagged(caplog):
+    """People do sell or drink a lot at once; a repeat is taken as the truth."""
+    coordinator = build_coordinator()
+    with pytest.raises(UpdateFailed):
+        coordinator._process_inventory(REAL_ROWS, previous=STOCKED)
     with caplog.at_level(logging.WARNING, logger="cellar_tracker.cellar_data"):
-        result = process(REAL_ROWS, previous=STOCKED)
+        result = coordinator._process_inventory(REAL_ROWS, previous=STOCKED)
     assert result["total_bottles"] == 2
-    assert "412" in caplog.text and "2" in caplog.text
+    assert "412" in caplog.text and "accepting" in caplog.text
+
+
+def test_a_good_poll_in_between_forgets_the_suspicion():
+    coordinator = build_coordinator()
+    with pytest.raises(UpdateFailed):
+        coordinator._process_inventory(REAL_ROWS, previous=STOCKED)
+    coordinator._process_inventory(REAL_ROWS, previous={"total_bottles": 2, "bottles": []})
+    with pytest.raises(UpdateFailed):
+        coordinator._process_inventory(REAL_ROWS, previous=STOCKED)
+
+
+@pytest.mark.parametrize(
+    ("previous_total", "returned", "refused"),
+    [
+        (4, 2, False),  # exactly half: not "fewer than half"
+        (4, 1, True),  # just under half
+        (10, 5, False),
+        (10, 4, True),
+        (3, 1, False),  # 3 // 2 == 1, so one bottle is not under it
+    ],
+)
+def test_the_threshold_is_fewer_than_half(previous_total, returned, refused):
+    coordinator = build_coordinator()
+    rows = [{"iWine": str(n), "Valuation": "1"} for n in range(returned)]
+    previous = {"total_bottles": previous_total, "total_value": 0.0, "bottles": []}
+    if refused:
+        with pytest.raises(UpdateFailed):
+            coordinator._process_inventory(rows, previous=previous)
+    else:
+        assert coordinator._process_inventory(rows, previous=previous)["total_bottles"] == returned
+
+
+def test_a_drop_and_an_empty_response_share_one_suspicion_count():
+    """One counter: two suspicious polls in a row, whichever kind, are believed."""
+    coordinator = build_coordinator()
+    with pytest.raises(UpdateFailed):
+        coordinator._process_inventory([], previous=STOCKED)
+    assert coordinator._process_inventory(REAL_ROWS, previous=STOCKED)["total_bottles"] == 2
 
 
 def test_a_normal_drop_is_not_logged(caplog):
@@ -169,7 +227,10 @@ def test_recovery_resets_the_suspicion_streak():
     with pytest.raises(UpdateFailed):
         coordinator._process_inventory([], previous=STOCKED)
 
-    coordinator._process_inventory(REAL_ROWS, previous=STOCKED)
+    # A genuinely good poll: a cellar of two returning two. Returning two rows
+    # against STOCKED (412) would itself be a drastic drop, and no longer counts
+    # as "good".
+    coordinator._process_inventory(REAL_ROWS, previous={"total_bottles": 2, "bottles": []})
 
     # Streak reset, so the next zero is treated as suspicious again.
     with pytest.raises(UpdateFailed):

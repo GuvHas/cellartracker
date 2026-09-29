@@ -50,6 +50,22 @@ class ConfigEntryNotReady(Exception):
     """Stub of homeassistant.exceptions.ConfigEntryNotReady."""
 
 
+class ServiceValidationError(Exception):
+    """Stub of homeassistant.exceptions.ServiceValidationError.
+
+    Keeps the translation arguments so a test can check the error would render
+    from strings.json rather than be a bare message.
+    """
+
+    def __init__(
+        self, *args, translation_domain=None, translation_key=None, translation_placeholders=None
+    ):
+        super().__init__(*args)
+        self.translation_domain = translation_domain
+        self.translation_key = translation_key
+        self.translation_placeholders = translation_placeholders
+
+
 class UpdateFailed(Exception):
     """Stub of homeassistant.helpers.update_coordinator.UpdateFailed."""
 
@@ -193,6 +209,7 @@ _module(
     CONF_PASSWORD="password",
     CONF_USERNAME="username",
     CONF_SCAN_INTERVAL="scan_interval",
+    EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
 _module(
     "homeassistant.config_entries",
@@ -200,11 +217,41 @@ _module(
     ConfigFlow=ConfigFlow,
     OptionsFlow=OptionsFlow,
 )
-_module("homeassistant.core", HomeAssistant=object, callback=lambda func: func)
+
+
+class SupportsResponse(enum.StrEnum):
+    """Stub of homeassistant.core.SupportsResponse."""
+
+    NONE = "none"
+    OPTIONAL = "optional"
+    ONLY = "only"
+
+
+class ServiceCall:
+    """Stub of homeassistant.core.ServiceCall: just the data a handler reads."""
+
+    def __init__(self, hass, domain, service, data=None, context=None, return_response=False):
+        self.hass = hass
+        self.domain = domain
+        self.service = service
+        self.data = data or {}
+        self.context = context
+        self.return_response = return_response
+
+
+_module(
+    "homeassistant.core",
+    HomeAssistant=object,
+    callback=lambda func: func,
+    SupportsResponse=SupportsResponse,
+    ServiceCall=ServiceCall,
+    ServiceResponse=dict,
+)
 _module(
     "homeassistant.exceptions",
     ConfigEntryAuthFailed=ConfigEntryAuthFailed,
     ConfigEntryNotReady=ConfigEntryNotReady,
+    ServiceValidationError=ServiceValidationError,
 )
 _module("homeassistant.helpers")
 _module(
@@ -216,6 +263,8 @@ _module(
     "homeassistant.helpers.entity",
     EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class EntityDescription:
     """Stub of homeassistant.helpers.entity.EntityDescription."""
@@ -264,6 +313,8 @@ _module(
 )
 
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+# HomeAssistantView lives here canonically; components.http merely re-exports it.
+_module("homeassistant.helpers.http", HomeAssistantView=object)
 # The real ConfigType is dict[str, Any]; async_setup takes one.
 _module("homeassistant.helpers.typing", ConfigType=dict)
 _module("homeassistant.util")
@@ -294,6 +345,7 @@ _module(
     json_bytes=lambda data: _json.dumps(data).encode("utf-8"),
 )
 
+
 class FakeRequest:
     """Minimal aiohttp request exposing only the query string."""
 
@@ -308,6 +360,15 @@ class StaticPathConfig:
         self.url_path = url_path
         self.path = path
         self.cache_headers = cache_headers
+
+
+def _cv_string(value):
+    """Stub of cv.string: scalars become text, containers and None are rejected."""
+    import voluptuous as vol
+
+    if value is None or isinstance(value, (list, dict, set, tuple)):
+        raise vol.Invalid("string value is None or a container")
+    return str(value)
 
 
 def _config_entry_only_config_schema(domain):
@@ -326,6 +387,7 @@ _module(
 sys.modules["homeassistant.helpers"].config_validation = _module(
     "homeassistant.helpers.config_validation",
     config_entry_only_config_schema=_config_entry_only_config_schema,
+    string=_cv_string,
 )
 
 
@@ -434,8 +496,12 @@ class FakeCoordinator:
     production.
     """
 
-    def __init__(self, *, currency="USD", bottles=None, data=True):
+    def __init__(self, *, currency="USD", bottles=None, data=True, year=2026):
+        from cellar_tracker.analytics import index_by_location_bin
+
         self.currency = currency
+        self.year = year
+        self.refresh_requests = 0
         if not data:
             self.data = None
             self.inventory_body = b"[]"
@@ -445,8 +511,15 @@ class FakeCoordinator:
                 "total_bottles": len(bottles),
                 "total_value": 0.0,
                 "bottles": bottles,
+                "location_index": index_by_location_bin(bottles),
             }
             self.inventory_body = _json.dumps(bottles).encode("utf-8")
+
+    def current_year(self):
+        return self.year
+
+    async def async_request_refresh(self):
+        self.refresh_requests += 1
 
 
 class FakeHttp:
@@ -493,6 +566,7 @@ class ViewHass:
             entry.runtime_data = coordinator
             entries.append(entry)
         self.config_entries = _ViewEntries(entries)
+        self.services = FakeServices(self)
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
@@ -505,6 +579,7 @@ class SetupHass:
         self.data = {}
         self.http = FakeHttp()
         self.config_entries = _SetupEntries(unload_ok)
+        self.services = FakeServices(self)
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
@@ -527,12 +602,59 @@ class _SetupEntries:
         return []
 
 
+class FakeServices:
+    """Records registrations and runs calls through the registered schema.
+
+    Validating through the schema, as Home Assistant does, is what makes a
+    service test exercise the schema at all rather than only the handler.
+    """
+
+    def __init__(self, hass=None):
+        self.hass = hass
+        self.registered = {}
+
+    def async_register(self, domain, service, handler, schema=None, supports_response=None):
+        self.registered[(domain, service)] = types.SimpleNamespace(
+            handler=handler,
+            schema=schema,
+            supports_response=supports_response or SupportsResponse.NONE,
+        )
+
+    def has_service(self, domain, service):
+        return (domain, service) in self.registered
+
+    async def async_call(self, domain, service, data=None, *, return_response=False):
+        entry = self.registered[(domain, service)]
+        validated = entry.schema(dict(data or {})) if entry.schema else dict(data or {})
+        call = ServiceCall(self.hass, domain, service, validated, return_response=return_response)
+        return await entry.handler(call)
+
+
+class FakeBus:
+    """Records the events the integration fires."""
+
+    def __init__(self):
+        self.events = []
+
+    def async_fire(self, event_type, event_data=None, **kwargs):
+        self.events.append((event_type, dict(event_data or {})))
+
+
 class FakeHass:
     """Just enough HomeAssistant to run executor jobs inline."""
 
     def __init__(self, entries=None):
         self.config_entries = _FakeEntryManager(entries or {})
         self.executor_jobs = []
+        self.bus = FakeBus()
+        self.services = FakeServices(self)
+        # helpers.storage.Store keeps its files here, keyed like the real one.
+        self.storage_backend = {}
+        self.storage_saves = 0
+        self.storage_removed = []
+        # Set to an exception instance to make the next load/save raise it.
+        self.storage_load_error = None
+        self.storage_save_error = None
 
     async def async_add_executor_job(self, func, *args):
         self.executor_jobs.append(getattr(func, "__name__", repr(func)))
@@ -611,3 +733,48 @@ _module(
     "homeassistant.helpers.aiohttp_client",
     async_get_clientsession=lambda hass, *a, **kw: getattr(hass, "session", FakeSession()),
 )
+
+
+# --- homeassistant.helpers.storage --------------------------------------------
+_StoreT = typing.TypeVar("_StoreT")
+
+
+def _storage_backend(hass):
+    """The dict standing in for .storage, whichever hass double this is."""
+    return hass.__dict__.setdefault("storage_backend", {})
+
+
+class Store(typing.Generic[_StoreT]):  # noqa: UP046
+    """In-memory stand-in for helpers.storage.Store.
+
+    Round-trips through JSON on save, as the real one does, so a test cannot
+    pass by storing something Home Assistant would refuse to write.
+    """
+
+    def __init__(self, hass, version, key, *, private=False, atomic_writes=False, **kwargs):
+        self.hass = hass
+        self.version = version
+        self.key = key
+        self.private = private
+        self.atomic_writes = atomic_writes
+
+    async def async_load(self):
+        error = getattr(self.hass, "storage_load_error", None)
+        if error is not None:
+            raise error
+        stored = _storage_backend(self.hass).get(self.key)
+        return None if stored is None else _json.loads(_json.dumps(stored))
+
+    async def async_save(self, data):
+        error = getattr(self.hass, "storage_save_error", None)
+        if error is not None:
+            raise error
+        _storage_backend(self.hass)[self.key] = _json.loads(_json.dumps(data))
+        self.hass.__dict__["storage_saves"] = getattr(self.hass, "storage_saves", 0) + 1
+
+    async def async_remove(self):
+        _storage_backend(self.hass).pop(self.key, None)
+        self.hass.__dict__.setdefault("storage_removed", []).append(self.key)
+
+
+_module("homeassistant.helpers.storage", Store=Store)

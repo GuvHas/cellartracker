@@ -157,14 +157,25 @@ def test_codeowners_are_github_handles():
 def test_iot_class_is_recognised():
     """hassfest's list exactly - the shorter "cloud_poll"/"local_poll" are not on it."""
     assert MANIFEST["iot_class"] in {
-        "assumed_state", "calculated", "cloud_polling", "cloud_push",
-        "local_polling", "local_push",
+        "assumed_state",
+        "calculated",
+        "cloud_polling",
+        "cloud_push",
+        "local_polling",
+        "local_push",
     }
 
 
 def test_integration_type_is_recognised():
     assert MANIFEST["integration_type"] in {
-        "device", "entity", "hardware", "helper", "hub", "service", "system", "virtual",
+        "device",
+        "entity",
+        "hardware",
+        "helper",
+        "hub",
+        "service",
+        "system",
+        "virtual",
     }
 
 

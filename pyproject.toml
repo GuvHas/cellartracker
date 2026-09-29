@@ -40,6 +40,10 @@ warn_unreachable = true
 no_implicit_optional = true
 strict_equality = true
 
+# `mypy --strict`. The flags below it were already set and stay: strict does
+# not include disallow_any_unimported or warn_unreachable.
+strict = true
+
 # The point of the exercise: nothing in this integration may be implicitly Any,
 # and every function must declare what it returns.
 disallow_untyped_defs = true
