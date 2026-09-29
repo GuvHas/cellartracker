@@ -39,6 +39,7 @@ from .analytics import (
     LocationIndex,
     drink_window_breakdown,
     index_by_location_bin,
+    inventory_delta,
 )
 from .analytics import consume_year as _consume_year  # noqa: F401
 from .analytics import drink_window_counts as _drink_window_counts  # noqa: F401
@@ -48,6 +49,9 @@ from .const import (
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    EVENT_BOTTLE_FIELDS,
+    EVENT_INVENTORY_CHANGED,
+    MAX_EVENT_BOTTLES,
     MIN_SCAN_INTERVAL,
     normalize_currency,
 )
@@ -202,6 +206,11 @@ def _row_fingerprint(bottle: dict) -> str:
         f"{key}={bottle[key]}" for key in sorted(bottle) if key != "unique_bottle_id"
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _event_bottle(bottle: Mapping[str, Any]) -> dict[str, Any]:
+    """A bottle reduced to what an event may carry."""
+    return {field: bottle[field] for field in EVENT_BOTTLE_FIELDS if field in bottle}
 
 
 async def async_fetch_inventory_payload(
@@ -593,6 +602,9 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         bypass this entirely: they need the user, and masking them with old
         data would hide the reauth prompt.
         """
+        # Read before anything is awaited: Home Assistant assigns the result to
+        # .data only after this returns, so this is what the poll is compared to.
+        previous = self.data
         try:
             payload, data = await self._async_poll_upstream()
         except UpdateFailed as err:
@@ -610,7 +622,37 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
         self._serving_cache = False
         await self._async_save_cache(payload)
+        self._fire_inventory_changed(previous, data)
         return data
+
+    def _fire_inventory_changed(self, previous: CellarData | None, current: CellarData) -> None:
+        """Announce a change in which bottles the cellar holds.
+
+        Silent with no history: on the first poll after a restart there is
+        nothing to compare with, and announcing the whole cellar as "added"
+        would be noise every time Home Assistant restarts. Data restored from
+        the disk cache does count as history, so bottles changed while offline
+        are announced by the first live poll.
+        """
+        if previous is None:
+            return
+        delta = inventory_delta(previous["bottles"], current["bottles"])
+        if delta is None:
+            return
+
+        added, removed = delta["added"], delta["removed"]
+        self.hass.bus.async_fire(
+            EVENT_INVENTORY_CHANGED,
+            {
+                "added_bottles": [_event_bottle(b) for b in added[:MAX_EVENT_BOTTLES]],
+                "removed_bottles": [_event_bottle(b) for b in removed[:MAX_EVENT_BOTTLES]],
+                "total_count": current["total_bottles"],
+                # The lists are capped; these say what was left out.
+                "added_count": len(added),
+                "removed_count": len(removed),
+                "truncated": max(len(added), len(removed)) > MAX_EVENT_BOTTLES,
+            },
+        )
 
     async def _async_poll_upstream(self) -> tuple[str, CellarData]:
         """Fetch and process a live inventory. Returns the raw payload with it."""

@@ -123,6 +123,34 @@ def drink_window_counts(bottles: Sequence[Mapping[str, Any]], year: int) -> tupl
     return breakdown["ready_to_drink"], breakdown["past_drink_window"]
 
 
+class InventoryDelta(TypedDict):
+    """What changed between two inventories, as whole bottles."""
+
+    added: list[Mapping[str, Any]]
+    removed: list[Mapping[str, Any]]
+
+
+def inventory_delta(
+    previous: Sequence[Mapping[str, Any]], current: Sequence[Mapping[str, Any]]
+) -> InventoryDelta | None:
+    """The bottles gained and lost between two inventories, or None if the same.
+
+    Compared by ``unique_bottle_id`` alone, so a revaluation or an edited note
+    is not a change. That id covers Location and Bin, which makes moving a
+    bottle a removal from the old place and an addition to the new one.
+
+    Both lists keep the order of the inventory they came from.
+    """
+    before = {bottle["unique_bottle_id"] for bottle in previous}
+    after = {bottle["unique_bottle_id"] for bottle in current}
+    if before == after:
+        return None
+    return {
+        "added": [b for b in current if b["unique_bottle_id"] not in before],
+        "removed": [b for b in previous if b["unique_bottle_id"] not in after],
+    }
+
+
 def _cell(bottle: Mapping[str, Any], column: str) -> str:
     return str(bottle.get(column) or "").strip()
 
