@@ -22,6 +22,8 @@ bottle down to the ones you can drink tonight.
 - [Manual installation](#manual-installation)
 - [Configuration](#configuration)
 - [The dashboard](#the-dashboard)
+- [Resilience](#resilience)
+- [Actions and events](#actions-and-events)
 - [Lovelace and automation examples](#lovelace-and-automation-examples)
 - [Troubleshooting and FAQ](#troubleshooting-and-faq)
 - [Development](#development)
@@ -60,6 +62,15 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
   about which cellar an entity or endpoint refers to.
 - Upstream error pages are rejected rather than being recorded as a genuine zero, so an outage
   cannot punch a hole in your cellar-value history.
+- **Survives an outage across a restart.** The last inventory that parsed is kept on disk and
+  shown if Home Assistant restarts while CellarTracker is unreachable, instead of every sensor
+  reading unavailable. See [Resilience](#resilience).
+- **Backs off politely.** HTTP 429 and 5xx slow the poll down exponentially, with jitter, and the
+  configured schedule returns by itself once CellarTracker answers.
+- **Two actions** — `cellar_tracker.refresh` and `cellar_tracker.get_wine_by_bin` — and an
+  **event**, `cellartracker_inventory_changed`. See [Actions and events](#actions-and-events).
+- Diagnostics you can attach to a bug report: credentials, account name and rack names are kept
+  out of it.
 
 ---
 
@@ -322,6 +333,125 @@ up fixes to the page. Point your card at `/cellartracker/cellar.html` and delete
 
 ---
 
+## Resilience
+
+### The disk cache
+
+Every successful poll writes the inventory to Home Assistant's `.storage/` directory
+(`cellar_tracker.inventory_cache_<entry id>`). If Home Assistant **restarts while CellarTracker is
+unreachable**, the integration starts from that copy instead of leaving every sensor unavailable
+until the outage ends.
+
+- **Only ever a stand-in for the first refresh.** Once there is data, a failing poll behaves as it
+  always did: the entities go unavailable rather than quietly showing something older than what
+  they already had.
+- **Never used for a login failure.** Bad credentials need you, and old data would hide the
+  re-authenticate prompt.
+- **It says it is stale.** *Last synchronised* shows when the cache was written, not now, so you
+  can see how old the numbers are. While serving it the next poll comes sooner — the smaller of
+  your interval and 15 minutes — and a live poll restores your schedule.
+- **Only a response that parsed is ever cached.** An error page cannot become the "last known"
+  cellar.
+- **It is private and it is removed with the integration.** It holds your purchase history and
+  notes, so the file is created private, contains no credentials, and is deleted when you remove
+  the integration.
+
+### Backing off
+
+When CellarTracker answers **429** or **5xx** the integration waits longer before asking again:
+the delay doubles with each consecutive failure up to six hours, with a little random jitter so
+that installs throttled together do not all return together. It is never *sooner* than the
+interval you configured, and a `Retry-After` from the server is honoured exactly. Once
+CellarTracker answers, your schedule comes back on its own. Other errors — a timeout, a refused
+connection, a 404 — keep your schedule: they are about the connection, not about load.
+
+### Diagnostics
+
+**Settings → Devices & Services → CellarTracker → ⋮ → Download diagnostics.** The report includes
+whether the cache is being served, the backoff state, why the last poll failed, the drink-window
+counts, and the export's column names — which is how a change to CellarTracker's format shows up
+without anyone sending a copy of their cellar. It leaves out your password, your username, your
+rack names, and everything about a bottle beyond a short allowlist.
+
+---
+
+## Actions and events
+
+Neither creates an entity. They give automations the cellar without putting a state in the
+recorder for every bottle.
+
+### `cellar_tracker.refresh`
+
+Fetches the inventory now, instead of at the next scheduled poll. It goes through Home
+Assistant's own refresh debouncer, so calling it in a loop cannot hammer CellarTracker.
+
+```yaml
+action: cellar_tracker.refresh
+```
+
+### `cellar_tracker.get_wine_by_bin`
+
+Returns the bottles in a rack bin, for a script or automation to act on. It **returns a
+response**, so call it with `response_variable`.
+
+```yaml
+- action: cellar_tracker.get_wine_by_bin
+  data:
+    bin: "A1"
+    location: "Cellar"      # optional; omit to search every location
+  response_variable: rack
+- action: notify.persistent_notification
+  data:
+    message: >
+      {% for wine in rack.bottles %}
+        {{ wine.name }} {{ wine.vintage or 'NV' }} — {{ wine.drink_status }}
+      {% else %}
+        Bin A1 is empty.
+      {% endfor %}
+```
+
+Each bottle in `rack.bottles` has `name`, `vintage`, `wine_id`, `location`, `bin`,
+`drink_window` (`begin` and `end`), `drink_status` (`ready`, `past`, `aging` or `unknown`),
+`peak` and `unique_bottle_id`. A non-vintage wine has `vintage: null` rather than `0`, and a bottle
+with no recorded window has `null` years. Bins are matched ignoring case and surrounding spaces,
+and an empty `bin` matches nothing. The tasting note, the price paid and the barcode are
+deliberately left out: responses land in automation traces, which are shared far more freely than
+the cellar itself.
+
+**`peak`** is true from the first year of a window to its midpoint, that is
+`BeginConsume <= this year <= (BeginConsume + EndConsume) / 2` — the first half of the window,
+and never true for a window with only one end.
+
+### The `cellartracker_inventory_changed` event
+
+Fired when the set of bottles changes between two successful polls.
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: cellartracker_inventory_changed
+actions:
+  - action: persistent_notification.create
+    data:
+      message: >
+        {{ trigger.event.data.added_count }} added,
+        {{ trigger.event.data.removed_count }} removed —
+        {{ trigger.event.data.total_count }} in the cellar.
+```
+
+The payload has `added_bottles`, `removed_bottles` and `total_count`, plus `added_count`,
+`removed_count` and `truncated`. Each list holds at most 50 bottles, each with only
+`unique_bottle_id`, `iWine`, `Wine`, `Vintage`, `Location` and `Bin` — a large first sync cannot
+push hundreds of kilobytes through the event bus, and `truncated` tells you if the lists were cut.
+
+It deliberately **does not fire** on the first poll after a restart (there is nothing to compare
+with), for a revaluation or an edited note, or for a failed poll. Moving a bottle to another bin
+is reported as removed from the old one and added to the new. A restart *does* remember: the first
+live poll after one is compared against the cached inventory, so bottles changed while Home
+Assistant was offline are announced.
+
+---
+
 ## Lovelace and automation examples
 
 Replace `<account>` with your device name — or with `cellartracker` if you installed before
@@ -467,6 +597,9 @@ template or automation.
 **For the actual list**, use the dashboard page and its **Ready to drink** chip. That is what the
 chips are for, and the counts match the sensors exactly.
 
+**For a script**, `cellar_tracker.get_wine_by_bin` returns the bottles in a rack bin, drinking
+window included — see [Actions and events](#actions-and-events).
+
 If you want the bottles themselves in Lovelace proper, the missing piece is per-bottle entities —
 see [Bottle-level data](#bottle-level-data) for why they are not created by default. Please open
 an issue if this matters to you; it is a reasonable feature to add behind an opt-in, given the
@@ -493,6 +626,10 @@ A refresh failed. The integration keeps the last good values and marks the entit
 rather than publishing a wrong number. Check **Settings → System → Logs** for `cellar_tracker`:
 
 - *"Cannot reach CellarTracker"* — network or an outage upstream. It retries on the next cycle.
+  After a restart the sensors show the [cached](#the-disk-cache) inventory instead, with
+  *Last synchronised* showing how old it is.
+- *"CellarTracker asked us to slow down"* — HTTP 429 or 5xx. The poll [backs off](#backing-off)
+  and your schedule returns by itself.
 - *"unrecognised row(s) with no 'iWine' column"* — CellarTracker returned something that was not
   inventory data, typically a maintenance or error page. It recovers on its own.
 - *"returned no inventory rows but the cellar previously held N bottles"* — a zero reading right
@@ -502,7 +639,8 @@ rather than publishing a wrong number. Check **Settings → System → Logs** fo
 ### Can I poll more often than every 15 minutes?
 
 No — 900 seconds is enforced. Each refresh downloads your entire inventory, and CellarTracker is
-a small service. If you need a value right now, use **⋮ → Reload** on the integration.
+a small service. If you need a value right now, call `cellar_tracker.refresh` (see
+[Actions and events](#actions-and-events)) or use **⋮ → Reload** on the integration.
 
 ### The dashboard page 404s
 
@@ -565,6 +703,7 @@ logger:
 pip install -r requirements_test.txt
 python -m pytest
 ruff check .
+ruff format --check .
 ```
 
 The test suite stubs the handful of `homeassistant` symbols the integration imports rather than
@@ -580,7 +719,8 @@ python3.13 -m venv .typecheck
 .typecheck/bin/python -m mypy
 ```
 
-Running `mypy` against an interpreter without Home Assistant is worse than not running it: every
+It runs under `mypy --strict`. Running `mypy` against an interpreter without Home Assistant is
+worse than not running it: every
 `homeassistant.*` import resolves to `Any`, and the check passes over code it never looked at.
 The configuration refuses to do that, so it will fail loudly rather than mislead you.
 
