@@ -350,6 +350,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # True while the data on show came from disk rather than from a poll.
         self._serving_cache = False
 
+        # Why the most recent poll failed, in words we built ourselves - never
+        # text copied from the failed request. Cleared by the next success.
+        # For diagnostics: a bare "unavailable" tells a user nothing.
+        self._last_error: str | None = None
+
         # Consecutive polls the upstream asked us to slow down for. Drives the
         # exponential growth; forgotten on the first success.
         self._consecutive_backoffs = 0
@@ -357,6 +362,16 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
         self._last_success: datetime | None = None
+
+    @property
+    def scan_interval(self) -> timedelta:
+        """The poll interval the user configured, whatever a backoff has set."""
+        return self._scan_interval
+
+    @property
+    def last_error(self) -> str | None:
+        """Why the last poll failed, or None if it did not."""
+        return self._last_error
 
     @property
     def serving_cached_data(self) -> bool:
@@ -611,7 +626,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         previous = self.data
         try:
             payload, data = await self._async_poll_upstream()
+        except ConfigEntryAuthFailed as err:
+            self._last_error = str(err)
+            raise
         except UpdateFailed as err:
+            self._last_error = str(err)
             if self.data is None:
                 cached = await self._async_data_from_cache()
                 if cached is not None:
@@ -625,6 +644,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             raise
 
         self._serving_cache = False
+        self._last_error = None
         await self._async_save_cache(payload)
         self._fire_inventory_changed(previous, data)
         return data

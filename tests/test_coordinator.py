@@ -76,3 +76,77 @@ def test_the_year_used_is_the_polls_year(year, aging, ready):
     data = update(build(CELLAR, year=year))
     assert data["needs_aging"] == aging
     assert data["ready_to_drink"] == ready
+
+
+# --------------------------------------------------------------------------
+# last_error: why the last poll failed, for diagnostics
+# --------------------------------------------------------------------------
+import aiohttp  # noqa: E402
+from cellartracker.const import NOT_LOGGED_REPONSE  # noqa: E402
+from homeassistant.exceptions import ConfigEntryAuthFailed  # noqa: E402
+from homeassistant.helpers.update_coordinator import UpdateFailed  # noqa: E402
+
+
+def failing_build(**session) -> WineCellarData:
+    hass = FakeHass()
+    hass.session = FakeSession(**session)
+    entry = ConfigEntry(data={"username": "alice", "password": "s3cret"})
+    return WineCellarData(hass, entry)
+
+
+def test_a_healthy_coordinator_has_no_error():
+    coordinator = build(CELLAR)
+    update(coordinator)
+    assert coordinator.last_error is None
+
+
+def test_a_failed_poll_records_why():
+    coordinator = failing_build(error=aiohttp.ClientConnectionError("boom"))
+    with pytest.raises(UpdateFailed):
+        update(coordinator)
+    assert coordinator.last_error
+
+
+def test_the_recorded_error_carries_no_credentials():
+    coordinator = failing_build(error=aiohttp.ClientConnectionError("boom"))
+    with pytest.raises(UpdateFailed):
+        update(coordinator)
+    assert "s3cret" not in coordinator.last_error
+    assert "alice" not in coordinator.last_error
+
+
+def test_an_authentication_failure_is_recorded():
+    coordinator = failing_build(text=f"<html>{NOT_LOGGED_REPONSE}</html>")
+    with pytest.raises(ConfigEntryAuthFailed):
+        update(coordinator)
+    assert coordinator.last_error
+
+
+def test_a_success_clears_the_error():
+    coordinator = failing_build(error=aiohttp.ClientConnectionError("boom"))
+    with pytest.raises(UpdateFailed):
+        update(coordinator)
+    coordinator.hass.session = FakeSession(text=CELLAR)
+    update(coordinator)
+    assert coordinator.last_error is None
+
+
+def test_the_configured_interval_is_exposed_apart_from_the_current_one():
+    """At the 6h default a backoff lands on the cap, so use a short schedule."""
+    from yarl import URL
+
+    url = URL("https://www.cellartracker.com/xlquery.asp")
+    hass = FakeHass()
+    hass.session = FakeSession(
+        raise_for_status=aiohttp.ClientResponseError(
+            aiohttp.RequestInfo(url, "GET", (), url), (), status=503
+        )
+    )
+    entry = ConfigEntry(data={"username": "a", "password": "b", "scan_interval": 900})
+    coordinator = WineCellarData(hass, entry)
+
+    with pytest.raises(UpdateFailed):
+        update(coordinator)
+
+    assert coordinator.update_interval > coordinator.scan_interval
+    assert coordinator.scan_interval.total_seconds() == 900
