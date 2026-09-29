@@ -337,7 +337,8 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             # reads like it does something.
         )
 
-        # Consecutive polls that reported an empty cellar after it held stock.
+        # Consecutive suspicious polls: an empty cellar, or a drastically smaller
+        # one, right after it held stock. (Named for the case that came first.)
         self._suspicious_empty_polls = 0
 
         # Replaced wholesale by each refresh, never mutated in place, and only
@@ -591,18 +592,32 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                     identity if not rank else f"{identity}_{rank}"
                 )
 
-        # Real inventory came back; any earlier suspicion is resolved.
-        self._suspicious_empty_polls = 0
-
         if stocked is not None and len(processed_bottles) < stocked["total_bottles"] // 2:
-            # A truncated response can still yield some valid rows. We cannot
-            # know whether the drop is real, so publish it but leave a trace.
+            # A truncated response can still yield some valid rows, and we cannot
+            # know whether the drop is real. It used to be published with a
+            # warning; publishing now also overwrites the disk cache and
+            # announces every missing bottle as removed, which can set off
+            # destructive automations. So it gets the same treatment as a
+            # suspicious empty response: refused once, believed if it repeats,
+            # since people do sell or drink a lot at once. The counter is shared:
+            # two suspicious polls in a row are believed, whichever kind.
+            self._suspicious_empty_polls += 1
+            if self._suspicious_empty_polls <= TOLERATED_SUSPICIOUS_EMPTY_POLLS:
+                raise UpdateFailed(
+                    f"CellarTracker returned {len(processed_bottles)} bottles but the "
+                    f"cellar previously held {stocked['total_bottles']}; treating it "
+                    "as a truncated export"
+                )
             _LOGGER.warning(
-                "CellarTracker inventory dropped from %s to %s bottles in a "
-                "single poll; verify the data is correct",
+                "CellarTracker inventory dropped from %s to %s bottles for %s "
+                "consecutive polls; accepting it as correct",
                 stocked["total_bottles"],
                 len(processed_bottles),
+                self._suspicious_empty_polls,
             )
+        else:
+            # Real inventory came back; any earlier suspicion is resolved.
+            self._suspicious_empty_polls = 0
 
         window = drink_window_breakdown(processed_bottles, self._current_year())
 

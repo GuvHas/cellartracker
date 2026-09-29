@@ -518,13 +518,55 @@ def test_an_empty_first_response_against_an_empty_cache_is_accepted():
     assert events_of(coordinator) == []
 
 
-def test_a_first_response_far_smaller_than_the_cache_is_flagged(caplog):
-    """The truncation warning reads history too, so it needs the cache as well."""
-    coordinator = build(cached=TEN, text="\n".join([HEADER, "1\tWine 1\t10.00\t2020\t2030"]))
+ONE_OF_TEN = "\n".join([HEADER, "1\tWine 1\t10.00\t2020\t2030"])
+
+
+def test_a_first_response_far_smaller_than_the_cache_is_refused():
+    """Reported by Codex on #23 (P1): a truncated export must not become the inventory."""
+    coordinator = build(cached=TEN, text=ONE_OF_TEN)
+    data = update(coordinator)
+    assert data["total_bottles"] == 10, "the good inventory must survive"
+    assert coordinator.serving_cached_data is True
+
+
+def test_a_truncated_first_response_does_not_overwrite_the_cache():
+    coordinator = build(cached=TEN, text=ONE_OF_TEN)
+    update(coordinator)
+    assert stored(coordinator)["payload"] == TEN
+    assert coordinator.hass.storage_saves == 0
+
+
+def test_a_truncated_first_response_does_not_announce_nine_bottles_removed():
+    """Destructive automations key on this event."""
+    coordinator = build(cached=TEN, text=ONE_OF_TEN)
+    update(coordinator)
+    assert events_of(coordinator) == []
+
+
+def test_a_repeated_truncated_response_is_believed_after_a_restart(caplog):
+    coordinator = build(cached=TEN, text=ONE_OF_TEN)
+    coordinator.data = update(coordinator)
     with caplog.at_level("WARNING"):
-        data = update(coordinator)
-    assert data["total_bottles"] == 1
+        coordinator.data = update(coordinator)
+    assert coordinator.data["total_bottles"] == 1
     assert "dropped from 10 to 1" in caplog.text
+    assert len(events_of(coordinator)) == 1, "the confirmed drop is announced"
+    assert events_of(coordinator)[0]["removed_count"] == 9
+
+
+def test_a_truncated_response_mid_run_is_refused_too():
+    """Not only after a restart: any poll's damage is the same."""
+    coordinator = build(text=TEN)
+    coordinator.data = update(coordinator)
+    coordinator.hass.session = FakeSession(text=ONE_OF_TEN)
+    saves = coordinator.hass.storage_saves
+
+    with pytest.raises(UpdateFailed):
+        update(coordinator)
+
+    assert coordinator.hass.storage_saves == saves
+    assert stored(coordinator)["payload"] == TEN
+    assert events_of(coordinator) == []
 
 
 def test_a_normal_first_response_is_unaffected_by_the_history():

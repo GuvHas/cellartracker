@@ -77,9 +77,11 @@ def is_peak(bottle: Mapping[str, Any], year: int) -> bool:
 
     ``BeginConsume + span/3 <= year <= EndConsume - span/3``, where
     ``span = EndConsume - BeginConsume``. The first and last thirds are still
-    ready to drink - just not at their best - so a wine's opening and closing
-    years are never peak. It needs both ends: with either missing there is no
-    span to divide, so an open-ended window is never "peak".
+    ready to drink - just not at their best - so the opening and closing years
+    of a window are not peak. The one exception is a window of a single year:
+    with a span of zero both bounds are that year, so it is both the opening
+    and the closing year, and it is peak. It needs both ends: with either
+    missing there is no span to divide, so an open-ended window is never "peak".
 
     Worked in integers. Multiplying through by three gives
     ``2*begin + end <= 3*year <= begin + 2*end``, so a span that is not a

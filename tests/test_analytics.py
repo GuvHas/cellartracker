@@ -310,3 +310,18 @@ def test_a_blank_location_is_not_the_same_as_unplaced_only():
     index = index_by_location_bin(unplaced_with_a_bin)
     found = find_bottles(unplaced_with_a_bin, index, bin_name="A1", location="")
     assert [b["iWine"] for b in found] == ["1", "2", "4", "9"]
+
+
+def test_the_one_year_exception_is_documented():
+    """Reported by Codex on #23: the docs said opening and closing years are never
+    peak, while a one-year window is peak by the formula. Pin the behaviour and
+    require the public documentation to state it."""
+    import pathlib
+
+    assert is_peak(bottle(2026, 2026), 2026) is True
+    assert is_peak(bottle(2026, 2026), 2025) is False
+    assert is_peak(bottle(2026, 2026), 2027) is False
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for doc in (root / "README.md", root / "release_notes" / "0.0.21.md"):
+        assert "one-year window" in doc.read_text(), f"{doc.name} omits the exception"

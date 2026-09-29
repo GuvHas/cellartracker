@@ -428,8 +428,9 @@ the cellar itself.
 
 **`peak`** is true in the **middle third** of a bottle's drinking window: with
 `span = EndConsume - BeginConsume`, from `BeginConsume + span/3` to `EndConsume - span/3`. The
-first and last thirds are still ready to drink — just not at their best — so a wine's opening and
-closing years are never `peak`. For a window of 2020–2030 that is 2024 to 2026. It is never true for
+first and last thirds are still ready to drink — just not at their best — so the opening and
+closing years of a window are not `peak`. The one exception is a **one-year window**
+(`BeginConsume` equal to `EndConsume`): its only year is both, and it is `peak` in that year. For a window of 2020–2030 that is 2024 to 2026. It is never true for
 a window with only one end, since there is no span to divide, and it is always a subset of
 `ready`. A bottle is `peak` only while its `drink_status` is `ready`.
 
@@ -649,6 +650,11 @@ rather than publishing a wrong number. Check **Settings → System → Logs** fo
 - *"returned no inventory rows but the cellar previously held N bottles"* — a zero reading right
   after a stocked cellar is treated as an error the first time. **If you genuinely emptied your
   cellar, the next refresh accepts it** and the sensors go to zero.
+- *"returned N bottles but the cellar previously held M; treating it as a truncated export"* — the
+  response held fewer than half the bottles it did a moment ago, which is how a cut-off download
+  looks. It is refused once so a half-finished export cannot replace your inventory, overwrite the
+  cache or announce the missing bottles as removed. **If you really did sell or drink that much,
+  the next refresh accepts it.**
 
 ### Can I poll more often than every 15 minutes?
 
