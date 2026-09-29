@@ -240,8 +240,10 @@ BAD_CACHES = [
     pytest.param({"payload": 12345, "saved_at": SAVED_AT.isoformat()}, id="payload-not-text"),
     pytest.param({"payload": LIVE}, id="no-timestamp"),
     pytest.param({"payload": LIVE, "saved_at": "yesterday-ish"}, id="bad-timestamp"),
-    pytest.param({"payload": "<html>x</html>\n<p>y</p>", "saved_at": SAVED_AT.isoformat()},
-                 id="payload-does-not-parse"),
+    pytest.param(
+        {"payload": "<html>x</html>\n<p>y</p>", "saved_at": SAVED_AT.isoformat()},
+        id="payload-does-not-parse",
+    ),
     pytest.param({"payload": "", "saved_at": SAVED_AT.isoformat()}, id="empty-payload"),
 ]
 

@@ -33,15 +33,49 @@ from conftest import FakeCoordinator, ViewHass
 COMPONENT = pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
 
 BOTTLES = [
-    {"iWine": "1", "Wine": "Barolo", "Vintage": "2016", "Location": "Cellar", "Bin": "A1",
-     "BeginConsume": "2020", "EndConsume": "2040", "unique_bottle_id": "u1",
-     "Valuation": 50.0, "BottleNote": "private", "Barcode": "BC-1"},
-    {"iWine": "2", "Wine": "Rioja", "Vintage": "0", "Location": "Cellar", "Bin": "A1",
-     "BeginConsume": "2010", "EndConsume": "2020", "unique_bottle_id": "u2"},
-    {"iWine": "3", "Wine": "Port", "Vintage": "2015", "Location": "Cellar", "Bin": "B2",
-     "BeginConsume": "2030", "EndConsume": "2050", "unique_bottle_id": "u3"},
-    {"iWine": "4", "Wine": "Chablis", "Vintage": "2019", "Location": "Fridge", "Bin": "A1",
-     "BeginConsume": "", "EndConsume": "", "unique_bottle_id": "u4"},
+    {
+        "iWine": "1",
+        "Wine": "Barolo",
+        "Vintage": "2016",
+        "Location": "Cellar",
+        "Bin": "A1",
+        "BeginConsume": "2020",
+        "EndConsume": "2040",
+        "unique_bottle_id": "u1",
+        "Valuation": 50.0,
+        "BottleNote": "private",
+        "Barcode": "BC-1",
+    },
+    {
+        "iWine": "2",
+        "Wine": "Rioja",
+        "Vintage": "0",
+        "Location": "Cellar",
+        "Bin": "A1",
+        "BeginConsume": "2010",
+        "EndConsume": "2020",
+        "unique_bottle_id": "u2",
+    },
+    {
+        "iWine": "3",
+        "Wine": "Port",
+        "Vintage": "2015",
+        "Location": "Cellar",
+        "Bin": "B2",
+        "BeginConsume": "2030",
+        "EndConsume": "2050",
+        "unique_bottle_id": "u3",
+    },
+    {
+        "iWine": "4",
+        "Wine": "Chablis",
+        "Vintage": "2019",
+        "Location": "Fridge",
+        "Bin": "A1",
+        "BeginConsume": "",
+        "EndConsume": "",
+        "unique_bottle_id": "u4",
+    },
 ]
 
 
@@ -270,8 +304,15 @@ def test_a_bottle_carries_where_it_is_and_which_it_is(hass):
 def test_a_bottle_carries_nothing_that_belongs_to_the_owner_alone(hass):
     """Scripts and automations are shared and logged; notes and prices are not."""
     assert set(first_bottle(hass)) == {
-        "name", "vintage", "wine_id", "location", "bin",
-        "drink_window", "drink_status", "peak", "unique_bottle_id",
+        "name",
+        "vintage",
+        "wine_id",
+        "location",
+        "bin",
+        "drink_window",
+        "drink_status",
+        "peak",
+        "unique_bottle_id",
     }
 
 

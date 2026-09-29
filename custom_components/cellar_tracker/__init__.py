@@ -1,4 +1,5 @@
 """The CellarTracker integration."""
+
 import logging
 from pathlib import Path
 
@@ -22,6 +23,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # integration was installed - HACS or a manual copy - the page is present.
 DASHBOARD_FILE = Path(__file__).parent / "www" / DASHBOARD_FILENAME
 
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the component.
 
@@ -37,6 +39,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await _async_register_dashboard(hass)
     async_setup_services(hass)
     return True
+
 
 async def _async_register_dashboard(hass: HomeAssistant) -> None:
     """Serve the bundled dashboard page at DASHBOARD_URL.
@@ -64,6 +67,7 @@ async def _async_register_dashboard(hass: HomeAssistant) -> None:
         [StaticPathConfig(DASHBOARD_URL, str(DASHBOARD_FILE), False)]
     )
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Set up CellarTracker from a config entry."""
     coordinator = WineCellarData(hass, entry)
@@ -80,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry
 
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -93,6 +98,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntr
         # narrows the window in which a request could still find the entry.
         entry.runtime_data = None  # type: ignore[assignment]
     return unload_ok
+
 
 async def update_listener(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)

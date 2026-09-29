@@ -217,6 +217,8 @@ _module(
     ConfigFlow=ConfigFlow,
     OptionsFlow=OptionsFlow,
 )
+
+
 class SupportsResponse(enum.StrEnum):
     """Stub of homeassistant.core.SupportsResponse."""
 
@@ -261,6 +263,8 @@ _module(
     "homeassistant.helpers.entity",
     EntityCategory=types.SimpleNamespace(DIAGNOSTIC="diagnostic"),
 )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class EntityDescription:
     """Stub of homeassistant.helpers.entity.EntityDescription."""
@@ -340,6 +344,7 @@ _module(
     # payload, which is only str/int/float.
     json_bytes=lambda data: _json.dumps(data).encode("utf-8"),
 )
+
 
 class FakeRequest:
     """Minimal aiohttp request exposing only the query string."""

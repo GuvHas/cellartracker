@@ -34,8 +34,7 @@ HEADER = "iWine\tWine\tValuation\tBeginConsume\tEndConsume"
 
 def export(*windows: tuple[str, str]) -> str:
     rows = [
-        f"{i}\tWine {i}\t10.00\t{begin}\t{end}"
-        for i, (begin, end) in enumerate(windows, start=1)
+        f"{i}\tWine {i}\t10.00\t{begin}\t{end}" for i, (begin, end) in enumerate(windows, start=1)
     ]
     return "\n".join([HEADER, *rows])
 
@@ -113,10 +112,10 @@ def test_an_unparseable_year_is_treated_as_absent(value):
 # --------------------------------------------------------------------------
 def test_a_mixed_cellar_is_counted_correctly():
     ready, past = counts(
-        ("2020", "2030"),   # ready
-        ("2010", "2020"),   # past
-        ("2030", "2040"),   # too early
-        ("", ""),           # unknown
+        ("2020", "2030"),  # ready
+        ("2010", "2020"),  # past
+        ("2030", "2040"),  # too early
+        ("", ""),  # unknown
         ("2015", str(YEAR)),  # last year of its window: ready
     )
     assert (ready, past) == (2, 1)

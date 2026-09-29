@@ -34,9 +34,15 @@ YEAR = 2026
 def wine(**fields) -> dict:
     """One export row, with only what a test cares about set."""
     row = {
-        "iWine": "1", "Wine": "Some Wine", "Vintage": "2020",
-        "Location": "", "Bin": "", "Barcode": "",
-        "BeginConsume": "", "EndConsume": "", "Valuation": "10.00",
+        "iWine": "1",
+        "Wine": "Some Wine",
+        "Vintage": "2020",
+        "Location": "",
+        "Bin": "",
+        "Barcode": "",
+        "BeginConsume": "",
+        "EndConsume": "",
+        "Valuation": "10.00",
     }
     row.update(fields)
     return row
@@ -47,9 +53,7 @@ def state_of(begin, end, year=YEAR) -> str:
     import json
 
     raw = json.dumps(wine(BeginConsume=begin, EndConsume=end))
-    output = run_js(
-        f"console.log(drinkWindowState(normaliseWine({raw}), {year}));"
-    )
+    output = run_js(f"console.log(drinkWindowState(normaliseWine({raw}), {year}));")
     return output.strip()
 
 
@@ -114,28 +118,46 @@ def test_progress_is_null_without_a_window():
 
 def test_progress_runs_from_zero_at_the_first_year_to_one_at_the_last():
     run_js(
-        equals("windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2020)", 0,
-               "the first year should sit at the start")
-        + equals("windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2030)", 1,
-                 "the last year should sit at the end")
-        + equals("windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2025)", 0.5,
-                 "the midpoint should sit in the middle")
+        equals(
+            "windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2020)",
+            0,
+            "the first year should sit at the start",
+        )
+        + equals(
+            "windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2030)",
+            1,
+            "the last year should sit at the end",
+        )
+        + equals(
+            "windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2025)",
+            0.5,
+            "the midpoint should sit in the middle",
+        )
     )
 
 
 def test_progress_is_clamped_outside_the_window():
     run_js(
-        equals("windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2015)", 0,
-               "a bottle not yet open should not read negative")
-        + equals("windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2040)", 1,
-                 "a bottle long past should not read over one")
+        equals(
+            "windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2015)",
+            0,
+            "a bottle not yet open should not read negative",
+        )
+        + equals(
+            "windowProgress({BeginConsume: 2020, EndConsume: 2030}, 2040)",
+            1,
+            "a bottle long past should not read over one",
+        )
     )
 
 
 def test_a_single_year_window_does_not_divide_by_zero():
     run_js(
-        equals("windowProgress({BeginConsume: 2026, EndConsume: 2026}, 2026)", 1,
-               "a one-year window should be complete, not NaN")
+        equals(
+            "windowProgress({BeginConsume: 2026, EndConsume: 2026}, 2026)",
+            1,
+            "a one-year window should be complete, not NaN",
+        )
     )
 
 
@@ -198,17 +220,21 @@ CELLAR = (
 
 def test_the_counts_cover_every_bottle_exactly_once():
     run_js(
-        equals(f"filterCounts({CELLAR}, {YEAR})",
-               {"all": 5, "ready": 2, "past": 1, "aging": 1},
-               "the chip counts do not describe this cellar")
+        equals(
+            f"filterCounts({CELLAR}, {YEAR})",
+            {"all": 5, "ready": 2, "past": 1, "aging": 1},
+            "the chip counts do not describe this cellar",
+        )
     )
 
 
 def test_all_is_the_total_including_bottles_with_no_window():
     """A bottle nothing can say anything about still belongs to the cellar."""
     run_js(
-        check(f"filterCounts({CELLAR}, {YEAR}).all === {CELLAR}.length",
-              "'All wines' lost the bottles with no drinking window")
+        check(
+            f"filterCounts({CELLAR}, {YEAR}).all === {CELLAR}.length",
+            "'All wines' lost the bottles with no drinking window",
+        )
     )
 
 
@@ -312,10 +338,16 @@ def test_ties_keep_the_order_they_arrived_in():
     run_js(
         "const tied = [{Wine: 'A', Vintage: 2020}, {Wine: 'B', Vintage: 2020},"
         " {Wine: 'C', Vintage: 2020}];\n"
-        + equals("sortWines(tied, 'Vintage', 'asc').map((w) => w.Wine)",
-                 ["A", "B", "C"], "a stable sort must not shuffle ties")
-        + equals("sortWines(tied, 'Vintage', 'desc').map((w) => w.Wine)",
-                 ["A", "B", "C"], "reversing direction must not shuffle ties either")
+        + equals(
+            "sortWines(tied, 'Vintage', 'asc').map((w) => w.Wine)",
+            ["A", "B", "C"],
+            "a stable sort must not shuffle ties",
+        )
+        + equals(
+            "sortWines(tied, 'Vintage', 'desc').map((w) => w.Wine)",
+            ["A", "B", "C"],
+            "reversing direction must not shuffle ties either",
+        )
     )
 
 
@@ -323,10 +355,16 @@ def test_rows_missing_the_sort_key_sort_last_in_both_directions():
     """A bin nobody filled in should not head the list just because it is empty."""
     run_js(
         "const rows = [{Wine: 'A', Bin: 'B1'}, {Wine: 'B'}, {Wine: 'C', Bin: 'A1'}];\n"
-        + equals("sortWines(rows, 'Bin', 'asc').map((w) => w.Wine)",
-                 ["C", "A", "B"], "a missing bin should sort last ascending")
-        + equals("sortWines(rows, 'Bin', 'desc').map((w) => w.Wine)",
-                 ["A", "C", "B"], "a missing bin should sort last descending too")
+        + equals(
+            "sortWines(rows, 'Bin', 'asc').map((w) => w.Wine)",
+            ["C", "A", "B"],
+            "a missing bin should sort last ascending",
+        )
+        + equals(
+            "sortWines(rows, 'Bin', 'desc').map((w) => w.Wine)",
+            ["A", "C", "B"],
+            "a missing bin should sort last descending too",
+        )
     )
 
 

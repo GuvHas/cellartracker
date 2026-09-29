@@ -89,9 +89,7 @@ def is_peak(bottle: Mapping[str, Any], year: int) -> bool:
     return begin <= year and 2 * year <= begin + end
 
 
-def drink_window_breakdown(
-    bottles: Sequence[Mapping[str, Any]], year: int
-) -> DrinkWindowBreakdown:
+def drink_window_breakdown(bottles: Sequence[Mapping[str, Any]], year: int) -> DrinkWindowBreakdown:
     """Count bottles in each drink-window category for ``year``.
 
     ``ready_to_drink`` and ``past_drink_window`` are the rules the sensors and
@@ -165,9 +163,9 @@ def index_by_location_bin(bottles: Sequence[Mapping[str, Any]]) -> LocationIndex
     """
     index: LocationIndex = {}
     for position, bottle in enumerate(bottles):
-        index.setdefault(_cell(bottle, "Location"), {}).setdefault(
-            _cell(bottle, "Bin"), []
-        ).append(position)
+        index.setdefault(_cell(bottle, "Location"), {}).setdefault(_cell(bottle, "Bin"), []).append(
+            position
+        )
     return index
 
 

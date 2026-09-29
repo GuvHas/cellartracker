@@ -29,6 +29,8 @@ MULTILINE_ERROR_PAGE = (
 SINGLE_LINE_ERROR_PAGE = "<html><title>503 Service Unavailable</title></html>"
 
 STOCKED = {"total_bottles": 412, "total_value": 9000.0, "bottles": []}
+
+
 def inventory_of(data: dict) -> dict:
     """The payload without the poll timestamp.
 

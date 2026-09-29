@@ -76,9 +76,7 @@ def test_duplicate_resolution_scales_linearly():
     baseline = max(time_process(1000), 1e-6)
     scaled = time_process(4000)
     ratio = scaled / baseline
-    assert ratio < 8, (
-        f"4x the rows took {ratio:.1f}x longer, which indicates quadratic scaling"
-    )
+    assert ratio < 8, f"4x the rows took {ratio:.1f}x longer, which indicates quadratic scaling"
 
 
 def test_a_large_cellar_parses_quickly():
@@ -120,9 +118,7 @@ def test_totals_are_unaffected_by_the_refactor():
 def test_parsing_is_handed_to_the_executor():
     coordinator = build_coordinator(returns=identical_bottles(10))
     asyncio.run(coordinator._async_update_data())
-    assert "_parse_and_process" in coordinator.hass.executor_jobs, (
-        "parsing ran on the event loop"
-    )
+    assert "_parse_and_process" in coordinator.hass.executor_jobs, "parsing ran on the event loop"
 
 
 def test_update_still_returns_the_processed_result():

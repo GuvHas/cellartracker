@@ -130,9 +130,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             "bottles": [_service_bottle(bottle, year) for bottle in found],
         }
 
-    hass.services.async_register(
-        DOMAIN, SERVICE_REFRESH, handle_refresh, schema=REFRESH_SCHEMA
-    )
+    hass.services.async_register(DOMAIN, SERVICE_REFRESH, handle_refresh, schema=REFRESH_SCHEMA)
     hass.services.async_register(
         DOMAIN,
         SERVICE_GET_WINE_BY_BIN,

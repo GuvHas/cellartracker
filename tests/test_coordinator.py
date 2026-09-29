@@ -34,11 +34,11 @@ def update(coordinator: WineCellarData):
 
 
 CELLAR = tsv(
-    "1\tBarolo\tCellar\tA1\t50\t2020\t2040",   # ready + peak
-    "2\tRioja\tCellar\tA1\t20\t2020\t2030",    # ready
-    "3\tPort\tCellar\tB2\t30\t2030\t2050",     # needs aging
+    "1\tBarolo\tCellar\tA1\t50\t2020\t2040",  # ready + peak
+    "2\tRioja\tCellar\tA1\t20\t2020\t2030",  # ready
+    "3\tPort\tCellar\tB2\t30\t2030\t2050",  # needs aging
     "4\tChablis\tFridge\tA1\t10\t2010\t2020",  # past
-    "5\tMystery\t\t\t5\t\t",                   # no window, unplaced
+    "5\tMystery\t\t\t5\t\t",  # no window, unplaced
 )
 
 

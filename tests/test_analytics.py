@@ -35,8 +35,17 @@ def bottle(begin: object = "", end: object = "", **extra: object) -> dict:
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("2030", 2030), (" 2030 ", 2030), (2030, 2030), ("", None), (None, None),
-     ("0", None), ("-4", None), ("soon", None), ("20.5", None)],
+    [
+        ("2030", 2030),
+        (" 2030 ", 2030),
+        (2030, 2030),
+        ("", None),
+        (None, None),
+        ("0", None),
+        ("-4", None),
+        ("soon", None),
+        ("20.5", None),
+    ],
 )
 def test_consume_year(raw, expected):
     assert consume_year(raw) == expected
@@ -49,12 +58,12 @@ def test_consume_year(raw, expected):
     ("begin", "end", "expected"),
     [
         (2020, 2030, "ready"),
-        (2026, 2030, "ready"),   # first year of the window
-        (2020, 2026, "ready"),   # last year: still inside, not past
+        (2026, 2030, "ready"),  # first year of the window
+        (2020, 2026, "ready"),  # last year: still inside, not past
         (2027, 2035, "aging"),
         (2010, 2025, "past"),
         ("", "", "unknown"),
-        (2020, "", "ready"),     # open-ended window
+        (2020, "", "ready"),  # open-ended window
         ("", 2030, "ready"),
         ("", 2020, "past"),
         (2030, "", "aging"),
@@ -70,13 +79,13 @@ def test_drink_status(begin, end, expected):
 @pytest.mark.parametrize(
     ("begin", "end", "expected"),
     [
-        (2020, 2040, True),    # midpoint 2030; 2026 inside [2020, 2030]
-        (2026, 2040, True),    # begins this year
-        (2020, 2030, False),   # midpoint 2025 < 2026
-        (2027, 2040, False),   # not begun
-        (2010, 2020, False),   # ended
-        (2020, "", False),     # no end: a midpoint cannot be computed
-        ("", 2040, False),     # no begin
+        (2020, 2040, True),  # midpoint 2030; 2026 inside [2020, 2030]
+        (2026, 2040, True),  # begins this year
+        (2020, 2030, False),  # midpoint 2025 < 2026
+        (2027, 2040, False),  # not begun
+        (2010, 2020, False),  # ended
+        (2020, "", False),  # no end: a midpoint cannot be computed
+        ("", 2040, False),  # no begin
         ("", "", False),
     ],
 )
@@ -96,11 +105,11 @@ def test_peak_uses_the_midpoint_not_the_end():
 # --------------------------------------------------------------------------
 def test_breakdown_counts_every_category():
     bottles = [
-        bottle(2020, 2040),   # ready + peak
-        bottle(2020, 2030),   # ready, not peak (midpoint 2025)
-        bottle(2027, 2035),   # needs aging
-        bottle(2010, 2025),   # past
-        bottle("", ""),       # no window: counted nowhere
+        bottle(2020, 2040),  # ready + peak
+        bottle(2020, 2030),  # ready, not peak (midpoint 2025)
+        bottle(2027, 2035),  # needs aging
+        bottle(2010, 2025),  # past
+        bottle("", ""),  # no window: counted nowhere
     ]
     result = drink_window_breakdown(bottles, YEAR)
     assert result == {
@@ -188,9 +197,7 @@ def test_find_by_bin_across_locations():
 
 
 def test_find_narrowed_by_location():
-    found = find_bottles(
-        BOTTLES, index_by_location_bin(BOTTLES), bin_name="A1", location="Fridge"
-    )
+    found = find_bottles(BOTTLES, index_by_location_bin(BOTTLES), bin_name="A1", location="Fridge")
     assert [b["iWine"] for b in found] == ["4"]
 
 

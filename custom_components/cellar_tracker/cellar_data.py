@@ -190,9 +190,7 @@ def _bottle_identity(bottle: Mapping[str, Any]) -> str:
     Truncating to 64 bits keeps the id readable; at cellar scale (thousands of
     bottles, not billions) the collision probability is negligible.
     """
-    payload = _FIELD_SEPARATOR.join(
-        str(bottle.get(field, "")) for field in IDENTITY_FIELDS
-    )
+    payload = _FIELD_SEPARATOR.join(str(bottle.get(field, "")) for field in IDENTITY_FIELDS)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -213,9 +211,7 @@ def _event_bottle(bottle: Mapping[str, Any]) -> dict[str, Any]:
     return {field: bottle[field] for field in EVENT_BOTTLE_FIELDS if field in bottle}
 
 
-async def async_fetch_inventory_payload(
-    hass: HomeAssistant, username: str, password: str
-) -> str:
+async def async_fetch_inventory_payload(hass: HomeAssistant, username: str, password: str) -> str:
     """Fetch the raw inventory export for an account.
 
     Shared by the coordinator and by the config flow's credential check, so the
@@ -529,16 +525,16 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # because they belong to the caller.
         identities: list[str] = []
         for bottle in inventory:
-            if 'iWine' not in bottle:
+            if "iWine" not in bottle:
                 continue
 
             row = dict(bottle)
 
             try:
-                valuation = float(row.get('Valuation') or 0.0)
+                valuation = float(row.get("Valuation") or 0.0)
             except (ValueError, TypeError):
                 valuation = 0.0
-            row['Valuation'] = valuation
+            row["Valuation"] = valuation
             total_value += valuation
 
             processed_bottles.append(row)
@@ -564,7 +560,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
         for identity, indexes in groups.items():
             if len(indexes) == 1:
-                processed_bottles[indexes[0]]['unique_bottle_id'] = identity
+                processed_bottles[indexes[0]]["unique_bottle_id"] = identity
                 continue
 
             ranked = sorted(
@@ -572,7 +568,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 key=lambda index: (_row_fingerprint(processed_bottles[index]), index),
             )
             for rank, index in enumerate(ranked):
-                processed_bottles[index]['unique_bottle_id'] = (
+                processed_bottles[index]["unique_bottle_id"] = (
                     identity if not rank else f"{identity}_{rank}"
                 )
 
@@ -604,9 +600,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
     async def _fetch_payload(self) -> str:
         """Fetch the raw inventory export for this entry's account."""
-        return await async_fetch_inventory_payload(
-            self.hass, self._username, self._password
-        )
+        return await async_fetch_inventory_payload(self.hass, self._username, self._password)
 
     async def _async_update_data(self) -> CellarData:
         """Fetch inventory from CellarTracker, or fall back to the disk cache.
@@ -684,9 +678,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             payload = await self._fetch_payload()
         except AuthenticationError as err:
             # Surfaces as a reauth flow (see async_step_reauth in config_flow).
-            raise ConfigEntryAuthFailed(
-                "Invalid CellarTracker credentials"
-            ) from err
+            raise ConfigEntryAuthFailed("Invalid CellarTracker credentials") from err
         except UpstreamBackoff as err:
             # Being throttled, or the server struggling, is normal operation
             # rather than a fault: back off quietly instead of knocking again
@@ -694,9 +686,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             self._consecutive_backoffs += 1
             backoff = self._backoff_for(err.retry_after)
             self.update_interval = backoff
-            _LOGGER.info(
-                "CellarTracker asked us to slow down (%s); next poll in %s", err, backoff
-            )
+            _LOGGER.info("CellarTracker asked us to slow down (%s); next poll in %s", err, backoff)
             raise UpdateFailed(f"CellarTracker asked us to slow down: {err}") from err
         except (CannotConnect, TimeoutError, OSError) as err:
             _LOGGER.warning("Temporary communication error with CellarTracker: %r", err)
@@ -743,9 +733,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             return
         saved_at = self._last_success or dt_util.utcnow()
         try:
-            await self._store.async_save(
-                {"payload": payload, "saved_at": saved_at.isoformat()}
-            )
+            await self._store.async_save({"payload": payload, "saved_at": saved_at.isoformat()})
         except Exception as err:  # noqa: BLE001 - whatever the disk throws
             _LOGGER.warning("Could not write the CellarTracker inventory cache: %s", err)
             return
@@ -787,9 +775,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         payload, saved_at = cached
 
         try:
-            data = await self.hass.async_add_executor_job(
-                self._parse_and_process, payload, None
-            )
+            data = await self.hass.async_add_executor_job(self._parse_and_process, payload, None)
         except (UpdateFailed, csv.Error) as err:
             _LOGGER.warning("Ignoring an unusable CellarTracker inventory cache: %s", err)
             return None
@@ -806,9 +792,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # because a backoff can land exactly on the configured interval and
         # would then look like no backoff at all.
         if self._consecutive_backoffs == 0:
-            self.update_interval = min(
-                self._scan_interval, timedelta(seconds=MIN_SCAN_INTERVAL)
-            )
+            self.update_interval = min(self._scan_interval, timedelta(seconds=MIN_SCAN_INTERVAL))
         return data
 
     def _parse_and_process(self, payload: str, previous: CellarData | None) -> CellarData:
@@ -819,10 +803,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         bottles = result["bottles"]
         self._inventory_body = json_bytes(bottles)
         self._compact_body = json_bytes(
-            [
-                {field: b[field] for field in COMPACT_FIELDS if field in b}
-                for b in bottles
-            ]
+            [{field: b[field] for field in COMPACT_FIELDS if field in b} for b in bottles]
         )
         return result
 
