@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import logging
+import random
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -65,6 +66,16 @@ REQUEST_TIMEOUT = 60
 # integration indefinitely by sending an enormous Retry-After.
 MAX_BACKOFF = 21600
 
+# A delay we compute ourselves is spread over [JITTER_FLOOR, 1] of its nominal
+# value, so installs throttled together do not all come back together. Only the
+# top is kept and never exceeded: the nominal delay is already the cap's idea of
+# "long enough", so jitter shortens it rather than lengthening past the cap.
+JITTER_FLOOR = 0.75
+
+# Bounds the exponent so a very long streak cannot build an absurd integer
+# before the cap is applied. 2**16 is far past any cap this can meet.
+MAX_BACKOFF_EXPONENT = 16
+
 
 class CellarData(TypedDict):
     """What one successful poll produces.
@@ -88,8 +99,8 @@ class CellarData(TypedDict):
     last_success: NotRequired[datetime]
 
 
-class RateLimited(CannotConnect):
-    """CellarTracker answered 429.
+class UpstreamBackoff(CannotConnect):
+    """CellarTracker is telling us to slow down, by status or by header.
 
     Subclasses CannotConnect so every existing caller - the config flow's
     credential check among them - keeps classifying it as a connection
@@ -99,6 +110,23 @@ class RateLimited(CannotConnect):
     def __init__(self, message: str, retry_after: int | None = None):
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class RateLimited(UpstreamBackoff):
+    """CellarTracker answered 429."""
+
+
+class ServerError(UpstreamBackoff):
+    """CellarTracker answered 5xx.
+
+    A struggling server is asking for the same thing a throttling one is: fewer
+    requests, not a knock on the next tick.
+    """
+
+
+def _jittered(seconds: float) -> float:
+    """Spread a computed delay over the top quarter of itself."""
+    return random.uniform(seconds * JITTER_FLOOR, seconds)
 
 
 def _retry_after_seconds(headers: Mapping[str, str] | None) -> int | None:
@@ -187,7 +215,7 @@ async def async_fetch_inventory_payload(
     # description we build ourselves.
     failure: str | None = None
     retry_after: int | None = None
-    throttled = False
+    backoff: type[UpstreamBackoff] | None = None
 
     try:
         async with asyncio.timeout(REQUEST_TIMEOUT):
@@ -197,10 +225,10 @@ async def async_fetch_inventory_payload(
     except aiohttp.ClientResponseError as err:
         # The status is the diagnostic part and carries nothing sensitive.
         failure = f"HTTP {err.status} from CellarTracker"
-        if err.status == 429:
+        if err.status == 429 or 500 <= err.status <= 599:
             # The header is a count of seconds; unlike the error's URL it
             # carries nothing sensitive, so it is safe to keep.
-            throttled = True
+            backoff = RateLimited if err.status == 429 else ServerError
             retry_after = _retry_after_seconds(err.headers)
     except aiohttp.ClientError as err:
         # Connector and payload errors name the host rather than the query
@@ -213,8 +241,8 @@ async def async_fetch_inventory_payload(
         # traceback would not print it but a diagnostics dump walking the chain
         # still could. Once the except block has exited the exception is no
         # longer being handled, so nothing is attached at all.
-        if throttled:
-            raise RateLimited(failure, retry_after=retry_after)
+        if backoff is not None:
+            raise backoff(failure, retry_after=retry_after)
         raise CannotConnect(failure)
 
     # An auth failure arrives as HTTP 200 with a marker in the body.
@@ -279,9 +307,18 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         self._inventory_body: bytes = b"[]"
         self._compact_body: bytes = b"[]"
 
+        # Consecutive polls the upstream asked us to slow down for. Drives the
+        # exponential growth; forgotten on the first success.
+        self._consecutive_backoffs = 0
+
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
         self._last_success: datetime | None = None
+
+    @property
+    def consecutive_backoffs(self) -> int:
+        """How many polls in a row the upstream has asked us to slow down for."""
+        return self._consecutive_backoffs
 
     @property
     def currency(self) -> str:
@@ -332,24 +369,35 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         return self._compact_body
 
     def _backoff_for(self, retry_after: int | None) -> timedelta:
-        """How long to wait after being throttled.
+        """How long to wait after the upstream asked us to slow down.
 
         Never sooner than the configured interval - the user chose that - and
-        never longer than MAX_BACKOFF, whatever the server asks for. With no
-        usable hint, back off to twice the configured interval.
+        never longer than MAX_BACKOFF, whatever the server asks for.
+
+        A Retry-After is honoured as given: the server said when, so it is
+        neither grown nor jittered. Without one the delay doubles with every
+        consecutive failure, is capped, and is then jittered.
         """
         configured = int(self._scan_interval.total_seconds())
-        seconds = retry_after if retry_after is not None else configured * 2
 
         # Cap what the *server* can ask for, then apply the configured interval
         # as the floor. Doing it the other way round let the cap undercut a
         # schedule longer than six hours - the options schema sets a minimum
         # and no maximum, so a daily poll became six-hourly while being rate
         # limited, which is the opposite of backing off.
-        return timedelta(seconds=max(min(seconds, MAX_BACKOFF), configured))
+        if retry_after is not None:
+            seconds = float(min(retry_after, MAX_BACKOFF))
+        else:
+            exponent = min(self._consecutive_backoffs, MAX_BACKOFF_EXPONENT)
+            seconds = _jittered(min(configured * 2**exponent, MAX_BACKOFF))
+
+        return timedelta(seconds=max(seconds, configured))
 
     def _restore_interval(self) -> None:
         """Undo a backoff once CellarTracker is answering again."""
+        # Reset unconditionally: a backoff that landed exactly on the configured
+        # interval leaves nothing to restore, but the streak is over all the same.
+        self._consecutive_backoffs = 0
         if self.update_interval != self._scan_interval:
             _LOGGER.info(
                 "CellarTracker is responding again; restoring the %s poll interval",
@@ -502,15 +550,17 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             raise ConfigEntryAuthFailed(
                 "Invalid CellarTracker credentials"
             ) from err
-        except RateLimited as err:
-            # Being throttled is normal operation, not a fault: back off
-            # quietly rather than knocking again on the next tick.
+        except UpstreamBackoff as err:
+            # Being throttled, or the server struggling, is normal operation
+            # rather than a fault: back off quietly instead of knocking again
+            # on the next tick.
+            self._consecutive_backoffs += 1
             backoff = self._backoff_for(err.retry_after)
             self.update_interval = backoff
             _LOGGER.info(
-                "CellarTracker is rate limiting us (%s); next poll in %s", err, backoff
+                "CellarTracker asked us to slow down (%s); next poll in %s", err, backoff
             )
-            raise UpdateFailed(f"Rate limited by CellarTracker: {err}") from err
+            raise UpdateFailed(f"CellarTracker asked us to slow down: {err}") from err
         except (CannotConnect, TimeoutError, OSError) as err:
             _LOGGER.warning("Temporary communication error with CellarTracker: %r", err)
             raise UpdateFailed(f"Cannot reach CellarTracker: {err!r}") from err
