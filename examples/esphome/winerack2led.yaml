@@ -375,6 +375,18 @@ script:
 #
 # One literal per strand: which bin column it is. The three substitutions after
 # it are the coordinate map, shared character for character with rack 1.
+#
+# The PINS run in REVERSE column order - column 7 on the controller's first
+# output, column 1 on its last. The cable bundle enters this rack from the
+# right, nearest the power supply, so the nearest output drives the nearest
+# column and the bundle fans out in pin order instead of crossing over itself.
+# Purely a build convenience: every `kCol` still names the bin column its
+# entity is called after, so nothing about the picture depends on this. Swap
+# the pin list back if your cables come in from the left.
+#
+# Columns 4 and 5 sit on GPIO17 and GPIO16, which are wired to the PSRAM die on
+# a WROVER module. Fine on the plain WROOM this board is - move them if you
+# ever reflash a WROVER.
 .strand: &strand
   platform: fastled_clockless
   # WS2815 again - 12 V with the backup data line. It speaks the WS2812B
@@ -391,7 +403,7 @@ light:
   - <<: *strand
     id: col_01
     name: "Column 1"
-    pin: GPIO4
+    pin: GPIO21
     effects:
       - addressable_lambda:
           name: Rack
@@ -405,7 +417,7 @@ light:
   - <<: *strand
     id: col_02
     name: "Column 2"
-    pin: GPIO13
+    pin: GPIO19
     effects:
       - addressable_lambda:
           name: Rack
@@ -416,11 +428,10 @@ light:
             ${bin_first_led}
             ${paint_column}
 
-  # GPIO16 and GPIO17 are PSRAM on a WROVER module. Fine on a plain WROOM.
   - <<: *strand
     id: col_03
     name: "Column 3"
-    pin: GPIO16
+    pin: GPIO18
     effects:
       - addressable_lambda:
           name: Rack
@@ -448,7 +459,7 @@ light:
   - <<: *strand
     id: col_05
     name: "Column 5"
-    pin: GPIO18
+    pin: GPIO16
     effects:
       - addressable_lambda:
           name: Rack
@@ -462,7 +473,7 @@ light:
   - <<: *strand
     id: col_06
     name: "Column 6"
-    pin: GPIO19
+    pin: GPIO13
     effects:
       - addressable_lambda:
           name: Rack
@@ -476,7 +487,7 @@ light:
   - <<: *strand
     id: col_07
     name: "Column 7"
-    pin: GPIO21
+    pin: GPIO4
     effects:
       - addressable_lambda:
           name: Rack
