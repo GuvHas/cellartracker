@@ -9,8 +9,13 @@
 # Everything else is rack 1's design at a smaller size: one WS2815 strand per
 # bin column fed from the floor, the same action surface, the same state
 # characters, the same palette. See examples/esphome/winerack1led.yaml for the
-# reasoning behind the vertical strips, the FastLED driver and the 12 V rail;
-# only the numbers differ here.
+# reasoning behind the vertical strips and the 12 V rail; only the numbers and
+# the driver differ here.
+#
+# This node is wired for a **Lightish E8-WiFi Plus**: eight buffered 5 V TTL
+# outputs with per-port fuses, power and data on one connector each. See
+# examples/HARDWARE.md for the parts list, the pin map and why port O2 is left
+# empty.
 #
 # Actions exposed to Home Assistant:
 #
@@ -43,14 +48,24 @@
 #      every bin drink-this-year (150, 55, 0) ....  2.4 A   <- the worst case
 #      per strand, at that worst case ............  0.4 A
 #
-#    A 12 V 3 A supply covers this rack on its own, with a 5 A fuse on an
-#    18 AWG feed. If the two racks are close enough to share a bus, one 12 V
-#    12.5 A supply runs both - rack 1's 6.3 A plus this 2.4 A is 8.7 A - but
-#    each node still wants its own 12 V -> 5 V buck for its logic.
+#    One 12 V 16 A supply runs both racks - rack 1's 6.3 A plus this 2.4 A is
+#    8.7 A, or 54 % load on a Mean Well XLG-200-12. Fuse each strand at 2 A,
+#    not the 5 A the controller ships with: the fuse is there to protect
+#    0.42 mm2 cable, and 5 A does not.
 #
-# 3. Seven strands is inside the ESP32's eight RMT channels, so this node
-#    would also work with `esp32_rmt_led_strip` under ESP-IDF. It is left on
-#    FastLED to match rack 1: one thing to learn, one thing to debug.
+#    The controller's own spec asks for a supply able to deliver at least
+#    10 A. That is not about the LEDs - it is so a shorted output blows its
+#    fuse instead of making the supply current-limit, which would drop the
+#    whole rack rather than one column.
+#
+# 3. Seven strands is inside the ESP32's eight RMT channels, so this node uses
+#    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1's
+#    thirteen strands exceed the channels and still carry FastLED - splitting
+#    that rack across two controllers is what would get it onto ESP-IDF too.
+#
+# 4. LED power. GPIO23 drives an external relay that cuts the 12 V rail when
+#    every bin is dark. See the `switch:` block below - and note the bigger
+#    lever is not lighting the rack when nobody is in the cellar at all.
 #
 # =============================================================================
 
@@ -179,7 +194,11 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
+    # Seven strands fits inside the ESP32's eight RMT channels, so this node
+    # uses esp32_rmt_led_strip and needs no Arduino. Rack 1's thirteen strands
+    # exceed the channels, which is why that node still carries FastLED - and
+    # why splitting it across two controllers gets it onto ESP-IDF too.
+    type: esp-idf
 
 logger:
 
@@ -308,6 +327,27 @@ globals:
     restore_value: false
     initial_value: '0'
 
+# --- LED POWER ---------------------------------------------------------------
+# The E8-WiFi Plus brings its relay control out on GPIO23. The board expects a
+# secondary feed to keep the ESP32 alive while the relay cuts the main 12 V
+# rail, so the node stays on the network with every pixel dead.
+#
+# That is worth having because a WS2815 draws about 1 mA just being powered:
+# 420 pixels is 0.4 A, or 5 W, burnt continuously to show nothing. The render
+# script raises this whenever any bin is lit and drops it when the rack goes
+# dark.
+#
+# With no relay fitted this toggles a pin and does nothing, which is harmless.
+# `internal: true` keeps it out of Home Assistant - it is a consequence of the
+# picture, not something to switch by hand. Turning it off under a lit rack
+# would simply blank the LEDs until the next redraw turned it back on.
+switch:
+  - platform: gpio
+    id: led_power
+    pin: GPIO23
+    internal: true
+    restore_mode: ALWAYS_OFF
+
 # --- RENDERING ---------------------------------------------------------------
 script:
   - id: render
@@ -344,12 +384,14 @@ script:
             id(col_05), id(col_06), id(col_07),
           };
 
+          bool any_lit = false;
           for (int c = 0; c < ${rack_cols}; c++) {
             bool lit = false;
             for (int r = 0; r < ${rack_rows} && !lit; r++) {
               const uint8_t *rgb = &id(cell_rgb)[(r * ${rack_cols} + c) * 3];
               lit = rgb[0] || rgb[1] || rgb[2];
             }
+            any_lit = any_lit || lit;
             if (lit) {
               auto call = strand[c]->turn_on();
               call.set_effect("Rack");
@@ -357,6 +399,16 @@ script:
             } else {
               strand[c]->turn_off().perform();
             }
+          }
+
+          // Power the strips before they are asked to show anything, and cut
+          // the rail only once the whole rack is dark. The effect repaints
+          // every ${redraw_interval}, so a strand that was unpowered a moment
+          // ago is repainted within one interval of the relay closing.
+          if (any_lit) {
+            id(led_power).turn_on();
+          } else {
+            id(led_power).turn_off();
           }
 
   - id: hold_locator
@@ -376,23 +428,36 @@ script:
 # One literal per strand: which bin column it is. The three substitutions after
 # it are the coordinate map, shared character for character with rack 1.
 #
-# The PINS run in REVERSE column order - column 7 on the controller's first
-# output, column 1 on its last. The cable bundle enters this rack from the
-# right, nearest the power supply, so the nearest output drives the nearest
-# column and the bundle fans out in pin order instead of crossing over itself.
-# Purely a build convenience: every `kCol` still names the bin column its
-# entity is called after, so nothing about the picture depends on this. Swap
-# the pin list back if your cables come in from the left.
+# The pins are the E8-WiFi Plus's ports, which are fixed in copper:
 #
-# Columns 4 and 5 sit on GPIO17 and GPIO16, which are wired to the PSRAM die on
-# a WROVER module. Fine on the plain WROOM this board is - move them if you
-# ever reflash a WROVER.
+#   column 1 -> O1 (GPIO5)    column 5 -> O6 (GPIO26)
+#   column 2 -> O3 (GPIO4)    column 6 -> O7 (GPIO33)
+#   column 3 -> O4 (GPIO27)   column 7 -> O8 (GPIO25)
+#   column 4 -> O5 (GPIO17)
+#
+# O2 (GPIO12) is deliberately left empty. GPIO12 is MTDI, which selects flash
+# voltage at reset: held high, a 3.3 V module does not boot at all. The port's
+# buffer makes that unlikely, but seven strands into eight ports means one can
+# be skipped for free, so it is.
+#
+# GPIO5 is a strapping pin and would not be my choice either - its worst case
+# is one column flickering at reset. Skipping both 5 and 12 would leave six
+# ports for seven strands, so it stays. tests/test_rack_leds_example.py
+# records that compromise explicitly rather than letting it pass unnoticed.
+#
+# Columns ascend with ports, so the REVERSAL is physical: mount the board with
+# its O8 end nearest the rack and the cable bundle fans out in port order
+# instead of crossing over itself. Nothing about the picture depends on it -
+# every `kCol` still names the bin column its entity is called after.
 .strand: &strand
-  platform: fastled_clockless
-  # WS2815 again - 12 V with the backup data line. It speaks the WS2812B
-  # protocol, which is the name ESPHome knows. Tie the first pixel's BI pad
-  # alongside its DI.
-  chipset: WS2812B
+  # Seven strands fits the ESP32's eight RMT channels, so this is the native
+  # ESP-IDF driver rather than FastLED. Rack 1's thirteen strands do not fit,
+  # which is why that node still needs FastLED and the Arduino framework.
+  platform: esp32_rmt_led_strip
+  # WS2815 - 12 V, with the backup data line that keeps a column alive when one
+  # pixel dies. It speaks the WS2812 protocol, which is the name this component
+  # knows. Tie the first pixel's BI pad alongside its DI.
+  chipset: WS2812
   rgb_order: GRB
   num_leds: ${strand_leds}
   restore_mode: ALWAYS_OFF
@@ -403,7 +468,7 @@ light:
   - <<: *strand
     id: col_01
     name: "Column 1"
-    pin: GPIO21
+    pin: GPIO5
     effects:
       - addressable_lambda:
           name: Rack
@@ -417,7 +482,7 @@ light:
   - <<: *strand
     id: col_02
     name: "Column 2"
-    pin: GPIO19
+    pin: GPIO4
     effects:
       - addressable_lambda:
           name: Rack
@@ -431,7 +496,7 @@ light:
   - <<: *strand
     id: col_03
     name: "Column 3"
-    pin: GPIO18
+    pin: GPIO27
     effects:
       - addressable_lambda:
           name: Rack
@@ -459,7 +524,7 @@ light:
   - <<: *strand
     id: col_05
     name: "Column 5"
-    pin: GPIO16
+    pin: GPIO26
     effects:
       - addressable_lambda:
           name: Rack
@@ -473,7 +538,7 @@ light:
   - <<: *strand
     id: col_06
     name: "Column 6"
-    pin: GPIO13
+    pin: GPIO33
     effects:
       - addressable_lambda:
           name: Rack
@@ -487,7 +552,7 @@ light:
   - <<: *strand
     id: col_07
     name: "Column 7"
-    pin: GPIO4
+    pin: GPIO25
     effects:
       - addressable_lambda:
           name: Rack

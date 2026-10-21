@@ -482,6 +482,7 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 
 | File | What it is |
 |---|---|
+| `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
 | `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column. One file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
@@ -620,6 +621,10 @@ which happens roughly never — at the price of heap and a new failure mode wher
 an unavailable entity leaves the rack dark.
 
 ### Before you build it
+
+[`examples/HARDWARE.md`](examples/HARDWARE.md) is the full build document — every part with
+the reasoning behind it, the wiring and termination spec, the controller pin map, and the
+decisions still open. The rest of this section is the short version.
 
 - **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
   own API. The package expects it in `secrets.yaml`.

@@ -398,17 +398,63 @@ def test_one_strand_per_column_and_no_shared_pins():
         assert len(set(pins)) == len(pins), "two strands share a data pin"
 
 
-def test_no_strand_uses_a_pin_that_misbehaves_at_boot():
-    """GPIO14 pulses during boot, which would flick a column at every reset.
+#: ESP32 pins that cannot drive a strand on any board, whoever chose them.
+#: 6-11 are the SPI flash. 12 is MTDI, which selects flash voltage at reset -
+#: held high, a 3.3 V module does not boot at all. 34-39 are input-only.
+PINS_NEVER = {6, 7, 8, 9, 10, 11, 12, 34, 35, 36, 37, 38, 39}
 
-    The strapping pins and the flash pins would be worse. This is the whole
-    list of ESP32 pins not to drive an LED strand from.
-    """
-    avoid = {14, 0, 2, 5, 12, 15, 1, 3, 6, 7, 8, 9, 10, 11}
-    for node in (NODE1, NODE2):
+#: Pins to avoid when the choice is yours. These all work; they are just worse
+#: than the alternatives. 14 emits a pulse during boot, 0/2/5/15 are strapping
+#: pins, 1/3 are UART0 - so using them costs the serial console.
+PINS_AVOID_IF_FREE = {0, 1, 2, 3, 5, 14, 15}
+
+#: Nodes whose pins are fixed by the controller they run on, and the pins that
+#: controller forces us to accept. Rack 2 is a Lightish E8-WiFi Plus, whose
+#: eight ports are GPIO 5, 12, 4, 27, 17, 26, 33 and 25. Seven strands out of
+#: eight ports means exactly one may be skipped, and 12 is the one that
+#: matters - GPIO5's worst case is a flicker at reset, GPIO12's is a board
+#: that will not start. So GPIO5 is used, deliberately.
+FIXED_PINOUT = {"winerack2led": {5}}
+
+
+def test_no_strand_uses_a_pin_that_cannot_drive_one():
+    """The flash pins, MTDI and the input-only pins, on any board."""
+    for node in NODES.values():
         for light in node["light"]:
             pin = int(re.sub(r"\D", "", str(light["pin"])))
-            assert pin not in avoid, f"{light['id']} is on GPIO{pin}"
+            assert pin not in PINS_NEVER, f"{light['id']} is on GPIO{pin}"
+
+
+def test_a_node_that_picks_its_own_pins_picks_good_ones():
+    """Rack 1 is a bare ESP32, so it has no excuse for a strapping pin.
+
+    Rack 2 does: its controller's eight ports are fixed in copper. FIXED_PINOUT
+    records exactly which compromises that forces, so a pin creeping onto this
+    list has to be argued for rather than appearing by accident.
+    """
+    for name, node in NODES.items():
+        allowed = FIXED_PINOUT.get(name, set())
+        for light in node["light"]:
+            pin = int(re.sub(r"\D", "", str(light["pin"])))
+            if pin in allowed:
+                continue
+            assert pin not in PINS_AVOID_IF_FREE, f"{light['id']} is on GPIO{pin}"
+
+
+def test_rack_two_matches_its_controllers_port_map():
+    """The pins are the E8-WiFi Plus's ports, so they cannot drift from it.
+
+    Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Rack 2 uses seven of
+    them with O2 (GPIO12) left empty, in reverse column order so the output
+    nearest the rack drives the column nearest the rack.
+    """
+    e8_ports = [5, 12, 4, 27, 17, 26, 33, 25]
+    pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in NODE2["light"]]
+
+    assert set(pins) <= set(e8_ports), "a pin that is not one of the board's ports"
+    assert len(set(pins)) == len(pins), "two strands on one port"
+    assert 12 not in pins, "port O2 should be left empty"
+    assert len(pins) == 7
 
 
 def test_the_short_strands_are_the_ones_in_the_us_opening():
