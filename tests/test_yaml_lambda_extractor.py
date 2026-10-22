@@ -8,7 +8,7 @@ program that passes while the board runs a different one.
 
 So this checks the extractor against the substitution rules ESPHome actually
 applies - including references between substitutions, which is what lets
-``paint_column`` be written once with the pitch as a parameter.
+``paint_row`` be written once with the pitch as a parameter.
 """
 
 from __future__ import annotations

@@ -7,10 +7,11 @@
 # two nodes means either rack can be worked on without darkening the other.
 #
 # Everything else is rack 1's design at a smaller size: one WS2815 strand per
-# bin column fed from the floor, the same action surface, the same state
-# characters, the same palette. See examples/esphome/winerack1led.yaml for the
-# reasoning behind the vertical strips and the 12 V rail; only the numbers and
-# the driver differ here.
+# bin row, mounted horizontally along the back of the rack and fed from the
+# bin-1 end, the same action surface, the same state characters, the same
+# palette. See examples/esphome/winerack1led.yaml for the reasoning behind the
+# horizontal strips and the 12 V rail; only the numbers and the driver differ
+# here. A full rectangle has no opening, so no row here needs a jumper.
 #
 # This node is wired for a **Lightish E8-WiFi Plus**: eight buffered 5 V TTL
 # outputs with per-port fuses, power and data on one connector each. See
@@ -56,7 +57,7 @@
 #    The controller's own spec asks for a supply able to deliver at least
 #    10 A. That is not about the LEDs - it is so a shorted output blows its
 #    fuse instead of making the supply current-limit, which would drop the
-#    whole rack rather than one column.
+#    whole rack rather than one row.
 #
 # 3. Seven strands is inside the ESP32's eight RMT channels, so this node uses
 #    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1's
@@ -74,9 +75,9 @@ substitutions:
   friendly_name: Wine Rack 2
 
   # --- Rack geometry -------------------------------------------------------
-  # A full 7 x 7, so every column is the same height - no U here.
-  rack_rows: "7" # rows A..G
-  rack_cols: "7" # bin columns 1..7, one strand each
+  # A full 7 x 7, so every row is the same length - no U here.
+  rack_rows: "7" # rows A..G, one strand each
+  rack_cols: "7" # bin columns 1..7
   rack_cells: "49" # rack_rows * rack_cols
   bin_leds: "6" # LEDs lit in front of one bin
   bin_pitch: "9" # LEDs from the start of one bin to the start of the next
@@ -89,39 +90,48 @@ substitutions:
   # tests prove is literally what the board runs. Retyping any of it into a
   # lambda below would put that guarantee back where it was.
 
-  # The rack's shape: {first row, bins} per bin column. A rectangle, so
-  # every column is the same - which is what makes rack 1's U the
-  # interesting case and this one the control.
+  # The rack's shape: {first column, bins, first column, bins} per bin row -
+  # see rack 1 for the format. A rectangle, so every row is one unbroken piece
+  # of seven bins - which is what makes rack 1's U the interesting case and
+  # this one the control.
   rack_table: >-
-    {0, 7}, {0, 7}, {0, 7}, {0, 7}, {0, 7}, {0, 7}, {0, 7}
+    {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0},
+    {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0}
 
-  # Which bins column kCol carries. A strand only has to say which column it
-  # is; the table above answers the rest. `static const` puts it in flash.
-  column_extent: |-
-    static const int kTable[${rack_cols}][2] = {${rack_table}};
-    const int kFirst = (kCol >= 0 && kCol < ${rack_cols}) ? kTable[kCol][0] : 0;
-    const int kBins = (kCol >= 0 && kCol < ${rack_cols}) ? kTable[kCol][1] : 0;
+  # Which bins row kRow carries. A strand only has to say which row it is; the
+  # table above answers the rest. `static const` puts it in flash.
+  row_extent: |-
+    static const int kTable[${rack_rows}][4] = {${rack_table}};
+    const bool kKnown = kRow >= 0 && kRow < ${rack_rows};
+    const int kFirstA = kKnown ? kTable[kRow][0] : 0;
+    const int kBinsA = kKnown ? kTable[kRow][1] : 0;
+    const int kFirstB = kKnown ? kTable[kRow][2] : 0;
+    const int kBinsB = kKnown ? kTable[kRow][3] : 0;
 
-  # The first LED of `row` on a strand carrying `bins` bins from row `first`,
-  # or -1 for a row this column does not have.
+  # The first LED of bin column `col` on a strand made of piece A (`bins_a`
+  # bins from column `first_a`) and then piece B, or -1 for a column this row
+  # does not have.
   #
-  # DIN enters at the FLOOR and the strip runs upward, so the column's LOWEST
-  # bin is pixel 0 and the row letters count backwards from there. That is the
-  # whole reason the thirteen feeds sit in a line along the bottom of the rack
-  # where a skirting board hides them, instead of thirteen wires coming over
-  # the top of it.
+  # DIN enters at the COLUMN-1 END of every row, so bin 1 is pixel 0 and the
+  # bin numbers count up along the strand. Every row's feed comes up one
+  # riser at the side of the rack instead of crossing the back.
   #
-  # `first + bins - 1` is the column's own bottom row, not the envelope's. On
-  # this rack they coincide - every column reaches row M - but anchoring on
-  # the column is what keeps a short strand from being indexed as a tall one.
+  # Piece B starts where piece A's pixels end. The jumper across the U's
+  # opening carries data and power but no pixels, and piece A is cut right
+  # after its last bin, so there is no gap to skip - which is why piece A's
+  # length is `bins * pitch - (pitch - leds)` rather than `bins * pitch`.
   #
-  # The `row < first` guard is not decoration: without it a negative row makes
-  # (first + bins - 1 - row) larger, not smaller, so an out-of-range request
-  # would return a plausible index off the end of the strand rather than -1.
+  # The range checks are what keep a column in the opening - bin 7 on row A -
+  # from landing on a plausible pixel of either piece.
   bin_first_led: |-
-    auto bin_first_led = [](int row, int first, int bins) -> int {
-      if (bins <= 0 || row < first || row >= first + bins) return -1;
-      return (first + bins - 1 - row) * ${bin_pitch};
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b) -> int {
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a)
+        return (col - first_a) * ${bin_pitch};
+      if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        const int piece_a = bins_a > 0 ? bins_a * ${bin_pitch} - (${bin_pitch} - ${bin_leds}) : 0;
+        return piece_a + (col - first_b) * ${bin_pitch};
+      }
+      return -1;
     };
 
   # Read a bin id like "A7" into a zero-indexed column and row. Accepts the
@@ -160,15 +170,14 @@ substitutions:
       return true;
     };
 
-  # Paint one strand from cell_rgb. Needs kCol, and column_extent and
+  # Paint one strand from cell_rgb. Needs kRow, and row_extent and
   # bin_first_led declared ahead of it.
-  paint_column: |-
+  paint_row: |-
     for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
-    for (int b = 0; b < kBins; b++) {
-      const int row = kFirst + b;
-      const int base = bin_first_led(row, kFirst, kBins);
+    for (int col = 0; col < ${rack_cols}; col++) {
+      const int base = bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB);
       if (base < 0) continue;
-      const uint8_t *rgb = &id(cell_rgb)[(row * ${rack_cols} + kCol) * 3];
+      const uint8_t *rgb = &id(cell_rgb)[(kRow * ${rack_cols} + col) * 3];
       for (int i = 0; i < ${bin_leds} && base + i < it.size(); i++)
         it[base + i] = Color(rgb[0], rgb[1], rgb[2]);
     }
@@ -253,10 +262,10 @@ api:
               ESP_LOGW("winerack", "light_bin: '%s' is not a bin id", bin_id.c_str());
               return;
             }
-            const int kCol = col;
-            ${column_extent}
+            const int kRow = row;
+            ${row_extent}
             ${bin_first_led}
-            if (bin_first_led(row, kFirst, kBins) < 0) {
+            if (bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB) < 0) {
               ESP_LOGW("winerack", "light_bin: '%s' is not a bin in this rack", bin_id.c_str());
               return;
             }
@@ -379,25 +388,25 @@ script:
             id(cell_rgb)[i * 3 + 2] = c.b;
           }
 
-          esphome::light::LightState *strand[${rack_cols}] = {
-            id(col_01), id(col_02), id(col_03), id(col_04),
-            id(col_05), id(col_06), id(col_07),
+          esphome::light::LightState *strand[${rack_rows}] = {
+            id(row_a), id(row_b), id(row_c), id(row_d),
+            id(row_e), id(row_f), id(row_g),
           };
 
           bool any_lit = false;
-          for (int c = 0; c < ${rack_cols}; c++) {
+          for (int r = 0; r < ${rack_rows}; r++) {
             bool lit = false;
-            for (int r = 0; r < ${rack_rows} && !lit; r++) {
+            for (int c = 0; c < ${rack_cols} && !lit; c++) {
               const uint8_t *rgb = &id(cell_rgb)[(r * ${rack_cols} + c) * 3];
               lit = rgb[0] || rgb[1] || rgb[2];
             }
             any_lit = any_lit || lit;
             if (lit) {
-              auto call = strand[c]->turn_on();
+              auto call = strand[r]->turn_on();
               call.set_effect("Rack");
               call.perform();
             } else {
-              strand[c]->turn_off().perform();
+              strand[r]->turn_off().perform();
             }
           }
 
@@ -421,19 +430,19 @@ script:
       - script.execute: render
 
 # --- STRANDS -----------------------------------------------------------------
-# Seven identical columns, rows A to G. Feed and data enter at the FOOT of each
-# column, so pixel 0 is row G - the bottom row - and the row letters count
-# backwards up the strand from there.
+# Seven identical rows, bins 1 to 7, mounted horizontally along the back of the
+# rack. Feed and data enter at the BIN-1 END of each row, so pixel 0 is bin 1
+# and the bin numbers count up along the strand.
 #
-# One literal per strand: which bin column it is. The three substitutions after
+# One literal per strand: which bin row it is. The three substitutions after
 # it are the coordinate map, shared character for character with rack 1.
 #
 # The pins are the E8-WiFi Plus's ports, which are fixed in copper:
 #
-#   column 1 -> O1 (GPIO5)    column 5 -> O6 (GPIO26)
-#   column 2 -> O3 (GPIO4)    column 6 -> O7 (GPIO33)
-#   column 3 -> O4 (GPIO27)   column 7 -> O8 (GPIO25)
-#   column 4 -> O5 (GPIO17)
+#   row A -> O1 (GPIO5)    row E -> O6 (GPIO26)
+#   row B -> O3 (GPIO4)    row F -> O7 (GPIO33)
+#   row C -> O4 (GPIO27)   row G -> O8 (GPIO25)
+#   row D -> O5 (GPIO17)
 #
 # O2 (GPIO12) is deliberately left empty. GPIO12 is MTDI, which selects flash
 # voltage at reset: held high, a 3.3 V module does not boot at all. The port's
@@ -441,20 +450,20 @@ script:
 # be skipped for free, so it is.
 #
 # GPIO5 is a strapping pin and would not be my choice either - its worst case
-# is one column flickering at reset. Skipping both 5 and 12 would leave six
+# is one row flickering at reset. Skipping both 5 and 12 would leave six
 # ports for seven strands, so it stays. tests/test_rack_leds_example.py
 # records that compromise explicitly rather than letting it pass unnoticed.
 #
-# Columns ascend with ports, so the REVERSAL is physical: mount the board with
-# its O8 end nearest the rack and the cable bundle fans out in port order
-# instead of crossing over itself. Nothing about the picture depends on it -
-# every `kCol` still names the bin column its entity is called after.
+# Rows descend the rack as the ports ascend, so the bundle that comes up the
+# riser peels off one cable per shelf in port order instead of crossing over
+# itself. Nothing about the picture depends on it - every `kRow` still names
+# the bin row its entity is called after.
 .strand: &strand
   # Seven strands fits the ESP32's eight RMT channels, so this is the native
   # ESP-IDF driver rather than FastLED. Rack 1's thirteen strands do not fit,
   # which is why that node still needs FastLED and the Arduino framework.
   platform: esp32_rmt_led_strip
-  # WS2815 - 12 V, with the backup data line that keeps a column alive when one
+  # WS2815 - 12 V, with the backup data line that keeps a row alive when one
   # pixel dies. It speaks the WS2812 protocol, which is the name this component
   # knows. Tie the first pixel's BI pad alongside its DI.
   chipset: WS2812
@@ -466,99 +475,99 @@ script:
 
 light:
   - <<: *strand
-    id: col_01
-    name: "Column 1"
+    id: row_a
+    name: "Row A"
     pin: GPIO5
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 0;
-            ${column_extent}
+            constexpr int kRow = 0;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_02
-    name: "Column 2"
+    id: row_b
+    name: "Row B"
     pin: GPIO4
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 1;
-            ${column_extent}
+            constexpr int kRow = 1;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_03
-    name: "Column 3"
+    id: row_c
+    name: "Row C"
     pin: GPIO27
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 2;
-            ${column_extent}
+            constexpr int kRow = 2;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_04
-    name: "Column 4"
+    id: row_d
+    name: "Row D"
     pin: GPIO17
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 3;
-            ${column_extent}
+            constexpr int kRow = 3;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_05
-    name: "Column 5"
+    id: row_e
+    name: "Row E"
     pin: GPIO26
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 4;
-            ${column_extent}
+            constexpr int kRow = 4;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_06
-    name: "Column 6"
+    id: row_f
+    name: "Row F"
     pin: GPIO33
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 5;
-            ${column_extent}
+            constexpr int kRow = 5;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}
 
   - <<: *strand
-    id: col_07
-    name: "Column 7"
+    id: row_g
+    name: "Row G"
     pin: GPIO25
     effects:
       - addressable_lambda:
           name: Rack
           update_interval: ${redraw_interval}
           lambda: |-
-            constexpr int kCol = 6;
-            ${column_extent}
+            constexpr int kRow = 6;
+            ${row_extent}
             ${bin_first_led}
-            ${paint_column}
+            ${paint_row}

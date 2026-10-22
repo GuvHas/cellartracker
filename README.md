@@ -483,7 +483,7 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | File | What it is |
 |---|---|
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
-| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin column. One file, nothing beside it |
+| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row. One file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
 
@@ -514,16 +514,17 @@ particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_
 script, and walk to the rack. The overview comes back when the hold expires, and a poll that lands
 while you are looking does not steal the answer from you.
 
-### Why the strips run vertically
+### Why the strips run horizontally
 
-A U-shaped rack makes this decision for you. Eight of rack 1's thirteen rows are split in two by
-the opening, so a strand per **row** would need a jumper carrying 12 V, ground and data across
-each gap, and firmware that skips the pixels that are not there. Every **column** of the same rack
-is contiguous — columns 1–4 and 10–13 run A to M, columns 5–9 exist only for rows I–M and are
-simply shorter strands.
+The strip's holder sits behind the bins, and anywhere but horizontal along the back of the rack
+it covers a bin's opening. So there is one strand per bin **row**, fed from the bin-1 end.
 
-Same thirteen strands, same 1122 pixels, eight fewer jumpers and no gaps in any strand. The test
-suite asserts both halves of that argument, so the wiring cannot quietly stop matching the rack.
+Eight of rack 1's thirteen rows are split in two by the U's opening — bins 1–4 and 10–13. Each
+of those is still one strand: the two pieces are chained by a jumper carrying 12 V, ground and
+data across the gap, and the firmware continues the pixel count from bin 4 straight to bin 10.
+That keeps rack 1 at thirteen data lines; running every piece as its own strand would make it
+21. The test suite asserts that every piece of strip is exactly one unbroken run of bins and
+that only rows A–H need a jumper, so the wiring cannot quietly stop matching the rack.
 
 ### How the two halves talk
 
@@ -555,32 +556,34 @@ beside it. The rack's shape and the arithmetic that turns a bin into a run of
 pixels are both `substitutions:` at the top of the node's own configuration:
 
 ```yaml
-  # {first row, bins} per bin column. Row A is 0, row M is 12.
+  # {first column, bins, first column, bins} per bin row: the piece of strip
+  # the data reaches first, then the piece after the jumper. Row A is 0.
   rack_table: >-
-    {0, 13}, {0, 13}, {0, 13}, {0, 13},
-    {8, 5}, {8, 5}, {8, 5}, {8, 5}, {8, 5},
-    {0, 13}, {0, 13}, {0, 13}, {0, 13}
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
 
   bin_first_led: |-
-    auto bin_first_led = [](int row, int first, int bins) -> int {
-      if (bins <= 0 || row < first || row >= first + bins) return -1;
-      return (first + bins - 1 - row) * ${bin_pitch};
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b) -> int {
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a)
+        return (col - first_a) * ${bin_pitch};
+      if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        const int piece_a = bins_a > 0 ? bins_a * ${bin_pitch} - (${bin_pitch} - ${bin_leds}) : 0;
+        return piece_a + (col - first_b) * ${bin_pitch};
+      }
+      return -1;
     };
 ```
 
-A column is a first row and a count, so a rack with an opening in it is a table
-rather than a special case. Each strand's lambda is its column number and three
-`${...}` references — thirteen copies of an integer and one copy of the maths.
-To rebuild a rack, edit `rack_table` and the matching `num_leds:`;
-`tests/test_rack_leds_example.py` fails if the two stop agreeing.
+A row is at most two pieces, each a first column and a count, so a rack with an
+opening in it is a table rather than a special case. Each strand's lambda is its
+row number and three `${...}` references — thirteen copies of an integer and one
+copy of the maths. To rebuild a rack, edit `rack_table` and the matching
+`num_leds:`; `tests/test_rack_leds_example.py` fails if the two stop agreeing.
 
-**Data enters at the floor.** Pixel 0 of every column is that column's *lowest*
-bin — row M on rack 1, row G on rack 2 — and the row letters count backwards up
-the strand. That puts all thirteen feeds in a line along the bottom of the rack
-where a skirting board hides them, instead of thirteen wires coming over the
-top. To wire from the top instead, change `(first + bins - 1 - row)` back to
-`(row - first)`; it is one line, in one place, and the tests will tell you what
-it did.
+**Data enters at the bin-1 end.** Pixel 0 of every row is its bin 1 and the
+bin numbers count up along the strand, across the jumper on a split row. That
+puts every feed on one riser at the side of the rack.
 
 ### Testing C++ that lives inside a YAML string
 
@@ -592,19 +595,19 @@ string, which normally makes it testable only by flashing a board.
 inside wrappers that supply the same names a lambda has in scope:
 
 ```cpp
-void paint(FakeLight &it, int kCol) {
-#include "rack1/column_extent.inc"
+void paint(FakeLight &it, int kRow) {
+#include "rack1/row_extent.inc"
 #include "rack1/bin_first_led.inc"
-#include "rack1/paint_column.inc"
+#include "rack1/paint_row.inc"
 }
 ```
 
 Those three lines are the strand's lambda, in the order the YAML has them. The
 text under test is the text that ships, so a test cannot pass against a copy
 that has drifted. `FakeLight::operator[]` goes through `std::vector::at`, which
-turns the bug this whole arrangement exists to catch — a short column indexed as
-a tall one, writing past the end of a 42-pixel strand — into a thrown exception
-a test can assert on rather than a flickering column somewhere else on the rack.
+turns the bug this whole arrangement exists to catch — a split row indexed as
+a full one, writing past the end of a 66-pixel strand — into a thrown exception
+a test can assert on rather than a flickering row somewhere else on the rack.
 
 ```console
 $ cmake -S tests/cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir build/cpp
@@ -629,12 +632,11 @@ decisions still open. The rest of this section is the short version.
 - **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
   own API. The package expects it in `secrets.yaml`.
 - **Power.** Rack 1 draws 3.9 A for a fully green overview and 6.3 A worst case; rack 2 adds
-  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the foot of
-  each column is enough at 0.6 A per strand — the same end the data line enters, so power and
-  signal share one run along the bottom of the rack. Halve it all by dropping `bin_leds` from 6
-  to 3.
+  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
+  end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
+  signal share one run up the riser. Halve it all by dropping `bin_leds` from 6 to 3.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
-  dark column, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
+  dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.
 - **Thirteen strands is more than a classic ESP32 has timing hardware for** — eight RMT channels
   and two I2S buses is ten. That bounds how many can transmit at once, not how many you can have,

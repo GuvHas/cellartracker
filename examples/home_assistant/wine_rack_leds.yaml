@@ -59,7 +59,7 @@
 #
 # The exception is a bottle CellarTracker still files at a bin that no longer
 # exists, which is easy after rebuilding a rack. It is not lost and it is not
-# mis-lit: there is no strand there, so it stays dark. The orphan sensor below
+# mis-lit: there are no pixels there, so it stays dark. The orphan sensor below
 # counts them so a rebuild does not quietly swallow bottles.
 #
 # =============================================================================
@@ -221,7 +221,7 @@ automation:
   - id: wine_rack_1_push_grid
     alias: "Wine rack 1: paint the rack"
     description: >-
-      One call paints all thirteen columns, so the rack is never half old and
+      One call paints all thirteen rows, so the rack is never half old and
       half new. The board keeps a locator showing over the top of this, so a
       repaint that lands while you are looking for a bottle does not steal the
       answer.
@@ -234,7 +234,7 @@ automation:
       # entities go unavailable and back while it does. Repainting on that is
       # what stops a power cut leaving the rack dark until the next sync.
       - trigger: state
-        entity_id: light.wine_rack_1_column_1
+        entity_id: light.wine_rack_1_row_a
         from: unavailable
         id: reconnected
       - trigger: homeassistant
@@ -263,7 +263,7 @@ automation:
         entity_id: sensor.wine_rack_2_grid
         id: grid
       - trigger: state
-        entity_id: light.wine_rack_2_column_1
+        entity_id: light.wine_rack_2_row_a
         from: unavailable
         id: reconnected
       - trigger: homeassistant

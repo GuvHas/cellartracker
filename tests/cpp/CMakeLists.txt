@@ -31,8 +31,8 @@ foreach(RACK 1 2)
   set(OUT_DIR ${GENERATED}/rack${RACK})
   set(OUTS
     ${OUT_DIR}/bin_first_led.inc
-    ${OUT_DIR}/column_extent.inc
-    ${OUT_DIR}/paint_column.inc
+    ${OUT_DIR}/row_extent.inc
+    ${OUT_DIR}/paint_row.inc
     ${OUT_DIR}/parse_bin_id.inc)
   add_custom_command(
     OUTPUT ${OUTS}

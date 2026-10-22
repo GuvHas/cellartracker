@@ -13,10 +13,11 @@ the sensor counts it as ready is the integration contradicting itself in the
 room where you are choosing what to open.
 
 The rest of the file checks the two halves of the example against each other,
-and the wiring against the shape of the rack. The strips run vertically - one
-strand per bin column - and the reason is a geometric fact this file asserts
-rather than asks you to believe: every column of the U is contiguous, and most
-of its rows are not.
+and the wiring against the shape of the rack. The strips run horizontally along
+the back of the rack - one strand per bin row - because a strip holder anywhere
+else covers a bin's opening. The U splits eight of rack 1's rows in two; each
+of those is still one strand, its two pieces chained by a jumper across the
+opening, and this file asserts that the row table describes exactly that.
 """
 
 from __future__ import annotations
@@ -302,41 +303,52 @@ def test_a_full_rack_is_still_one_character_per_bin():
 def geometry(node: dict) -> dict:
     """Read a rack's shape out of its own configuration.
 
-    Since the coordinate map moved into `substitutions:`, the rack's shape is
-    the `rack_table` substitution and nothing else - the same characters the
-    lambdas paste in and tests/cpp compiles. There is no separate description
-    of the rack left to disagree with.
+    The rack's shape is the `rack_table` substitution and nothing else - the
+    same characters the lambdas paste in and tests/cpp compiles. Each row is
+    up to two pieces of strip, `{first column, bins, first column, bins}`, in
+    the order the data reaches them.
     """
     subs_ = node["substitutions"]
-    columns = [
-        (int(first), int(bins))
-        for first, bins in re.findall(r"\{\s*(\d+)\s*,\s*(\d+)\s*\}", subs_["rack_table"])
+    rows = [
+        ((int(a_first), int(a_bins)), (int(b_first), int(b_bins)))
+        for a_first, a_bins, b_first, b_bins in re.findall(
+            r"\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\}", subs_["rack_table"]
+        )
     ]
-    assert len(columns) == int(subs_["rack_cols"]), "rack_table does not cover every column"
+    assert len(rows) == int(subs_["rack_rows"]), "rack_table does not cover every row"
     return {
-        "columns": columns,
+        "rows": rows,
         "leds_per_bin": int(subs_["bin_leds"]),
         "bin_pitch": int(subs_["bin_pitch"]),
     }
 
 
-def strand_leds(geo: dict, column: int) -> int:
-    """How long that column's strip is: one pitch per bin, less the gap the
-    last bin does not need."""
-    bins = geo["columns"][column][1]
+def pieces(geo: dict, row: int) -> list[tuple[int, int]]:
+    """The pieces of strip a row is made of, leaving out an empty second one."""
+    return [(first, bins) for first, bins in geo["rows"][row] if bins > 0]
+
+
+def piece_leds(geo: dict, bins: int) -> int:
+    """One pitch per bin, less the gap the last bin does not need."""
     return bins * geo["bin_pitch"] - (geo["bin_pitch"] - geo["leds_per_bin"])
 
 
+def strand_leds(geo: dict, row: int) -> int:
+    """How long that row's strip is: its pieces end to end. The jumper between
+    them carries power and data and no pixels."""
+    return sum(piece_leds(geo, bins) for _, bins in pieces(geo, row))
+
+
 def strands(node: dict) -> list[dict]:
-    """Each light, and the bin column its lambda says it is."""
+    """Each light, and the bin row its lambda says it is."""
     out = []
     for light in node["light"]:
         body = light["effects"][0]["addressable_lambda"]["lambda"]
-        m = re.search(r"constexpr int kCol = (\d+);", body)
-        assert m, f"{light['id']} does not say which column it is"
+        m = re.search(r"constexpr int kRow = (\d+);", body)
+        assert m, f"{light['id']} does not say which row it is"
         out.append({
             "id": light["id"],
-            "col": int(m.group(1)),
+            "row": int(m.group(1)),
             "num_leds": int(resolve(node, light["num_leds"])),
         })
     return out
@@ -346,10 +358,22 @@ def covered(node: dict) -> set[tuple[int, int]]:
     """Every (row, column) the rack_table says this rack has."""
     geo = geometry(node)
     return {
-        (first + i, col)
-        for col, (first, bins) in enumerate(geo["columns"])
+        (row, first + i)
+        for row in range(len(geo["rows"]))
+        for first, bins in pieces(geo, row)
         for i in range(bins)
     }
+
+
+def runs(cols: list[int]) -> list[tuple[int, int]]:
+    """Sorted columns as contiguous (first, length) runs."""
+    out: list[tuple[int, int]] = []
+    for c in cols:
+        if out and out[-1][0] + out[-1][1] == c:
+            out[-1] = (out[-1][0], out[-1][1] + 1)
+        else:
+            out.append((c, 1))
+    return out
 
 
 def test_rack_one_lights_exactly_the_bins_it_has():
@@ -361,41 +385,69 @@ def test_rack_two_lights_exactly_the_bins_it_has():
     assert covered(NODE2) == set(RACK2_SHAPE)
 
 
-def test_every_column_of_the_u_is_contiguous():
-    """This is why the strips run vertically rather than per row.
+def test_every_piece_of_strip_is_one_unbroken_run_of_bins():
+    """A piece of strip can only light bins it reaches without a break.
 
-    A strand can only light a run of bins it can reach without a break. Every
-    column of the U is such a run, so every strand is one uncut length of
-    strip.
+    So each piece in the table must be exactly one contiguous run of the
+    rack's shape - not two runs glued together, which would put pixels
+    behind the U's opening, and not half a run, which would leave a bin dark.
     """
-    for col in range(13):
-        rows = sorted(r for (r, c) in RACK1_SHAPE if c == col)
-        assert rows == list(range(rows[0], rows[-1] + 1)), f"column {col + 1} has a gap"
+    for node, shape in ((NODE1, RACK1_SHAPE), (NODE2, RACK2_SHAPE)):
+        geo = geometry(node)
+        for row in range(len(geo["rows"])):
+            cols = sorted(c for (r, c) in shape if r == row)
+            assert pieces(geo, row) == runs(cols), f"row {chr(ord('A') + row)}"
 
 
-def test_most_rows_of_the_u_are_not_contiguous():
-    """And this is the other half of the argument.
+def test_eight_rows_of_the_u_need_a_jumper():
+    """Rows A-H are split by the U's opening and rows I-M are not.
 
-    Eight of the thirteen rows are split by the U's opening. Running the strips
-    per row would need a jumper carrying 12 V, ground and data across each of
-    those gaps.
+    One strand per row means one jumper per split row: eight, each carrying
+    12 V, ground and data across the opening. No row is split more than once,
+    which is why the table has room for exactly two pieces.
     """
-    split = 0
+    geo = geometry(NODE1)
+    split = [row for row in range(13) if len(pieces(geo, row)) == 2]
+    assert split == list(range(8))
     for row in range(13):
         cols = sorted(c for (r, c) in RACK1_SHAPE if r == row)
-        if cols != list(range(cols[0], cols[-1] + 1)):
-            split += 1
-    assert split == 8
+        assert len(runs(cols)) <= 2, f"row {chr(ord('A') + row)} has more than one gap"
 
 
-def test_one_strand_per_column_and_no_shared_pins():
-    for node, cols in ((NODE1, 13), (NODE2, 7)):
+def test_rack_two_has_no_jumpers():
+    geo = geometry(NODE2)
+    assert all(len(pieces(geo, row)) == 1 for row in range(7))
+
+
+def test_pieces_are_listed_in_the_order_the_data_reaches_them():
+    """Data enters at the bin-1 end, so the first piece is the leftmost."""
+    for node in NODES.values():
+        geo = geometry(node)
+        for row in range(len(geo["rows"])):
+            firsts = [first for first, _ in pieces(geo, row)]
+            assert firsts == sorted(firsts), f"row {chr(ord('A') + row)}"
+            assert firsts[0] == 0, "every row's feed is at bin 1"
+
+
+def test_one_strand_per_row_and_no_shared_pins():
+    for node, rows in ((NODE1, 13), (NODE2, 7)):
         lights = node["light"]
-        assert len(lights) == cols
-        assert [light["id"] for light in lights] == [f"col_{i + 1:02d}" for i in range(cols)]
-        assert sorted(s["col"] for s in strands(node)) == list(range(cols))
+        assert len(lights) == rows
+        assert [light["id"] for light in lights] == [
+            f"row_{chr(ord('a') + i)}" for i in range(rows)
+        ]
+        assert [s["row"] for s in strands(node)] == list(range(rows))
         pins = [light["pin"] for light in lights]
         assert len(set(pins)) == len(pins), "two strands share a data pin"
+
+
+def test_rack_one_needs_no_more_data_lines_than_before():
+    """Chaining each split row keeps rack 1 at thirteen data lines.
+
+    That is what lets it stay on two seven-port controllers. Running each
+    piece of a split row as its own strand would make it 21.
+    """
+    assert len(NODE1["light"]) == 13
 
 
 #: ESP32 pins that cannot drive a strand on any board, whoever chose them.
@@ -445,8 +497,7 @@ def test_rack_two_matches_its_controllers_port_map():
     """The pins are the E8-WiFi Plus's ports, so they cannot drift from it.
 
     Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Rack 2 uses seven of
-    them with O2 (GPIO12) left empty, in reverse column order so the output
-    nearest the rack drives the column nearest the rack.
+    them with O2 (GPIO12) left empty, in port order from row A down.
     """
     e8_ports = [5, 12, 4, 27, 17, 26, 33, 25]
     pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in NODE2["light"]]
@@ -457,24 +508,31 @@ def test_rack_two_matches_its_controllers_port_map():
     assert len(pins) == 7
 
 
-def test_the_short_strands_are_the_ones_in_the_us_opening():
-    """Columns 5-9 exist only for rows I-M, so they are five bins, not thirteen."""
-    columns = geometry(NODE1)["columns"]
-    for col in range(4, 9):
-        assert columns[col] == (8, 5), f"column {col + 1} should be rows I-M"
-    for col in list(range(0, 4)) + list(range(9, 13)):
-        assert columns[col] == (0, 13), f"column {col + 1} should be rows A-M"
+def test_the_split_rows_are_the_arms_of_the_u():
+    """Rows A-H are bins 1-4 and 10-13; rows I-M are all thirteen."""
+    rows = geometry(NODE1)["rows"]
+    for row in range(0, 8):
+        assert rows[row] == ((0, 4), (9, 4)), f"row {chr(ord('A') + row)} should be split"
+    for row in range(8, 13):
+        assert rows[row] == ((0, 13), (0, 0)), f"row {chr(ord('A') + row)} should be whole"
 
 
-def test_every_light_is_as_long_as_the_geometry_says_its_column_is():
+def test_every_light_is_as_long_as_the_geometry_says_its_row_is():
     """`num_leds` has to be a literal in YAML, so it is a second copy of a
     number `rack_table` already implies. This is the only thing stopping the
     two from drifting - and a light one pixel short truncates its last bin,
-    which after the rewiring is the bin at the TOP of the column."""
+    which on a split row is bin 13, on the far side of the jumper."""
     for node in NODES.values():
         geo = geometry(node)
         for strand in strands(node):
-            assert strand["num_leds"] == strand_leds(geo, strand["col"]), strand["id"]
+            assert strand["num_leds"] == strand_leds(geo, strand["row"]), strand["id"]
+
+
+def test_rack_one_powers_1098_pixels():
+    geo = geometry(NODE1)
+    assert sum(strand_leds(geo, row) for row in range(13)) == 1098
+    assert subs(NODE1, "split_strand") == 2 * piece_leds(geo, 4) == 66
+    assert subs(NODE1, "full_strand") == piece_leds(geo, 13) == 114
 
 
 def test_the_racks_agree_about_how_many_leds_light_a_bin():
@@ -483,7 +541,7 @@ def test_the_racks_agree_about_how_many_leds_light_a_bin():
     assert geometry(NODE1)["bin_pitch"] == geometry(NODE2)["bin_pitch"]
 
 
-def test_the_column_table_agrees_with_the_rest_of_the_substitutions():
+def test_the_row_table_agrees_with_the_rest_of_the_substitutions():
     """`rack_table` and the plain numbers beside it describe one rack.
 
     `rack_cols` and `rack_rows` size the state arrays and bound the action
@@ -492,10 +550,11 @@ def test_the_column_table_agrees_with_the_rest_of_the_substitutions():
     """
     for node in NODES.values():
         geo = geometry(node)
-        assert len(geo["columns"]) == subs(node, "rack_cols")
+        assert len(geo["rows"]) == subs(node, "rack_rows")
         assert geo["leds_per_bin"] == subs(node, "bin_leds")
         assert geo["bin_pitch"] == subs(node, "bin_pitch")
-        assert max(f + b for f, b in geo["columns"]) == subs(node, "rack_rows")
+        ends = [first + bins for row in range(len(geo["rows"])) for first, bins in pieces(geo, row)]
+        assert max(ends) == subs(node, "rack_cols")
 
 
 # --------------------------------------------------------------------------
@@ -607,7 +666,7 @@ def test_the_two_racks_share_one_palette():
 #: same blocks out and compiles them, which is what makes an inline YAML lambda
 #: testable at all; these two tests guard the properties that arrangement
 #: depends on.
-CPP_SUBSTITUTIONS = ("bin_first_led", "column_extent", "paint_column", "parse_bin_id")
+CPP_SUBSTITUTIONS = ("bin_first_led", "row_extent", "paint_row", "parse_bin_id")
 
 
 def test_both_nodes_ship_the_same_coordinate_map():
@@ -615,7 +674,7 @@ def test_both_nodes_ship_the_same_coordinate_map():
 
     This is what a shared header used to buy and what the racks would quietly
     lose without it: rack 2 drifting to a different pitch, or keeping the old
-    top-down indexing after rack 1 was rewired, would show up as two rooms
+    column-wise indexing after rack 1 was rewired, would show up as two rooms
     disagreeing about where a bottle is rather than as a failure anywhere.
 
     Compared before substitution, so the parameters they legitimately differ
@@ -643,7 +702,7 @@ def test_a_node_is_one_file_with_nothing_beside_it():
 
 
 def test_the_lambdas_paste_the_map_rather_than_retyping_it():
-    """Every strand's lambda is its column number and three substitutions.
+    """Every strand's lambda is its row number and three substitutions.
 
     A lambda that spelled the arithmetic out again would pass every test in
     this file and every test in tests/cpp - because neither would be reading
@@ -655,8 +714,8 @@ def test_the_lambdas_paste_the_map_rather_than_retyping_it():
             statements = [line.strip() for line in body.splitlines() if line.strip()]
             assert statements == [
                 statements[0],
-                "${column_extent}",
+                "${row_extent}",
                 "${bin_first_led}",
-                "${paint_column}",
+                "${paint_row}",
             ], f"{light['id']} has maths of its own"
-            assert re.fullmatch(r"constexpr int kCol = \d+;", statements[0]), light["id"]
+            assert re.fullmatch(r"constexpr int kRow = \d+;", statements[0]), light["id"]

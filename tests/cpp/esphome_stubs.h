@@ -8,7 +8,7 @@
 //
 // The important one is FakeLight::operator[], which goes through std::vector
 // ::at. On the board an index past the end of a strand writes into whatever is
-// next in RAM and the bug shows up as a flickering column somewhere else
+// next in RAM and the bug shows up as a flickering row somewhere else
 // entirely. Here it throws, and a test can say so out loud.
 
 #pragma once

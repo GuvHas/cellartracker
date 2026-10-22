@@ -4,7 +4,7 @@
 // Every #include of a .inc below is a block of C++ lifted verbatim out of the
 // `substitutions:` of examples/esphome/winerack*led.yaml by yaml_lambda.py.
 // Nothing in this file retypes the firmware's arithmetic - the wrappers set up
-// the same names an addressable_lambda has in scope (`kCol`, `it`, `cell_rgb`)
+// the same names an addressable_lambda has in scope (`kRow`, `it`, `cell_rgb`)
 // and then include the shipped text.
 //
 // Which is the point: an inline YAML lambda is normally only testable by
@@ -29,15 +29,16 @@
 // -----------------------------------------------------------------------------
 namespace rack1 {
 
-// These four mirror the substitutions of the same name. They are duplicated
-// here rather than generated because a test that derives its expectations from
-// the thing under test proves nothing; the Python suite checks they agree.
+// These mirror the substitutions of the same name. They are duplicated here
+// rather than generated because a test that derives its expectations from the
+// thing under test proves nothing; the Python suite checks they agree.
 constexpr int kRows = 13;
 constexpr int kCols = 13;
 constexpr int kLedsPerBin = 6;
 constexpr int kBinPitch = 9;
-constexpr int kTallStrand = 114;  // 13 bins, rows A-M
-constexpr int kShortStrand = 42;  // 5 bins, rows I-M
+constexpr int kFullStrand = 114;  // 13 bins, rows I-M
+constexpr int kPiece = 33;        // 4 bins, one arm of the U
+constexpr int kSplitStrand = 66;  // two pieces jumpered across the U, rows A-H
 
 /// What a lambda sees as `id(cell_rgb)`: the whole envelope, row-major.
 uint8_t cell_rgb[kRows * kCols * 3];
@@ -55,33 +56,41 @@ void set_cell(int row, int col, Color colour) {
 
 /// The shipped `bin_first_led`, called. The parameters are named unlike the
 /// lambda's so that -Wshadow stays useful over the included text.
-int first_led(int at_row, int from_row, int how_many) {
+int first_led(int at_col, int from_a, int count_a, int from_b, int count_b) {
 #include "rack1/bin_first_led.inc"
-  return bin_first_led(at_row, from_row, how_many);
+  return bin_first_led(at_col, from_a, count_a, from_b, count_b);
 }
 
 struct Extent {
-  int first;
-  int bins;
+  int first_a;
+  int bins_a;
+  int first_b;
+  int bins_b;
 };
 
-/// The shipped `column_extent`, for one column.
-Extent extent_of(int kCol) {
-#include "rack1/column_extent.inc"
-  return Extent{kFirst, kBins};
+/// The shipped `row_extent`, for one row.
+Extent extent_of(int kRow) {
+#include "rack1/row_extent.inc"
+  return Extent{kFirstA, kBinsA, kFirstB, kBinsB};
 }
 
-/// A whole strand painted by the shipped `paint_column` - the three lines of a
+/// Where bin (row, col) starts on its row's strand, through the shipped table.
+int led_of(int row, int col) {
+  const Extent e = extent_of(row);
+  return first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b);
+}
+
+/// A whole strand painted by the shipped `paint_row` - the three lines of a
 /// light's lambda, in the order the light has them.
-void paint(FakeLight &it, int kCol) {
-#include "rack1/column_extent.inc"
+void paint(FakeLight &it, int kRow) {
+#include "rack1/row_extent.inc"
 #include "rack1/bin_first_led.inc"
-#include "rack1/paint_column.inc"
+#include "rack1/paint_row.inc"
 }
 
-/// The strand length a column's light declares as `num_leds`.
-int strand_leds(int column) {
-  return extent_of(column).bins == kRows ? kTallStrand : kShortStrand;
+/// The strand length a row's light declares as `num_leds`.
+int strand_leds(int row) {
+  return extent_of(row).bins_b > 0 ? kSplitStrand : kFullStrand;
 }
 
 bool parse(const char *written, int *out_column, int *out_row) {
@@ -102,25 +111,32 @@ constexpr int kStrand = 60;  // 7 bins of 6, pitch 9
 
 uint8_t cell_rgb[kRows * kCols * 3];
 
-int first_led(int at_row, int from_row, int how_many) {
+int first_led(int at_col, int from_a, int count_a, int from_b, int count_b) {
 #include "rack2/bin_first_led.inc"
-  return bin_first_led(at_row, from_row, how_many);
+  return bin_first_led(at_col, from_a, count_a, from_b, count_b);
 }
 
 struct Extent {
-  int first;
-  int bins;
+  int first_a;
+  int bins_a;
+  int first_b;
+  int bins_b;
 };
 
-Extent extent_of(int kCol) {
-#include "rack2/column_extent.inc"
-  return Extent{kFirst, kBins};
+Extent extent_of(int kRow) {
+#include "rack2/row_extent.inc"
+  return Extent{kFirstA, kBinsA, kFirstB, kBinsB};
 }
 
-void paint(FakeLight &it, int kCol) {
-#include "rack2/column_extent.inc"
+int led_of(int row, int col) {
+  const Extent e = extent_of(row);
+  return first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b);
+}
+
+void paint(FakeLight &it, int kRow) {
+#include "rack2/row_extent.inc"
 #include "rack2/bin_first_led.inc"
-#include "rack2/paint_column.inc"
+#include "rack2/paint_row.inc"
 }
 
 }  // namespace rack2
@@ -129,170 +145,207 @@ void paint(FakeLight &it, int kCol) {
 // The direction the data line runs
 // =============================================================================
 //
-// DIN enters at the FLOOR of every column and the strip runs upward, so that
-// the thirteen feeds sit in a row along the bottom of the rack where they can
-// be hidden. The rack is labelled with row A at the top - it is a U, and a U
-// opens upward, so rows A-H are the arms and rows I-M are the solid base.
-//
-// Those two facts together are the whole of this suite: the LAST row of a
-// column - the bottom of the rack, row M - has to be pixel 0, and the row
-// letters count backwards along the strand from there.
+// The strips run horizontally along the back of the rack, one per bin row, and
+// DIN enters at the bin-1 end of every row so that all the feeds come up one
+// riser at the side. Bin 1 is pixel 0 and the bin numbers count up along the
+// strand from there.
 
-TEST_SUITE("bottom-up indexing") {
+TEST_SUITE("left-to-right indexing") {
   using namespace rack1;
 
-  TEST_CASE("the bottom bin of a full column is the first LED on the strand") {
-    // Row M, envelope row 12, is where the data line enters.
-    CHECK(first_led(12, 0, 13) == 0);
+  TEST_CASE("bin 1 of a full row is the first LED on the strand") {
+    CHECK(led_of(12, 0) == 0);  // M1
   }
 
-  TEST_CASE("the top bin of a full column is the last LEDs on the strand") {
-    // Row A is furthest from the feed: twelve bins up, at pitch 9.
-    CHECK(first_led(0, 0, 13) == 108);
-    CHECK(108 + kLedsPerBin == kTallStrand);
+  TEST_CASE("bin 13 of a full row is the last LEDs on the strand") {
+    CHECK(led_of(12, 12) == 108);  // M13
+    CHECK(108 + kLedsPerBin == kFullStrand);
   }
 
-  TEST_CASE("row letters count backwards along the strand") {
-    CHECK(first_led(12, 0, 13) == 0);    // M
-    CHECK(first_led(11, 0, 13) == 9);    // L
-    CHECK(first_led(10, 0, 13) == 18);   // K
-    CHECK(first_led(1, 0, 13) == 99);    // B
-    CHECK(first_led(0, 0, 13) == 108);   // A
+  TEST_CASE("bin numbers count up along the strand") {
+    CHECK(led_of(8, 0) == 0);    // I1
+    CHECK(led_of(8, 1) == 9);    // I2
+    CHECK(led_of(8, 2) == 18);   // I3
+    CHECK(led_of(8, 6) == 54);   // I7, the middle of the base
+    CHECK(led_of(8, 12) == 108); // I13
   }
 
-  TEST_CASE("a short column's bottom bin is also pixel zero") {
-    // Columns 5-9 exist only for rows I-M. Their feed is at the same floor as
-    // every other column's, so row M is pixel 0 there too - which is the whole
-    // reason all thirteen data lines can be hidden along one skirting board.
-    CHECK(first_led(12, 8, 5) == 0);
-  }
-
-  TEST_CASE("a short column's top bin is row I, four bins up") {
-    CHECK(first_led(8, 8, 5) == 36);
-    CHECK(36 + kLedsPerBin == kShortStrand);
-  }
-
-  TEST_CASE("the same row is at different pixels on a tall and a short column") {
-    // Row I is the top of a short column and the ninth bin of a tall one. It
-    // is the same shelf in the room, at different distances from two feeds.
-    CHECK(first_led(8, 8, 5) == 36);
-    CHECK(first_led(8, 0, 13) == 36);
-    // Both happen to be 36 here, because both columns' feeds are at row M and
-    // row I is four bins above it either way. That is a property of this rack,
-    // not of the formula - check one where it is not true:
-    CHECK(first_led(12, 8, 5) == 0);
-    CHECK(first_led(12, 0, 13) == 0);
-    CHECK(first_led(0, 0, 13) == 108);
-    CHECK(first_led(0, 8, 5) == -1);  // row A is not on a short column at all
-  }
-
-  TEST_CASE("the pixel index falls as the row index rises") {
-    for (int row = 1; row < kRows; row++) {
-      CHECK(first_led(row, 0, kRows) < first_led(row - 1, 0, kRows));
+  TEST_CASE("the pixel index rises with the column") {
+    for (int col = 1; col < kCols; col++) {
+      CAPTURE(col);
+      CHECK(led_of(12, col) > led_of(12, col - 1));
     }
+  }
+
+  TEST_CASE("every row starts at bin 1, so every feed is at the same side") {
+    for (int row = 0; row < kRows; row++) {
+      CAPTURE(row);
+      CHECK(led_of(row, 0) == 0);
+    }
+  }
+}
+
+// =============================================================================
+// The jumper across the U
+// =============================================================================
+//
+// Rows A-H are two four-bin pieces of strip, bins 1-4 and 10-13, chained by a
+// jumper that carries power and data across the opening but has no pixels. So
+// bin 10 is the pixel straight after bin 4's last LED - not five bins further
+// on, which is where it would be if the strip ran unbroken behind the hole.
+
+TEST_SUITE("split rows") {
+  using namespace rack1;
+
+  TEST_CASE("the first piece is bins 1 to 4, from pixel 0") {
+    CHECK(led_of(0, 0) == 0);   // A1
+    CHECK(led_of(0, 3) == 27);  // A4
+    CHECK(27 + kLedsPerBin == kPiece);
+  }
+
+  TEST_CASE("the second piece starts on the pixel after the first piece ends") {
+    CHECK(led_of(0, 9) == kPiece);  // A10, straight across the jumper
+    CHECK(led_of(0, 9) == 33);
+  }
+
+  TEST_CASE("the second piece is bins 10 to 13, at the usual pitch") {
+    CHECK(led_of(0, 9) == 33);   // A10
+    CHECK(led_of(0, 10) == 42);  // A11
+    CHECK(led_of(0, 11) == 51);  // A12
+    CHECK(led_of(0, 12) == 60);  // A13
+    CHECK(60 + kLedsPerBin == kSplitStrand);
+  }
+
+  TEST_CASE("the jumper skips no pixels") {
+    // If the formula forgot that piece A is cut straight after its last bin,
+    // bin 10 would land three LEDs late and bin 13 would run off the strand.
+    CHECK(led_of(0, 9) - led_of(0, 3) == kLedsPerBin);
+  }
+
+  TEST_CASE("bins in the opening are on neither piece") {
+    for (int row = 0; row < 8; row++) {
+      for (int col = 4; col < 9; col++) {
+        CAPTURE(row);
+        CAPTURE(col);
+        CHECK(led_of(row, col) == -1);
+      }
+    }
+  }
+
+  TEST_CASE("the same bin column is at different pixels on a split and a full row") {
+    // Bin 10 is shelf-for-shelf the same column, but on row I there are five
+    // more bins of strip in front of it.
+    CHECK(led_of(0, 9) == 33);
+    CHECK(led_of(8, 9) == 81);
   }
 }
 
 TEST_SUITE("bounds") {
   using namespace rack1;
 
-  TEST_CASE("a row above a short column is not on it") {
-    for (int row = 0; row < 8; row++) {
-      CAPTURE(row);
-      CHECK(first_led(row, 8, 5) == -1);
-    }
+  TEST_CASE("a column past the end of the rack is not on any row") {
+    CHECK(led_of(12, 13) == -1);
+    CHECK(led_of(0, 13) == -1);
+    CHECK(led_of(12, 99) == -1);
   }
 
-  TEST_CASE("a row below the rack is not on any column") {
-    CHECK(first_led(13, 0, 13) == -1);
-    CHECK(first_led(99, 0, 13) == -1);
+  TEST_CASE("a negative column is refused rather than indexed backwards") {
+    CHECK(led_of(12, -1) == -1);
+    CHECK(led_of(0, -1) == -1);
+    CHECK(led_of(0, -100) == -1);
   }
 
-  TEST_CASE("a negative row is refused rather than indexed backwards") {
-    // (first + bins - 1 - row) grows without limit as row goes negative, so an
-    // unchecked formula would hand back a plausible-looking index off the end.
-    CHECK(first_led(-1, 0, 13) == -1);
-    CHECK(first_led(-100, 0, 13) == -1);
+  TEST_CASE("a row with no bins has no LEDs") {
+    CHECK(first_led(0, 0, 0, 0, 0) == -1);
+    CHECK(first_led(0, 0, -3, 0, 0) == -1);
   }
 
-  TEST_CASE("a column with no bins has no LEDs") {
-    CHECK(first_led(0, 0, 0) == -1);
-    CHECK(first_led(0, 0, -3) == -1);
+  TEST_CASE("a lone second piece starts at pixel 0") {
+    // Not a row this rack has, but the formula should not invent a first piece.
+    CHECK(first_led(9, 0, 0, 9, 4) == 0);
   }
 
   TEST_CASE("no bin ever runs past the end of its own strand") {
-    for (int column = 0; column < kCols; column++) {
-      const Extent extent = extent_of(column);
-      const int leds = strand_leds(column);
-      for (int row = extent.first; row < extent.first + extent.bins; row++) {
-        CAPTURE(column);
+    for (int row = 0; row < kRows; row++) {
+      const int leds = strand_leds(row);
+      for (int col = 0; col < kCols; col++) {
         CAPTURE(row);
-        const int first = first_led(row, extent.first, extent.bins);
-        REQUIRE(first >= 0);
+        CAPTURE(col);
+        const int first = led_of(row, col);
+        if (first < 0) continue;
         CHECK(first + kLedsPerBin <= leds);
       }
     }
   }
 
-  TEST_CASE("two bins on one column never light the same LED") {
-    for (int column = 0; column < kCols; column++) {
-      const Extent extent = extent_of(column);
+  TEST_CASE("two bins on one row never light the same LED") {
+    for (int row = 0; row < kRows; row++) {
       std::set<int> lit;
-      for (int row = extent.first; row < extent.first + extent.bins; row++) {
-        const int first = first_led(row, extent.first, extent.bins);
+      int bins = 0;
+      for (int col = 0; col < kCols; col++) {
+        const int first = led_of(row, col);
+        if (first < 0) continue;
+        bins++;
         for (int i = 0; i < kLedsPerBin; i++) {
-          CAPTURE(column);
           CAPTURE(row);
+          CAPTURE(col);
           CHECK(lit.insert(first + i).second);
         }
       }
-      CHECK(static_cast<int>(lit.size()) == extent.bins * kLedsPerBin);
+      CHECK(static_cast<int>(lit.size()) == bins * kLedsPerBin);
     }
   }
 }
 
 // =============================================================================
-// The column table
+// The row table
 // =============================================================================
 
-TEST_SUITE("column extents") {
+TEST_SUITE("row extents") {
   using namespace rack1;
 
-  TEST_CASE("the arms of the U run the full height") {
-    for (int column : {0, 1, 2, 3, 9, 10, 11, 12}) {
-      CAPTURE(column);
-      CHECK(extent_of(column).first == 0);
-      CHECK(extent_of(column).bins == 13);
+  TEST_CASE("the arms of the U are two pieces of four") {
+    for (int row = 0; row < 8; row++) {
+      CAPTURE(row);
+      const Extent e = extent_of(row);
+      CHECK(e.first_a == 0);
+      CHECK(e.bins_a == 4);
+      CHECK(e.first_b == 9);
+      CHECK(e.bins_b == 4);
     }
   }
 
-  TEST_CASE("the base of the U starts at row I") {
-    for (int column : {4, 5, 6, 7, 8}) {
-      CAPTURE(column);
-      CHECK(extent_of(column).first == 8);
-      CHECK(extent_of(column).bins == 5);
+  TEST_CASE("the base of the U is one piece of thirteen") {
+    for (int row = 8; row < 13; row++) {
+      CAPTURE(row);
+      const Extent e = extent_of(row);
+      CHECK(e.first_a == 0);
+      CHECK(e.bins_a == 13);
+      CHECK(e.bins_b == 0);
     }
   }
 
-  TEST_CASE("a column outside the rack carries nothing") {
-    // kCol is a literal in each light, so this cannot happen from a strand -
-    // but light_bin passes a column that came off the network.
-    CHECK(extent_of(-1).bins == 0);
-    CHECK(extent_of(13).bins == 0);
-    CHECK(extent_of(9999).bins == 0);
+  TEST_CASE("a row outside the rack carries nothing") {
+    // kRow is a literal in each light, so this cannot happen from a strand -
+    // but light_bin passes a row that came off the network.
+    for (int row : {-1, 13, 9999}) {
+      CAPTURE(row);
+      CHECK(extent_of(row).bins_a == 0);
+      CHECK(extent_of(row).bins_b == 0);
+    }
   }
 
   TEST_CASE("the rack has 129 bins in a 13 by 13 envelope") {
     int bins = 0;
-    for (int column = 0; column < kCols; column++) bins += extent_of(column).bins;
+    for (int row = 0; row < kRows; row++) bins += extent_of(row).bins_a + extent_of(row).bins_b;
     CHECK(bins == 129);
     CHECK(kRows * kCols == 169);
   }
 
-  TEST_CASE("the strands add up to 1122 pixels") {
+  TEST_CASE("the strands add up to 1098 pixels") {
     int total = 0;
-    for (int column = 0; column < kCols; column++) total += strand_leds(column);
-    CHECK(total == 1122);
+    for (int row = 0; row < kRows; row++) total += strand_leds(row);
+    CHECK(total == 1098);
   }
 }
 
@@ -303,11 +356,11 @@ TEST_SUITE("column extents") {
 TEST_SUITE("painting a strand") {
   using namespace rack1;
 
-  TEST_CASE("the bottom row lands on the first LEDs") {
+  TEST_CASE("bin 1 lands on the first LEDs") {
     clear_cells();
     set_cell(12, 0, Color(0, 110, 0));  // M1, ready
-    FakeLight it(kTallStrand);
-    paint(it, 0);
+    FakeLight it(kFullStrand);
+    paint(it, 12);
 
     for (int i = 0; i < kLedsPerBin; i++) {
       CAPTURE(i);
@@ -317,24 +370,24 @@ TEST_SUITE("painting a strand") {
     CHECK(it.lit() == kLedsPerBin);
   }
 
-  TEST_CASE("the top row lands on the last LEDs") {
+  TEST_CASE("bin 13 lands on the last LEDs") {
     clear_cells();
-    set_cell(0, 0, Color(140, 0, 0));  // A1, past its window
-    FakeLight it(kTallStrand);
-    paint(it, 0);
+    set_cell(12, 12, Color(140, 0, 0));  // M13, past its window
+    FakeLight it(kFullStrand);
+    paint(it, 12);
 
-    CHECK(it[kTallStrand - 1] == Color(140, 0, 0));
-    CHECK(it[kTallStrand - kLedsPerBin] == Color(140, 0, 0));
-    CHECK(it[kTallStrand - kLedsPerBin - 1].is_black());
+    CHECK(it[kFullStrand - 1] == Color(140, 0, 0));
+    CHECK(it[kFullStrand - kLedsPerBin] == Color(140, 0, 0));
+    CHECK(it[kFullStrand - kLedsPerBin - 1].is_black());
     CHECK(it.lit() == kLedsPerBin);
   }
 
   TEST_CASE("the gap between two lit bins stays dark") {
     clear_cells();
     set_cell(12, 0, Color(0, 110, 0));  // M1
-    set_cell(11, 0, Color(0, 110, 0));  // L1
-    FakeLight it(kTallStrand);
-    paint(it, 0);
+    set_cell(12, 1, Color(0, 110, 0));  // M2
+    FakeLight it(kFullStrand);
+    paint(it, 12);
 
     for (int i = kLedsPerBin; i < kBinPitch; i++) {
       CAPTURE(i);
@@ -343,29 +396,43 @@ TEST_SUITE("painting a strand") {
     CHECK(it.lit() == 2 * kLedsPerBin);
   }
 
-  TEST_CASE("a short column paints its five bins and nothing else") {
+  TEST_CASE("a split row lights bin 4 and bin 10 back to back") {
+    // Either side of the jumper. On the strip they are adjacent LEDs; on the
+    // rack they are six bins apart.
     clear_cells();
-    for (int row = 8; row < 13; row++) set_cell(row, 4, Color(0, 45, 120));
-    FakeLight it(kShortStrand);
-    paint(it, 4);
+    set_cell(0, 3, Color(0, 110, 0));    // A4
+    set_cell(0, 9, Color(0, 45, 120));   // A10
+    FakeLight it(kSplitStrand);
+    paint(it, 0);
 
-    CHECK(it.lit() == 5 * kLedsPerBin);
+    CHECK(it[kPiece - 1] == Color(0, 110, 0));
+    CHECK(it[kPiece] == Color(0, 45, 120));
+    CHECK(it.lit() == 2 * kLedsPerBin);
+  }
+
+  TEST_CASE("a split row paints its eight bins and nothing else") {
+    clear_cells();
+    for (int col = 0; col < kCols; col++) set_cell(2, col, Color(0, 45, 120));
+    FakeLight it(kSplitStrand);
+    paint(it, 2);
+
+    CHECK(it.lit() == 8 * kLedsPerBin);
     CHECK(it[0] == Color(0, 45, 120));
-    CHECK(it[kShortStrand - 1] == Color(0, 45, 120));
+    CHECK(it[kSplitStrand - 1] == Color(0, 45, 120));
   }
 
   TEST_CASE("a cell in the U's opening is never drawn") {
     // A7 is inside the 13 x 13 envelope and outside the rack. Home Assistant
-    // sends the whole envelope, so this cell can carry a colour; column 7's
-    // strand has nowhere to put it and must not guess.
+    // sends the whole envelope, so this cell can carry a colour; row A's
+    // strand has no pixels behind the opening and must not guess.
     clear_cells();
     set_cell(0, 6, Color(150, 55, 0));  // A7
-    FakeLight it(kShortStrand);
-    paint(it, 6);
+    FakeLight it(kSplitStrand);
+    paint(it, 0);
     CHECK(it.lit() == 0);
   }
 
-  TEST_CASE("no column can write past the end of its strand") {
+  TEST_CASE("no row can write past the end of its strand") {
     // The bug this whole harness exists for. FakeLight indexes through
     // vector::at, so an overrun throws instead of quietly corrupting the
     // next strand's buffer.
@@ -373,10 +440,10 @@ TEST_SUITE("painting a strand") {
     for (int row = 0; row < kRows; row++)
       for (int col = 0; col < kCols; col++) set_cell(row, col, Color(150, 55, 0));
 
-    for (int column = 0; column < kCols; column++) {
-      CAPTURE(column);
-      FakeLight it(strand_leds(column));
-      CHECK_NOTHROW(paint(it, column));
+    for (int row = 0; row < kRows; row++) {
+      CAPTURE(row);
+      FakeLight it(strand_leds(row));
+      CHECK_NOTHROW(paint(it, row));
     }
   }
 
@@ -386,23 +453,23 @@ TEST_SUITE("painting a strand") {
       for (int col = 0; col < kCols; col++) set_cell(row, col, Color(150, 55, 0));
 
     int lit = 0;
-    for (int column = 0; column < kCols; column++) {
-      FakeLight it(strand_leds(column));
-      paint(it, column);
+    for (int row = 0; row < kRows; row++) {
+      FakeLight it(strand_leds(row));
+      paint(it, row);
       lit += it.lit();
     }
-    CHECK(lit == 129 * kLedsPerBin);  // 774 of the 1122 powered pixels
+    CHECK(lit == 129 * kLedsPerBin);  // 774 of the 1098 powered pixels
   }
 
   TEST_CASE("painting clears what was there before") {
     clear_cells();
     set_cell(12, 0, Color(0, 110, 0));
-    FakeLight it(kTallStrand);
-    paint(it, 0);
+    FakeLight it(kFullStrand);
+    paint(it, 12);
     CHECK(it.lit() == kLedsPerBin);
 
     clear_cells();
-    paint(it, 0);
+    paint(it, 12);
     CHECK(it.lit() == 0);
   }
 }
@@ -412,26 +479,27 @@ TEST_SUITE("painting a strand") {
 // =============================================================================
 
 TEST_SUITE("the second rack") {
-  TEST_CASE("every column is the full seven bins") {
-    for (int column = 0; column < rack2::kCols; column++) {
-      CAPTURE(column);
-      CHECK(rack2::extent_of(column).first == 0);
-      CHECK(rack2::extent_of(column).bins == 7);
+  TEST_CASE("every row is one piece of seven bins") {
+    for (int row = 0; row < rack2::kRows; row++) {
+      CAPTURE(row);
+      CHECK(rack2::extent_of(row).first_a == 0);
+      CHECK(rack2::extent_of(row).bins_a == 7);
+      CHECK(rack2::extent_of(row).bins_b == 0);
     }
   }
 
-  TEST_CASE("row G is the bottom, and so pixel zero") {
-    CHECK(rack2::first_led(6, 0, 7) == 0);
-    CHECK(rack2::first_led(0, 0, 7) == 54);
+  TEST_CASE("bin 1 is pixel zero and bin 7 the far end") {
+    CHECK(rack2::led_of(0, 0) == 0);
+    CHECK(rack2::led_of(0, 6) == 54);
     CHECK(54 + rack1::kLedsPerBin == rack2::kStrand);
   }
 
-  TEST_CASE("no column can write past the end of its strand") {
+  TEST_CASE("no row can write past the end of its strand") {
     for (uint8_t &channel : rack2::cell_rgb) channel = 200;
-    for (int column = 0; column < rack2::kCols; column++) {
-      CAPTURE(column);
+    for (int row = 0; row < rack2::kRows; row++) {
+      CAPTURE(row);
       FakeLight it(rack2::kStrand);
-      CHECK_NOTHROW(rack2::paint(it, column));
+      CHECK_NOTHROW(rack2::paint(it, row));
     }
   }
 
@@ -441,7 +509,7 @@ TEST_SUITE("the second rack") {
     FakeLight it(rack2::kStrand);
     for (uint8_t &channel : rack2::cell_rgb) channel = 0;
     rack2::cell_rgb[(6 * rack2::kCols + 0) * 3 + 1] = 110;  // G1
-    rack2::paint(it, 0);
+    rack2::paint(it, 6);
     CHECK(it.lit() == rack1::kLedsPerBin);
   }
 }
@@ -491,13 +559,12 @@ TEST_SUITE("bin ids") {
 
   TEST_CASE("parsing does not decide whether the rack has that bin") {
     // A7 is a well-formed bin id for a rack that does not have that bin. The
-    // parser says where it would be; the column table says whether it exists.
+    // parser says where it would be; the row table says whether it exists.
     int column = -1, row = -1;
     REQUIRE(parse("A7", &column, &row));
     CHECK(row == 0);
     CHECK(column == 6);
 
-    const rack1::Extent extent = rack1::extent_of(column);
-    CHECK(rack1::first_led(row, extent.first, extent.bins) == -1);
+    CHECK(rack1::led_of(row, column) == -1);
   }
 }

@@ -24,7 +24,7 @@ _REF = re.compile(r"\$\{([a-zA-Z0-9_]+)\}|\$([a-zA-Z0-9_]+)")
 
 #: Substitutions that hold C++ rather than a value, in the order a test
 #: including them needs them declared.
-CPP_BLOCKS = ("bin_first_led", "column_extent", "paint_column", "parse_bin_id")
+CPP_BLOCKS = ("bin_first_led", "row_extent", "paint_row", "parse_bin_id")
 
 
 class CircularSubstitution(RuntimeError):

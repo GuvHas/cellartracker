@@ -18,15 +18,35 @@ it. Where something is still undecided it is marked **OPEN** and collected at th
 |---|---|---|
 | Shape | A **U** — rows A–H hold bins 1–4 and 10–13, rows I–M run full width | A plain **7 × 7** |
 | Bins | 129, in a 13 × 13 envelope | 49 |
-| Strands | **13** (one per bin column) | **7** |
-| Pixels | 1122 | 420 |
-| Strand lengths | 8 × 114 px (1.90 m), 5 × 42 px (0.70 m) | 7 × 60 px (1.00 m) |
+| Strands | **13** (one per bin row) | **7** (one per bin row) |
+| Pixels | 1098 | 420 |
+| Strand lengths | 5 × 114 px (1.90 m, rows I–M), 8 × 66 px (two 33 px / 0.55 m pieces, rows A–H) | 7 × 60 px (1.00 m) |
+| Jumpers | 8, one across the U's opening on each of rows A–H | none |
 
-One WS2815 strand per **bin column**, fed from the floor. Every column of the U is
-contiguous, and most of its rows are not — which is the whole argument for vertical
-strands, and the test suite asserts both halves of it.
+One WS2815 strand per **bin row**, mounted **horizontally along the back** of the rack and fed
+from the **bin-1 end**. Horizontal is not a preference: the strip's holder covers a bin's
+opening anywhere else. All thirteen feeds come up one riser at the bin-1 side.
 
-**1542 pixels, 20 strands, 20 independent data lines.** That last number is what rules out
+### The U's opening
+
+Rows A–H hold bins 1–4 and 10–13 with the opening between them, so each of those rows is two
+four-bin pieces of strip. They are **chained, not split**: a short jumper of the same 3-core
+cable carries +12 V, GND and data from the end of the first piece (bin 4) across the opening
+to the start of the second (bin 10). The jumper has no pixels, so in the firmware bin 10 is
+simply the pixel after bin 4 — `rack_table` lists each row as up to two pieces and
+`bin_first_led` continues the count across the gap.
+
+| | Chained (built) | Split |
+|---|---|---|
+| Rack 1 strands / data lines | **13** | 21 (16 pieces + 5 full rows) |
+| E8 boards for rack 1 | **2** (7 + 6) | 3 (7 + 7 + 7) |
+| Extra parts | 8 jumpers, ~0.9 m each | 8 more feed runs from the board |
+
+Chaining keeps the data-line count exactly where the vertical layout had it, so the controller
+plan does not change. The test suite asserts that every piece in the table is exactly one
+unbroken run of bins and that only rows A–H need a jumper.
+
+**1518 pixels, 20 strands, 20 independent data lines.** That last number is what rules out
 most of the LED controllers on the market.
 
 ---
@@ -37,26 +57,29 @@ most of the LED controllers on the market.
 
 | Item | Qty | Notes |
 |---|---|---|
-| **WS2815** strip, 12 V, 60 LEDs/m | **6 × 5 m reels** | 25.7 m used. Confirm `DI` *and* `BI` pads on the listing |
+| **WS2815** strip, 12 V, 60 LEDs/m | **6 × 5 m reels** | 25.3 m used. Confirm `DI` *and* `BI` pads on the listing, and that it cuts at every LED |
 | **Mean Well XLG-200-12** (plain, **not** `-A`) | 1 | 12 V, 16 A, 192 W, IP67, ENEC + CB. Runs both racks at 54 % load |
 | **Lightish E8-WiFi Plus** | **3** | 8 buffered 5 V outputs each. 1 for rack 2, 2 for rack 1 (7 + 6) |
-| **ROLANCHE 3-core 0.42 mm²** (red/black/yellow) | **6 × 5 m** | 2 reels for rack 2, 4 for rack 1 |
+| **ROLANCHE 3-core 0.42 mm²** (red/black/yellow) | **8 × 5 m** | 2 reels for rack 2, 6 for rack 1: its 13 feeds plus 8 jumpers of ~0.9 m |
 | **Mini blade fuses, 2 A** | 20 + spares | Littelfuse `0287002.PXCN`. **Not** the 5 A supplied — see *Fusing* |
 | **Ferrules, 0.5 mm²** | 25 | Required: the cable is under the terminal's minimum — see *Terminations* |
 | 16 AWG red + black | 2 m each | XLG → each board's input terminal |
 | WAGO 221 lever connectors | 2 | Splits the XLG's potted leads to both racks (+12 V and GND) |
-| Aluminium channel + diffuser | ~14 × 2 m | Optional. Six bare LEDs read as six dots |
+| Aluminium channel + diffuser | ~15 × 2 m | Optional, and doubles as the horizontal mount at the back. Six bare LEDs read as six dots |
 | Solder, heatshrink, cable clips, crimp tool | — | |
 
 ### Cut plan — 6 reels, not 7
 
-A 5 m reel is 300 LEDs. Nesting the three strand lengths:
+A 5 m reel is 300 LEDs. Nesting the three piece lengths — 5 full rows (114), 16 half-row
+pieces (33) and 7 rack-2 rows (60):
 
 | Reel | Cut | LEDs used |
 |---|---|---|
-| 1–4 | 2 tall (114) + 1 short (42) | 270 of 300 |
-| 5 | 1 short (42) + 4 rack-2 (60) | 282 |
-| 6 | 3 rack-2 (60) | 180, ~2 m spare |
+| 1–2 | 2 full (114) + 2 pieces (33) | 294 of 300 |
+| 3 | 1 full (114) + 5 pieces (33) | 279 |
+| 4 | 7 pieces (33) + 1 rack-2 (60) | 291 |
+| 5 | 4 rack-2 (60) | 240 |
+| 6 | 2 rack-2 (60) | 120, ~3 m spare |
 
 ### Deliberately not bought
 
@@ -153,25 +176,24 @@ need 7 of 8 ports and have 8, so there is no reason to take the risk.
 3.3 V, below the WS2815's 3.5 V V<sub>IH</sub>. Same for anything repurposed from the I²C,
 DMX or SD pins. It stays **8 usable outputs per board**, which is why rack 1 needs two.
 
-### Port → bin column, rack 2
+### Port → bin row, rack 2
 
-The cable bundle enters rack 2 from the side nearest the supply, so the nearest output drives
-the nearest column and the bundle fans out in pin order instead of crossing over itself.
+The cable bundle goes up the riser at the bin-1 side of rack 2 and peels off one cable per
+shelf, top row first, so the ports run in order down the rack instead of crossing over.
 
-| Bin column | Port | GPIO |
+| Bin row | Port | GPIO |
 |---|---|---|
-| 7 | O8 | 25 |
-| 6 | O7 | 33 |
-| 5 | O6 | 26 |
-| 4 | O5 | 17 |
-| 3 | O4 | 27 |
-| 2 | O3 | 4 |
-| 1 | O1 | 5 |
+| A | O1 | 5 |
+| B | O3 | 4 |
+| C | O4 | 27 |
+| D | O5 | 17 |
+| E | O6 | 26 |
+| F | O7 | 33 |
+| G | O8 | 25 |
 
-Purely a build convenience — every `kCol` in the config still names the bin column its entity
-is called after, so nothing about the picture depends on it. **OPEN:** this assumes the X4
-end of the board (ports O7/O8) mounts nearest the rack. If X1 is nearer, reverse the GPIO
-column.
+Purely a build convenience — every `kRow` in the config still names the bin row its entity
+is called after, so nothing about the picture depends on it. **OPEN:** if the board mounts
+at the bottom of the riser, you may prefer the bottom row on O1; reverse the GPIO column.
 
 ### The relay
 
@@ -199,6 +221,23 @@ nothing — harmless, and the intent is recorded.
 Write that mapping down somewhere. Yellow is sometimes used for +12 V in automotive wiring,
 and you will have 21 conductors terminated before you next think about it.
 
+### Jumpers across the U (rack 1, rows A–H)
+
+Same cable, same colours, one per split row:
+
+| Core | From (end of bin 4's piece) | To (start of bin 10's piece) |
+|---|---|---|
+| Red | `+12V` | `+12V` |
+| Black | `GND` | `GND` |
+| Yellow | `DO` | `DI` **and** `BI` |
+
+Leave the first piece's `BO` unconnected. Tying the second piece's `DI` and `BI` together
+means the last pixel before the jumper is the one pixel whose failure darkens the far half
+of the row; a fourth core from `BO` to `BI` would close that, and is not worth a different
+cable. The jumper runs behind the opening, so it is visible through it — sleeve it black or
+clip it to the back rail. Measure it from the real rack: five bins plus the slack to the
+pads, about 0.9 m at a 150 mm pitch.
+
 ### Gauge
 
 The ROLANCHE cable's 21 strands of 0.16 mm work out to **0.422 mm²** — nearer 21 AWG than the
@@ -207,7 +246,8 @@ The ROLANCHE cable's 21 strands of 0.16 mm work out to **0.422 mm²** — nearer
 | Run | Current | Drop |
 |---|---|---|
 | Rack 2, 1.5 m | 0.34 A | **0.042 V** |
-| Rack 1, 2.0 m | 0.64 A | **0.098 V** |
+| Rack 1, 2.5 m (up the riser) | 0.64 A | **0.13 V** |
+| Rack 1 jumper, 0.9 m | 0.19 A | **0.014 V** |
 
 Irrelevant against the budget. The cable was chosen for its colour coding and its fit in the
 terminals, not its copper.
@@ -223,15 +263,15 @@ range, and it brings the outside dimension up to what the terminal expects. Stri
 16 AWG feed goes in bare — strip 15–16 mm there.
 
 **Strip end — soldered, and there is no alternative.** A WAGO clamps wires; a WS2815 input is
-a pad on a flexible PCB with nothing to clamp. Four joints per strand, 28 for rack 2 and 52
-for rack 1:
+a pad on a flexible PCB with nothing to clamp. Four joints per strand, plus seven per jumper
+(three on the way out, four on the way in): 28 for rack 2 and 108 for rack 1:
 
 - Tin the pad and the wire separately, then join
 - **~350 °C, 2–3 seconds per pad.** Dwelling lifts the pad off the flex — the usual way these
   get killed
 - **Jumper `DI` to `BI` at the first pixel** with a short offcut. That backup line is the
   reason this is WS2815 rather than WS2812B; left floating it can oscillate and take the
-  column with it
+  row with it
 - Heatshrink each joint, then one larger piece over all four
 - **Strain-relieve the cable to the rack frame**, 50–100 mm back, with a service loop. The pad
   must never take the load
@@ -247,13 +287,13 @@ self-limiting — and 0.42 mm² is good for roughly 3 A enclosed.
 | Strand | As designed | Full white | 2 A fuse |
 |---|---|---|---|
 | Rack 2, 60 px | 0.34 A | 1.56 A | holds |
-| Rack 1 short, 42 px | 0.24 A | 1.09 A | holds |
-| Rack 1 tall, 114 px | 0.64 A | **2.96 A** | **clears** |
+| Rack 1 split row, 66 px | 0.39 A | 1.72 A | holds |
+| Rack 1 full row, 114 px | 0.64 A | **2.96 A** | **clears** |
 
 That last row is deliberate. Full white is not a state the design produces — it only happens
-if someone selects effect "None" in Home Assistant and turns a column up. All 20 strands at
+if someone selects effect "None" in Home Assistant and turns a row up. All 20 strands at
 full white would demand **38 A** from a 16 A supply. With 5 A fuses nothing local stops it and
-the whole installation drops; with 2 A fuses the offending columns drop out one at a time,
+the whole installation drops; with 2 A fuses the offending rows drop out one at a time,
 each with its status LED going dark to say which. Fail locally and visibly.
 
 The holder takes normal, mini or low-profile mini blades; the board ships with **mini**
@@ -266,13 +306,15 @@ The holder takes normal, mini or low-profile mini blades; the board ships with *
 Build **rack 2 first**, complete, before cutting anything for rack 1.
 
 Seven strands proves the whole chain — the supply, the ferrules, the fuse ratings, the
-bottom-up indexing, the Home Assistant package, the colour mapping — on a third of the
-soldering. Two reels of strip and one controller gets you there, and anything learned applies
+left-to-right indexing, the Home Assistant package, the colour mapping — on a third of the
+soldering. The one thing it cannot prove is a jumper: make one row of rack 1 next, and check
+bins 4 and 10 either side of it before doing the other seven. Two reels of strip and one controller gets you there, and anything learned applies
 thirteen times over on rack 1.
 
-1. Measure one bin's **floor-to-floor pitch**. Everything assumes 150 mm; that is what makes
-   60 LEDs/m land on exactly 9 LEDs per bin. A different pitch changes the strip density and
-   `bin_pitch`, though not the metres you buy — the length is geometric.
+1. Measure one bin's **side-to-side pitch** at the back of the rack, where the strip will sit.
+   Everything assumes 150 mm; that is what makes 60 LEDs/m land on exactly 9 LEDs per bin. A
+   different pitch changes the strip density and `bin_pitch`, though not the metres you buy —
+   the length is geometric. On rack 1, also measure the opening's width for the jumpers.
 2. Flash and bench-test the controller over USB-C before wiring anything to 12 V.
 3. Cut, solder and heatshrink seven strands. Test each one on the bench.
 4. Mount, route, ferrule, fuse at 2 A.
@@ -306,6 +348,8 @@ bottle.
 | | Why it matters |
 |---|---|
 | **Which CellarTracker `Location` is the 7 × 7 rack?** | [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) maps `'Wine Rack 1'` to the 13-strand U and `'Wine Rack 2'` to the 7 × 7. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix, best caught before soldering |
-| **Does the X1 or X4 end of the board mount nearest the rack?** | Decides whether the port → column table above is in that order or reversed. One-line change either way |
+| **Does rack 2's board sit at the top or the bottom of the riser?** | Decides whether the port → row table above runs A→G or G→A. One-line change either way |
 | **Which GPIO, if any, the relay needs beyond 23** | The secondary-power input's wiring is not in the published spec |
-| **Bin pitch** | Confirm 150 mm before ordering strip |
+| **Bin pitch** | Confirm 150 mm *horizontally*, at the back of the rack, before ordering strip — the old figure was measured floor to floor |
+| **Which side the riser goes up** | The configs feed every row from the **bin-1** end. If the bin-13 side is more convenient, each row's pieces and `bin_first_led` have to count from the other end — a one-place change, but one the tests should see before the strip is cut |
+| **Rack 1's controller in the config** | `winerack1led.yaml` still drives its 13 strands from one bare ESP32 with FastLED, while this document plans two E8 boards (7 + 6). The horizontal rework does not change that count, but the config needs splitting across two nodes before it matches the hardware |
