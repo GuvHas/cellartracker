@@ -3,7 +3,7 @@
 ``tests/cpp`` proves the wine rack's coordinate maths by lifting it out of
 ``examples/esphome/winerack*led.yaml`` and compiling it. That is only worth
 anything if the lifting is faithful: an extractor that dropped a line, or
-resolved ``${bin_pitch}`` to something ESPHome would not, would hand doctest a
+resolved ``${bin_width_mm}`` to something ESPHome would not, would hand doctest a
 program that passes while the board runs a different one.
 
 So this checks the extractor against the substitution rules ESPHome actually
@@ -43,13 +43,13 @@ def test_a_plain_substitution_comes_back_as_written(tmp_path):
 def test_a_substitution_may_reference_another():
     """The whole reason the maths can be parameterised.
 
-    `bin_first_led` says `${bin_pitch}` rather than 9, so a rack built at a
-    different spacing changes one number. ESPHome resolves that; if this did
-    not, the tests would compile a literal `${bin_pitch}` and fail to build.
+    `bin_first_led` says `${bin_width_mm}` rather than 95, so a rack built at
+    a different spacing changes one number. ESPHome resolves that; if this did
+    not, the tests would compile a literal `${bin_width_mm}` and fail to build.
     """
     subs = yaml_lambda.substitutions(EXAMPLES / "winerack1led.yaml")
     assert "${" not in subs["bin_first_led"]
-    assert "* 9;" in subs["bin_first_led"]
+    assert "* 95 * 60 +" in subs["bin_first_led"]
 
 
 def test_both_syntaxes_resolve(tmp_path):

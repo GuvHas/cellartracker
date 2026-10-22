@@ -34,11 +34,11 @@ namespace rack1 {
 // thing under test proves nothing; the Python suite checks they agree.
 constexpr int kRows = 13;
 constexpr int kCols = 13;
-constexpr int kLedsPerBin = 6;
-constexpr int kBinPitch = 9;
-constexpr int kFullStrand = 114;  // 13 bins, rows I-M
-constexpr int kPiece = 33;        // 4 bins, one arm of the U
-constexpr int kSplitStrand = 66;  // two pieces jumpered across the U, rows A-H
+constexpr int kBinWidthMm = 95;
+constexpr int kStripDensity = 60;  // LEDs per metre
+constexpr int kFullStrand = 74;    // 13 bins, rows I-M
+constexpr int kPiece = 23;         // 4 bins, one arm of the U
+constexpr int kSplitStrand = 46;   // two pieces jumpered across the U, rows A-H
 
 /// What a lambda sees as `id(cell_rgb)`: the whole envelope, row-major.
 uint8_t cell_rgb[kRows * kCols * 3];
@@ -56,9 +56,10 @@ void set_cell(int row, int col, Color colour) {
 
 /// The shipped `bin_first_led`, called. The parameters are named unlike the
 /// lambda's so that -Wshadow stays useful over the included text.
-int first_led(int at_col, int from_a, int count_a, int from_b, int count_b) {
+int first_led(int at_col, int from_a, int count_a, int from_b, int count_b,
+              int *out_leds = nullptr) {
 #include "rack1/bin_first_led.inc"
-  return bin_first_led(at_col, from_a, count_a, from_b, count_b);
+  return bin_first_led(at_col, from_a, count_a, from_b, count_b, out_leds);
 }
 
 struct Extent {
@@ -78,6 +79,14 @@ Extent extent_of(int kRow) {
 int led_of(int row, int col) {
   const Extent e = extent_of(row);
   return first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b);
+}
+
+/// How many LEDs bin (row, col) owns, or 0 if the rack has no such bin.
+int leds_of(int row, int col) {
+  const Extent e = extent_of(row);
+  int leds = 0;
+  if (first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b, &leds) < 0) return 0;
+  return leds;
 }
 
 /// A whole strand painted by the shipped `paint_row` - the three lines of a
@@ -107,13 +116,14 @@ namespace rack2 {
 
 constexpr int kRows = 7;
 constexpr int kCols = 7;
-constexpr int kStrand = 60;  // 7 bins of 6, pitch 9
+constexpr int kStrand = 40;  // 7 bins of 95 mm at 60 LEDs/m
 
 uint8_t cell_rgb[kRows * kCols * 3];
 
-int first_led(int at_col, int from_a, int count_a, int from_b, int count_b) {
+int first_led(int at_col, int from_a, int count_a, int from_b, int count_b,
+              int *out_leds = nullptr) {
 #include "rack2/bin_first_led.inc"
-  return bin_first_led(at_col, from_a, count_a, from_b, count_b);
+  return bin_first_led(at_col, from_a, count_a, from_b, count_b, out_leds);
 }
 
 struct Extent {
@@ -131,6 +141,14 @@ Extent extent_of(int kRow) {
 int led_of(int row, int col) {
   const Extent e = extent_of(row);
   return first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b);
+}
+
+/// How many LEDs bin (row, col) owns, or 0 if the rack has no such bin.
+int leds_of(int row, int col) {
+  const Extent e = extent_of(row);
+  int leds = 0;
+  if (first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b, &leds) < 0) return 0;
+  return leds;
 }
 
 void paint(FakeLight &it, int kRow) {
@@ -158,16 +176,16 @@ TEST_SUITE("left-to-right indexing") {
   }
 
   TEST_CASE("bin 13 of a full row is the last LEDs on the strand") {
-    CHECK(led_of(12, 12) == 108);  // M13
-    CHECK(108 + kLedsPerBin == kFullStrand);
+    CHECK(led_of(12, 12) == 68);  // M13
+    CHECK(68 + leds_of(12, 12) == kFullStrand);
   }
 
   TEST_CASE("bin numbers count up along the strand") {
     CHECK(led_of(8, 0) == 0);    // I1
-    CHECK(led_of(8, 1) == 9);    // I2
-    CHECK(led_of(8, 2) == 18);   // I3
-    CHECK(led_of(8, 6) == 54);   // I7, the middle of the base
-    CHECK(led_of(8, 12) == 108); // I13
+    CHECK(led_of(8, 1) == 6);    // I2
+    CHECK(led_of(8, 2) == 11);   // I3
+    CHECK(led_of(8, 6) == 34);   // I7, the middle of the base
+    CHECK(led_of(8, 12) == 68);  // I13
   }
 
   TEST_CASE("the pixel index rises with the column") {
@@ -186,40 +204,99 @@ TEST_SUITE("left-to-right indexing") {
 }
 
 // =============================================================================
+// 95 mm bins on a 60/m strip
+// =============================================================================
+//
+// A bin is 5.7 LEDs. Giving every bin six would put bin 13 four LEDs - 65 mm -
+// past its own wall. The shipped maths places each bin by position instead, so
+// these check the thing that matters physically: where the LEDs are.
+
+TEST_SUITE("bins placed by position") {
+  using namespace rack1;
+
+  TEST_CASE("every bin owns five or six LEDs") {
+    for (int col = 0; col < kCols; col++) {
+      CAPTURE(col);
+      CHECK(leds_of(12, col) >= 5);
+      CHECK(leds_of(12, col) <= 6);
+    }
+  }
+
+  TEST_CASE("a bin's first LED is within one LED of its wall, all the way along") {
+    // In units of 1/2000 m so everything stays an integer: the first LED's
+    // centre is (2 * led + 1) * 1000 / density, the wall is 2 * col * width.
+    for (int col = 0; col < kCols; col++) {
+      CAPTURE(col);
+      const int centre = (2 * led_of(12, col) + 1) * 1000;
+      const int wall = 2 * col * kBinWidthMm * kStripDensity;
+      CHECK(centre - wall >= 0);
+      CHECK(centre - wall < 2000);
+    }
+  }
+
+  TEST_CASE("a full row is the 74 LEDs inside 13 bins") {
+    // 13 * 95 mm = 1235 mm, and 74 LEDs at 60/m is 1233 mm.
+    int total = 0;
+    for (int col = 0; col < kCols; col++) total += leds_of(12, col);
+    CHECK(total == kFullStrand);
+  }
+
+  TEST_CASE("every LED on every strand belongs to exactly one bin") {
+    for (int row = 0; row < kRows; row++) {
+      CAPTURE(row);
+      std::set<int> owned;
+      for (int col = 0; col < kCols; col++) {
+        const int first = led_of(row, col);
+        for (int i = 0; i < leds_of(row, col); i++) CHECK(owned.insert(first + i).second);
+      }
+      CHECK(static_cast<int>(owned.size()) == strand_leds(row));
+      CHECK(*owned.begin() == 0);
+      CHECK(*owned.rbegin() == strand_leds(row) - 1);
+    }
+  }
+}
+
+// =============================================================================
 // The jumper across the U
 // =============================================================================
 //
 // Rows A-H are two four-bin pieces of strip, bins 1-4 and 10-13, chained by a
 // jumper that carries power and data across the opening but has no pixels. So
 // bin 10 is the pixel straight after bin 4's last LED - not five bins further
-// on, which is where it would be if the strip ran unbroken behind the hole.
+// on, which is where it would be if the strip ran unbroken behind the hole -
+// and piece B is cut at bin 10's wall, so it is placed from there afresh.
 
 TEST_SUITE("split rows") {
   using namespace rack1;
 
   TEST_CASE("the first piece is bins 1 to 4, from pixel 0") {
     CHECK(led_of(0, 0) == 0);   // A1
-    CHECK(led_of(0, 3) == 27);  // A4
-    CHECK(27 + kLedsPerBin == kPiece);
+    CHECK(led_of(0, 3) == 17);  // A4
+    CHECK(17 + leds_of(0, 3) == kPiece);
   }
 
   TEST_CASE("the second piece starts on the pixel after the first piece ends") {
     CHECK(led_of(0, 9) == kPiece);  // A10, straight across the jumper
-    CHECK(led_of(0, 9) == 33);
+    CHECK(led_of(0, 9) == 23);
   }
 
-  TEST_CASE("the second piece is bins 10 to 13, at the usual pitch") {
-    CHECK(led_of(0, 9) == 33);   // A10
-    CHECK(led_of(0, 10) == 42);  // A11
-    CHECK(led_of(0, 11) == 51);  // A12
-    CHECK(led_of(0, 12) == 60);  // A13
-    CHECK(60 + kLedsPerBin == kSplitStrand);
+  TEST_CASE("the second piece is bins 10 to 13, spaced like the first") {
+    CHECK(led_of(0, 9) == 23);   // A10
+    CHECK(led_of(0, 10) == 29);  // A11
+    CHECK(led_of(0, 11) == 34);  // A12
+    CHECK(led_of(0, 12) == 40);  // A13
+    CHECK(40 + leds_of(0, 12) == kSplitStrand);
+    for (int i = 0; i < 4; i++) {
+      CAPTURE(i);
+      CHECK(led_of(0, 9 + i) - led_of(0, 9) == led_of(0, i));
+    }
   }
 
   TEST_CASE("the jumper skips no pixels") {
-    // If the formula forgot that piece A is cut straight after its last bin,
-    // bin 10 would land three LEDs late and bin 13 would run off the strand.
-    CHECK(led_of(0, 9) - led_of(0, 3) == kLedsPerBin);
+    // Bin 10 starts on the pixel straight after bin 4's last one. If the
+    // formula placed it by its distance along the rack instead, it would land
+    // five bins' worth of LEDs late and run off the end of the strand.
+    CHECK(led_of(0, 9) - led_of(0, 3) == leds_of(0, 3));
   }
 
   TEST_CASE("bins in the opening are on neither piece") {
@@ -235,8 +312,8 @@ TEST_SUITE("split rows") {
   TEST_CASE("the same bin column is at different pixels on a split and a full row") {
     // Bin 10 is shelf-for-shelf the same column, but on row I there are five
     // more bins of strip in front of it.
-    CHECK(led_of(0, 9) == 33);
-    CHECK(led_of(8, 9) == 81);
+    CHECK(led_of(0, 9) == 23);
+    CHECK(led_of(8, 9) == 51);
   }
 }
 
@@ -273,7 +350,7 @@ TEST_SUITE("bounds") {
         CAPTURE(col);
         const int first = led_of(row, col);
         if (first < 0) continue;
-        CHECK(first + kLedsPerBin <= leds);
+        CHECK(first + leds_of(row, col) <= leds);
       }
     }
   }
@@ -281,18 +358,18 @@ TEST_SUITE("bounds") {
   TEST_CASE("two bins on one row never light the same LED") {
     for (int row = 0; row < kRows; row++) {
       std::set<int> lit;
-      int bins = 0;
+      int expected = 0;
       for (int col = 0; col < kCols; col++) {
         const int first = led_of(row, col);
         if (first < 0) continue;
-        bins++;
-        for (int i = 0; i < kLedsPerBin; i++) {
+        expected += leds_of(row, col);
+        for (int i = 0; i < leds_of(row, col); i++) {
           CAPTURE(row);
           CAPTURE(col);
           CHECK(lit.insert(first + i).second);
         }
       }
-      CHECK(static_cast<int>(lit.size()) == bins * kLedsPerBin);
+      CHECK(static_cast<int>(lit.size()) == expected);
     }
   }
 }
@@ -342,10 +419,10 @@ TEST_SUITE("row extents") {
     CHECK(kRows * kCols == 169);
   }
 
-  TEST_CASE("the strands add up to 1098 pixels") {
+  TEST_CASE("the strands add up to 738 pixels") {
     int total = 0;
     for (int row = 0; row < kRows; row++) total += strand_leds(row);
-    CHECK(total == 1098);
+    CHECK(total == 738);
   }
 }
 
@@ -362,12 +439,12 @@ TEST_SUITE("painting a strand") {
     FakeLight it(kFullStrand);
     paint(it, 12);
 
-    for (int i = 0; i < kLedsPerBin; i++) {
+    for (int i = 0; i < 6; i++) {
       CAPTURE(i);
       CHECK(it[i] == Color(0, 110, 0));
     }
-    CHECK(it[kLedsPerBin].is_black());  // the gap after it
-    CHECK(it.lit() == kLedsPerBin);
+    CHECK(it[6].is_black());  // bin 2's first LED
+    CHECK(it.lit() == 6);
   }
 
   TEST_CASE("bin 13 lands on the last LEDs") {
@@ -377,23 +454,24 @@ TEST_SUITE("painting a strand") {
     paint(it, 12);
 
     CHECK(it[kFullStrand - 1] == Color(140, 0, 0));
-    CHECK(it[kFullStrand - kLedsPerBin] == Color(140, 0, 0));
-    CHECK(it[kFullStrand - kLedsPerBin - 1].is_black());
-    CHECK(it.lit() == kLedsPerBin);
+    CHECK(it[68] == Color(140, 0, 0));
+    CHECK(it[67].is_black());
+    CHECK(it.lit() == 6);
   }
 
-  TEST_CASE("the gap between two lit bins stays dark") {
+  TEST_CASE("neighbouring bins meet at their wall, with no LED shared") {
+    // The bin wall between them is the divider; there is no dark gap to keep.
     clear_cells();
-    set_cell(12, 0, Color(0, 110, 0));  // M1
-    set_cell(12, 1, Color(0, 110, 0));  // M2
+    set_cell(12, 0, Color(0, 110, 0));   // M1
+    set_cell(12, 1, Color(140, 0, 0));   // M2
     FakeLight it(kFullStrand);
     paint(it, 12);
 
-    for (int i = kLedsPerBin; i < kBinPitch; i++) {
-      CAPTURE(i);
-      CHECK(it[i].is_black());
-    }
-    CHECK(it.lit() == 2 * kLedsPerBin);
+    CHECK(it[5] == Color(0, 110, 0));
+    CHECK(it[6] == Color(140, 0, 0));
+    CHECK(it[10] == Color(140, 0, 0));
+    CHECK(it[11].is_black());
+    CHECK(it.lit() == 6 + 5);
   }
 
   TEST_CASE("a split row lights bin 4 and bin 10 back to back") {
@@ -407,7 +485,7 @@ TEST_SUITE("painting a strand") {
 
     CHECK(it[kPiece - 1] == Color(0, 110, 0));
     CHECK(it[kPiece] == Color(0, 45, 120));
-    CHECK(it.lit() == 2 * kLedsPerBin);
+    CHECK(it.lit() == leds_of(0, 3) + leds_of(0, 9));
   }
 
   TEST_CASE("a split row paints its eight bins and nothing else") {
@@ -416,7 +494,7 @@ TEST_SUITE("painting a strand") {
     FakeLight it(kSplitStrand);
     paint(it, 2);
 
-    CHECK(it.lit() == 8 * kLedsPerBin);
+    CHECK(it.lit() == kSplitStrand);  // every pixel on it belongs to a bin
     CHECK(it[0] == Color(0, 45, 120));
     CHECK(it[kSplitStrand - 1] == Color(0, 45, 120));
   }
@@ -458,7 +536,7 @@ TEST_SUITE("painting a strand") {
       paint(it, row);
       lit += it.lit();
     }
-    CHECK(lit == 129 * kLedsPerBin);  // 774 of the 1098 powered pixels
+    CHECK(lit == 738);  // every powered pixel: there are no gaps any more
   }
 
   TEST_CASE("painting clears what was there before") {
@@ -466,7 +544,7 @@ TEST_SUITE("painting a strand") {
     set_cell(12, 0, Color(0, 110, 0));
     FakeLight it(kFullStrand);
     paint(it, 12);
-    CHECK(it.lit() == kLedsPerBin);
+    CHECK(it.lit() == 6);
 
     clear_cells();
     paint(it, 12);
@@ -490,8 +568,8 @@ TEST_SUITE("the second rack") {
 
   TEST_CASE("bin 1 is pixel zero and bin 7 the far end") {
     CHECK(rack2::led_of(0, 0) == 0);
-    CHECK(rack2::led_of(0, 6) == 54);
-    CHECK(54 + rack1::kLedsPerBin == rack2::kStrand);
+    CHECK(rack2::led_of(0, 6) == 34);
+    CHECK(34 + rack2::leds_of(0, 6) == rack2::kStrand);
   }
 
   TEST_CASE("no row can write past the end of its strand") {
@@ -503,14 +581,20 @@ TEST_SUITE("the second rack") {
     }
   }
 
-  TEST_CASE("both racks light the same number of LEDs per bin") {
-    // Different files, same substitution names. A rack lit six-at-a-time next
-    // to one lit three-at-a-time would read as two different states.
+  TEST_CASE("both racks place the same bins on the same LEDs") {
+    // Different files, same bins and same strip. A bin lit six LEDs wide on
+    // one rack and five on the other, in the same position, would mean the
+    // two had drifted apart.
+    for (int col = 0; col < rack2::kCols; col++) {
+      CAPTURE(col);
+      CHECK(rack2::led_of(0, col) == rack1::led_of(12, col));
+      CHECK(rack2::leds_of(0, col) == rack1::leds_of(12, col));
+    }
     FakeLight it(rack2::kStrand);
     for (uint8_t &channel : rack2::cell_rgb) channel = 0;
     rack2::cell_rgb[(6 * rack2::kCols + 0) * 3 + 1] = 110;  // G1
     rack2::paint(it, 6);
-    CHECK(it.lit() == rack1::kLedsPerBin);
+    CHECK(it.lit() == rack1::leds_of(12, 0));
   }
 }
 

@@ -23,6 +23,7 @@ opening, and this file asserts that the row table describes exactly that.
 from __future__ import annotations
 
 import datetime
+import math
 import pathlib
 import re
 
@@ -318,8 +319,8 @@ def geometry(node: dict) -> dict:
     assert len(rows) == int(subs_["rack_rows"]), "rack_table does not cover every row"
     return {
         "rows": rows,
-        "leds_per_bin": int(subs_["bin_leds"]),
-        "bin_pitch": int(subs_["bin_pitch"]),
+        "bin_width_mm": int(subs_["bin_width_mm"]),
+        "strip_density": int(subs_["strip_density"]),
     }
 
 
@@ -328,9 +329,19 @@ def pieces(geo: dict, row: int) -> list[tuple[int, int]]:
     return [(first, bins) for first, bins in geo["rows"][row] if bins > 0]
 
 
+def edge(geo: dict, k: int) -> int:
+    """The first LED whose centre lies past the k-th bin wall of a piece.
+
+    Written independently of the C++ - in floats, from the definition - so the
+    two can be compared rather than one copied from the other.
+    """
+    spacing_mm = 1000 / geo["strip_density"]
+    return math.ceil(k * geo["bin_width_mm"] / spacing_mm - 0.5)
+
+
 def piece_leds(geo: dict, bins: int) -> int:
-    """One pitch per bin, less the gap the last bin does not need."""
-    return bins * geo["bin_pitch"] - (geo["bin_pitch"] - geo["leds_per_bin"])
+    """The LEDs whose centres fall inside a piece's `bins` bins."""
+    return edge(geo, bins)
 
 
 def strand_leds(geo: dict, row: int) -> int:
@@ -528,17 +539,42 @@ def test_every_light_is_as_long_as_the_geometry_says_its_row_is():
             assert strand["num_leds"] == strand_leds(geo, strand["row"]), strand["id"]
 
 
-def test_rack_one_powers_1098_pixels():
+def test_rack_one_powers_738_pixels():
     geo = geometry(NODE1)
-    assert sum(strand_leds(geo, row) for row in range(13)) == 1098
-    assert subs(NODE1, "split_strand") == 2 * piece_leds(geo, 4) == 66
-    assert subs(NODE1, "full_strand") == piece_leds(geo, 13) == 114
+    assert sum(strand_leds(geo, row) for row in range(13)) == 738
+    assert subs(NODE1, "split_strand") == 2 * piece_leds(geo, 4) == 46
+    assert subs(NODE1, "full_strand") == piece_leds(geo, 13) == 74
+
+
+def test_rack_two_powers_280_pixels():
+    geo = geometry(NODE2)
+    assert sum(strand_leds(geo, row) for row in range(7)) == 280
+    assert subs(NODE2, "strand_leds") == piece_leds(geo, 7) == 40
+
+
+def test_no_bin_drifts_along_a_row():
+    """A 95 mm bin is 5.7 LEDs at 60/m, so a fixed whole number per bin would
+    walk off the rack - 6 a bin is four LEDs out by bin 13. Placing bins by
+    position keeps every bin's first LED within one LED of its wall."""
+    for node in NODES.values():
+        geo = geometry(node)
+        spacing_mm = 1000 / geo["strip_density"]
+        for k in range(subs(node, "rack_cols") + 1):
+            centre_mm = (edge(geo, k) + 0.5) * spacing_mm
+            wall_mm = k * geo["bin_width_mm"]
+            assert 0 <= centre_mm - wall_mm < spacing_mm, f"bin wall {k}"
+
+
+def test_every_bin_gets_five_or_six_leds():
+    geo = geometry(NODE1)
+    counts = [edge(geo, k + 1) - edge(geo, k) for k in range(13)]
+    assert set(counts) <= {5, 6}, counts
 
 
 def test_the_racks_agree_about_how_many_leds_light_a_bin():
     """Two racks that lit bins differently would read as two different systems."""
-    assert geometry(NODE1)["leds_per_bin"] == geometry(NODE2)["leds_per_bin"]
-    assert geometry(NODE1)["bin_pitch"] == geometry(NODE2)["bin_pitch"]
+    assert geometry(NODE1)["bin_width_mm"] == geometry(NODE2)["bin_width_mm"]
+    assert geometry(NODE1)["strip_density"] == geometry(NODE2)["strip_density"]
 
 
 def test_the_row_table_agrees_with_the_rest_of_the_substitutions():
@@ -551,8 +587,6 @@ def test_the_row_table_agrees_with_the_rest_of_the_substitutions():
     for node in NODES.values():
         geo = geometry(node)
         assert len(geo["rows"]) == subs(node, "rack_rows")
-        assert geo["leds_per_bin"] == subs(node, "bin_leds")
-        assert geo["bin_pitch"] == subs(node, "bin_pitch")
         ends = [first + bins for row in range(len(geo["rows"])) for first, bins in pieces(geo, row)]
         assert max(ends) == subs(node, "rack_cols")
 
@@ -678,7 +712,7 @@ def test_both_nodes_ship_the_same_coordinate_map():
     disagreeing about where a bottle is rather than as a failure anywhere.
 
     Compared before substitution, so the parameters they legitimately differ
-    on - `${rack_cols}`, `${bin_pitch}` - are still references and only a real
+    on - `${rack_cols}`, `${bin_width_mm}` - are still references and only a real
     difference in the maths registers.
     """
     for name in CPP_SUBSTITUTIONS:

@@ -6,7 +6,7 @@ characters. Nothing is retyped here, so nothing can drift: if the lambda in
 the YAML is wrong, the test compiling it is wrong in the same way and fails.
 
 ESPHome resolves `${name}` inside substitution values as well as in the rest
-of the config, so this does too - `paint_column` may say `${bin_pitch}` and
+of the config, so this does too - `bin_first_led` may say `${bin_width_mm}` and
 get the number. Everything else about ESPHome's substitution rules is
 irrelevant to a block of C++ and is deliberately not reimplemented.
 """

@@ -71,7 +71,7 @@
 #    The U puts a hole in the middle of rows A-H, which splits each of those
 #    eight rows into two four-bin pieces - bins 1-4 and bins 10-13. Each split
 #    row is still ONE strand: the two pieces are chained by a jumper of the
-#    same 3-core cable (12 V, ground, data) across the opening, about 0.9 m.
+#    same 3-core cable (12 V, ground, data) across the opening, about 0.6 m.
 #    The jumper has no pixels on it, so the firmware simply continues the
 #    count: bin 10 is the first pixel after bin 4.
 #
@@ -103,23 +103,23 @@
 #
 #      (R + G + B) / 765 * 25 mA + 1 mA        @ 12 V
 #
-#    129 bins x 6 LEDs is 774 pixels that can be lit at once, out of 1098
-#    powered. That makes this rack:
+#    Every one of the 738 pixels sits behind a bin, so all of them can be lit
+#    at once. That makes this rack:
 #
-#      everything off ............................  1.1 A   (13 W)
-#      every bin ready (0, 110, 0) ...............  3.9 A
-#      every bin drink-this-year (150, 55, 0) ....  6.3 A   <- the worst case
+#      everything off ............................  0.7 A   (9 W)
+#      every bin ready (0, 110, 0) ...............  3.4 A
+#      every bin drink-this-year (150, 55, 0) ....  5.7 A   <- the worst case
 #      per strand, at that worst case ............  0.6 A   (a 13-bin row)
 #                                                   0.4 A   (a split row)
 #
-#    So: a 12 V supply of 8.5 A for this rack alone, a 10 A fuse protecting a
-#    16 AWG feed, and a single feed at the column-1 END of each row. A 1.9 m
-#    strand at 0.6 A drops about 0.3 V, against the 1.5 V of budget between
+#    So: a 12 V supply of 7 A for this rack alone, a 10 A fuse protecting a
+#    16 AWG feed, and a single feed at the column-1 END of each row. A 1.2 m
+#    strand at 0.6 A drops about 0.2 V, against the 1.5 V of budget between
 #    12 V and the 10.5 V a WS2815 wants. A split row's second piece is fed
 #    through its jumper and draws 0.2 A of it. Measure your strip's copper
 #    before trusting that; over 1 ohm/m per rail, feed both ends.
 #
-#    Rack 2 adds 2.4 A. One 12 V 12.5 A supply runs both if they are close
+#    Rack 2 adds 2.2 A. One 12 V 12.5 A supply runs both if they are close
 #    enough to share a bus; otherwise give each rack its own.
 #
 #    The 12 V rail powers only the LEDs. The ESP32 and the level shifters run
@@ -128,8 +128,8 @@
 #
 #    The palette is what keeps those numbers modest - no channel goes above
 #    150, and gamma_correct is 1.0, so these values are what the pixels
-#    actually draw. Halving `bin_leds` to 3 halves the lot and still reads as
-#    a solid marker behind a bottle.
+#    actually draw. Halving the palette halves everything above the 0.7 A
+#    standing current.
 #
 # =============================================================================
 
@@ -143,15 +143,17 @@ substitutions:
   # that need a plain literal - `num_leds` on each light, and the array sizes
   # further down, neither of which can hold an expression.
   #
-  # One piece of strip: N compartments of 6 LEDs separated by gaps of 3. The
-  # last compartment has no gap after it, so a piece is N * 9 - 3 pixels.
+  # A bin is 95 mm wide and the strip has 60 LEDs per metre, so a bin is 5.7
+  # LEDs - not a whole number, which is why `bin_first_led` places each bin by
+  # its position rather than at a fixed pitch. A piece of N bins is the LEDs
+  # whose centres fall inside its N * 95 mm: 23 for four bins, 74 for 13.
   rack_rows: "13" # rows A..M, one strand each
   rack_cols: "13" # bin columns 1..13
   rack_cells: "169" # rack_rows * rack_cols, the whole envelope
-  bin_leds: "6" # LEDs lit in front of one bin
-  bin_pitch: "9" # LEDs from the start of one bin to the start of the next
-  full_strand: "114" # 13 bins, bins 1..13   - rows I-M
-  split_strand: "66" # 2 x 4 bins, 33 + 33   - rows A-H, jumpered across the U
+  bin_width_mm: "95" # one bin, wall to wall, measured along the back
+  strip_density: "60" # LEDs per metre, cut line to cut line
+  full_strand: "74" # 13 bins, bins 1..13   - rows I-M
+  split_strand: "46" # 2 x 4 bins, 23 + 23   - rows A-H, jumpered across the U
 
   # --- The coordinate map --------------------------------------------------
   # Everything from here to `redraw_interval` is C++, pasted into the lambdas
@@ -182,28 +184,45 @@ substitutions:
 
   # The first LED of bin column `col` on a strand made of piece A (`bins_a`
   # bins from column `first_a`) and then piece B, or -1 for a column this row
-  # does not have.
+  # does not have. When `count` is not null it gets how many LEDs that bin
+  # owns - 5 or 6 on this rack.
   #
   # DIN enters at the COLUMN-1 END of every row, so bin 1 is pixel 0 and the
   # bin numbers count up along the strand. Every row's feed comes up one
   # riser at the side of the rack instead of crossing the back.
   #
-  # Piece B starts where piece A's pixels end. The jumper across the U's
-  # opening carries data and power but no pixels, and piece A is cut right
-  # after its last bin, so there is no gap to skip - which is why piece A's
-  # length is `bins * pitch - (pitch - leds)` rather than `bins * pitch`.
+  # Bins are placed by where they physically are, not by a whole number of
+  # LEDs each. A bin is `bin_width_mm` wide and the strip has `strip_density`
+  # LEDs per metre, so at 95 mm and 60/m a bin is 5.7 LEDs. A fixed 6 per bin
+  # would be 4 LEDs - 65 mm - out by bin 13; instead `edge(k)` is the first
+  # LED whose centre lies past the k-th bin wall of a piece, which is
+  # ceil(k * width * density / 1000 - 1/2) in integers. A bin owns the LEDs
+  # between its two walls, so the error never exceeds half an LED.
+  #
+  # Each piece is cut at its first bin's wall, so piece B is aligned to bin 10
+  # on its own and starts on the pixel after piece A's last. The jumper across
+  # the U's opening carries data and power but no pixels, so its length does
+  # not enter the arithmetic.
   #
   # The range checks are what keep a column in the opening - bin 7 on row A -
   # from landing on a plausible pixel of either piece.
   bin_first_led: |-
-    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b) -> int {
-      if (bins_a > 0 && col >= first_a && col < first_a + bins_a)
-        return (col - first_a) * ${bin_pitch};
-      if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
-        const int piece_a = bins_a > 0 ? bins_a * ${bin_pitch} - (${bin_pitch} - ${bin_leds}) : 0;
-        return piece_a + (col - first_b) * ${bin_pitch};
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
+                            int *count) -> int {
+      auto edge = [](int k) -> int {
+        return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
+      };
+      int offset = 0;
+      int k = -1;
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a) {
+        k = col - first_a;
+      } else if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        offset = bins_a > 0 ? edge(bins_a) : 0;
+        k = col - first_b;
       }
-      return -1;
+      if (k < 0) return -1;
+      if (count != nullptr) *count = edge(k + 1) - edge(k);
+      return offset + edge(k);
     };
 
   # Read a bin id like "A7" into a zero-indexed column and row. Accepts the
@@ -247,10 +266,11 @@ substitutions:
   paint_row: |-
     for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
     for (int col = 0; col < ${rack_cols}; col++) {
-      const int base = bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB);
+      int leds = 0;
+      const int base = bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB, &leds);
       if (base < 0) continue;
       const uint8_t *rgb = &id(cell_rgb)[(kRow * ${rack_cols} + col) * 3];
-      for (int i = 0; i < ${bin_leds} && base + i < it.size(); i++)
+      for (int i = 0; i < leds && base + i < it.size(); i++)
         it[base + i] = Color(rgb[0], rgb[1], rgb[2]);
     }
 
@@ -365,7 +385,7 @@ api:
             const int kRow = row;
             ${row_extent}
             ${bin_first_led}
-            if (bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB) < 0) {
+            if (bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB, nullptr) < 0) {
               ESP_LOGI("winerack", "light_bin: '%s' is a bin this rack no longer has",
                        bin_id.c_str());
             }

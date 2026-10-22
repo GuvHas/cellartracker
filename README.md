@@ -564,19 +564,30 @@ pixels are both `substitutions:` at the top of the node's own configuration:
     {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
 
   bin_first_led: |-
-    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b) -> int {
-      if (bins_a > 0 && col >= first_a && col < first_a + bins_a)
-        return (col - first_a) * ${bin_pitch};
-      if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
-        const int piece_a = bins_a > 0 ? bins_a * ${bin_pitch} - (${bin_pitch} - ${bin_leds}) : 0;
-        return piece_a + (col - first_b) * ${bin_pitch};
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
+                            int *count) -> int {
+      auto edge = [](int k) -> int {
+        return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
+      };
+      int offset = 0;
+      int k = -1;
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a) {
+        k = col - first_a;
+      } else if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        offset = bins_a > 0 ? edge(bins_a) : 0;
+        k = col - first_b;
       }
-      return -1;
+      if (k < 0) return -1;
+      if (count != nullptr) *count = edge(k + 1) - edge(k);
+      return offset + edge(k);
     };
 ```
 
 A row is at most two pieces, each a first column and a count, so a rack with an
-opening in it is a table rather than a special case. Each strand's lambda is its
+opening in it is a table rather than a special case. Bins are placed by position
+rather than at a fixed number of LEDs each: a 95 mm bin on a 60/m strip is 5.7
+LEDs, and `edge(k)` is the first LED whose centre lies past the k-th bin wall,
+so bins get 5 or 6 LEDs and bin 13 is where bin 13 actually is. Each strand's lambda is its
 row number and three `${...}` references — thirteen copies of an integer and one
 copy of the maths. To rebuild a rack, edit `rack_table` and the matching
 `num_leds:`; `tests/test_rack_leds_example.py` fails if the two stop agreeing.
@@ -606,7 +617,7 @@ Those three lines are the strand's lambda, in the order the YAML has them. The
 text under test is the text that ships, so a test cannot pass against a copy
 that has drifted. `FakeLight::operator[]` goes through `std::vector::at`, which
 turns the bug this whole arrangement exists to catch — a split row indexed as
-a full one, writing past the end of a 66-pixel strand — into a thrown exception
+a full one, writing past the end of a 46-pixel strand — into a thrown exception
 a test can assert on rather than a flickering row somewhere else on the rack.
 
 ```console
@@ -631,10 +642,10 @@ decisions still open. The rest of this section is the short version.
 
 - **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
   own API. The package expects it in `secrets.yaml`.
-- **Power.** Rack 1 draws 3.9 A for a fully green overview and 6.3 A worst case; rack 2 adds
-  2.4 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
+- **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
+  2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
   end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
-  signal share one run up the riser. Halve it all by dropping `bin_leds` from 6 to 3.
+  signal share one run up the riser. Halve the lit part by halving the palette.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
   dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.
