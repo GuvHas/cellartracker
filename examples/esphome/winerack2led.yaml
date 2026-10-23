@@ -9,7 +9,7 @@
 # Everything else is rack 1's design at a smaller size: one WS2815 strand per
 # bin row, mounted horizontally along the back of the rack and fed from the
 # bin-1 end, the same action surface, the same state characters, the same
-# palette. See examples/esphome/winerack1led.yaml for the reasoning behind the
+# palette. See examples/esphome/winerack1aled.yaml for the reasoning behind the
 # horizontal strips and the 12 V rail; only the numbers and the driver differ
 # here. A full rectangle has no opening, so no row here needs a jumper.
 #
@@ -34,7 +34,7 @@
 #
 # 1. Secrets. Your ESPHome secrets.yaml needs these, alongside rack 1's:
 #
-#      wifi_ssid / wifi_password / wifi_domain   shared with rack 1
+#      wifi_ssid / wifi_password / wifi_domain   shared with rack 1's nodes
 #      winerack2led_api_key:       `esphome generate-encryption-key`
 #      winerack2led_ota_password:  anything long and random
 #      winerack2led_ap_ssid:       the fallback hotspot's name
@@ -60,9 +60,8 @@
 #    whole rack rather than one row.
 #
 # 3. Seven strands is inside the ESP32's eight RMT channels, so this node uses
-#    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1's
-#    thirteen strands exceed the channels and still carry FastLED - splitting
-#    that rack across two controllers is what would get it onto ESP-IDF too.
+#    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1
+#    is the same board twice - rows A-G and rows H-M - for the same reason.
 #
 # 4. LED power. GPIO23 drives an external relay that cuts the 12 V rail when
 #    every bin is dark. See the `switch:` block below - and note the bigger
@@ -222,9 +221,8 @@ esp32:
   board: esp32dev
   framework:
     # Seven strands fits inside the ESP32's eight RMT channels, so this node
-    # uses esp32_rmt_led_strip and needs no Arduino. Rack 1's thirteen strands
-    # exceed the channels, which is why that node still carries FastLED - and
-    # why splitting it across two controllers gets it onto ESP-IDF too.
+    # uses esp32_rmt_led_strip and needs no Arduino - as do both halves of
+    # rack 1.
     type: esp-idf
 
 logger:
@@ -478,8 +476,7 @@ script:
 # the bin row its entity is called after.
 .strand: &strand
   # Seven strands fits the ESP32's eight RMT channels, so this is the native
-  # ESP-IDF driver rather than FastLED. Rack 1's thirteen strands do not fit,
-  # which is why that node still needs FastLED and the Arduino framework.
+  # ESP-IDF driver, the same as both halves of rack 1.
   platform: esp32_rmt_led_strip
   # WS2815 - 12 V, with the backup data line that keeps a row alive when one
   # pixel dies. It speaks the WS2812 protocol, which is the name this component

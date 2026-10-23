@@ -58,7 +58,7 @@ void set_cell(int row, int col, Color colour) {
 /// lambda's so that -Wshadow stays useful over the included text.
 int first_led(int at_col, int from_a, int count_a, int from_b, int count_b,
               int *out_leds = nullptr) {
-#include "rack1/bin_first_led.inc"
+#include "rack1a/bin_first_led.inc"
   return bin_first_led(at_col, from_a, count_a, from_b, count_b, out_leds);
 }
 
@@ -71,7 +71,7 @@ struct Extent {
 
 /// The shipped `row_extent`, for one row.
 Extent extent_of(int kRow) {
-#include "rack1/row_extent.inc"
+#include "rack1a/row_extent.inc"
   return Extent{kFirstA, kBinsA, kFirstB, kBinsB};
 }
 
@@ -92,9 +92,9 @@ int leds_of(int row, int col) {
 /// A whole strand painted by the shipped `paint_row` - the three lines of a
 /// light's lambda, in the order the light has them.
 void paint(FakeLight &it, int kRow) {
-#include "rack1/row_extent.inc"
-#include "rack1/bin_first_led.inc"
-#include "rack1/paint_row.inc"
+#include "rack1a/row_extent.inc"
+#include "rack1a/bin_first_led.inc"
+#include "rack1a/paint_row.inc"
 }
 
 /// The strand length a row's light declares as `num_leds`.
@@ -103,11 +103,53 @@ int strand_leds(int row) {
 }
 
 bool parse(const char *written, int *out_column, int *out_row) {
-#include "rack1/parse_bin_id.inc"
+#include "rack1a/parse_bin_id.inc"
   return parse_bin_id(written, out_column, out_row);
 }
 
 }  // namespace rack1
+
+// -----------------------------------------------------------------------------
+// Rack 1's other half - rows H-M, on the second board
+// -----------------------------------------------------------------------------
+// The same rack in a second file. Everything above reads rack 1A; this exists
+// so that 1B's copy of the maths is compiled and run too, not just compared as
+// text by the Python suite.
+namespace rack1b {
+
+int first_led(int at_col, int from_a, int count_a, int from_b, int count_b,
+              int *out_leds = nullptr) {
+#include "rack1b/bin_first_led.inc"
+  return bin_first_led(at_col, from_a, count_a, from_b, count_b, out_leds);
+}
+
+rack1::Extent extent_of(int kRow) {
+#include "rack1b/row_extent.inc"
+  return rack1::Extent{kFirstA, kBinsA, kFirstB, kBinsB};
+}
+
+int led_of(int row, int col) {
+  const rack1::Extent e = extent_of(row);
+  return first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b);
+}
+
+int leds_of(int row, int col) {
+  const rack1::Extent e = extent_of(row);
+  int leds = 0;
+  if (first_led(col, e.first_a, e.bins_a, e.first_b, e.bins_b, &leds) < 0) return 0;
+  return leds;
+}
+
+/// 1B paints from the same envelope-wide cell_rgb a lambda on 1A would see.
+using rack1::cell_rgb;
+
+void paint(FakeLight &it, int kRow) {
+#include "rack1b/row_extent.inc"
+#include "rack1b/bin_first_led.inc"
+#include "rack1b/paint_row.inc"
+}
+
+}  // namespace rack1b
 
 // -----------------------------------------------------------------------------
 // Rack 2 - a plain 7 x 7
@@ -549,6 +591,40 @@ TEST_SUITE("painting a strand") {
     clear_cells();
     paint(it, 12);
     CHECK(it.lit() == 0);
+  }
+}
+
+// =============================================================================
+// Rack 1's two boards
+// =============================================================================
+
+TEST_SUITE("the two halves of rack 1") {
+  TEST_CASE("both halves place every bin of the rack on the same LEDs") {
+    for (int row = 0; row < rack1::kRows; row++) {
+      for (int col = 0; col < rack1::kCols; col++) {
+        CAPTURE(row);
+        CAPTURE(col);
+        CHECK(rack1b::led_of(row, col) == rack1::led_of(row, col));
+        CHECK(rack1b::leds_of(row, col) == rack1::leds_of(row, col));
+      }
+    }
+  }
+
+  TEST_CASE("rows H to M paint on the second board as they would on the first") {
+    using namespace rack1;
+    clear_cells();
+    for (int row = 0; row < kRows; row++)
+      for (int col = 0; col < kCols; col++) set_cell(row, col, Color(150, 55, 0));
+
+    for (int row = 7; row < kRows; row++) {
+      CAPTURE(row);
+      FakeLight on_a(strand_leds(row));
+      FakeLight on_b(strand_leds(row));
+      paint(on_a, row);
+      CHECK_NOTHROW(rack1b::paint(on_b, row));
+      CHECK(on_b.lit() == on_a.lit());
+      CHECK(on_b.lit() == strand_leds(row));
+    }
   }
 }
 

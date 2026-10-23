@@ -1,7 +1,8 @@
 # Building the rack lighting
 
 Everything you need to buy, wire and flash to make
-[`esphome/winerack1led.yaml`](esphome/winerack1led.yaml) and
+[`esphome/winerack1aled.yaml`](esphome/winerack1aled.yaml),
+[`esphome/winerack1bled.yaml`](esphome/winerack1bled.yaml) and
 [`esphome/winerack2led.yaml`](esphome/winerack2led.yaml) light real bottles. The configs
 describe what the firmware does; this describes the hardware underneath it, and the
 decisions behind each part — so a choice made once does not have to be made again from
@@ -214,19 +215,42 @@ shelf, top row first, so the ports run in order down the rack instead of crossin
 | F | O7 | 33 |
 | G | O8 | 25 |
 
-Purely a build convenience — every `kRow` in the config still names the bin row its entity
-is called after, so nothing about the picture depends on it. **OPEN:** if the board mounts
-at the bottom of the riser, you may prefer the bottom row on O1; reverse the GPIO column.
+### Port → bin row, rack 1
+
+Two boards, one config each. They take the same Home Assistant calls — the package sends
+every rack-1 call to both — and each draws only its own rows.
+
+| Board 1A — `winerack1aled.yaml` | | | Board 1B — `winerack1bled.yaml` | | |
+|---|---|---|---|---|---|
+| **Bin row** | **Port** | **GPIO** | **Bin row** | **Port** | **GPIO** |
+| A | O1 | 5 | — | O1 | *empty* |
+| B | O3 | 4 | H | O3 | 4 |
+| C | O4 | 27 | I | O4 | 27 |
+| D | O5 | 17 | J | O5 | 17 |
+| E | O6 | 26 | K | O6 | 26 |
+| F | O7 | 33 | L | O7 | 33 |
+| G | O8 | 25 | M | O8 | 25 |
+
+Board 1A carries the seven split rows A–G; board 1B carries split row H and the five full
+rows I–M. With only six strands, 1B leaves O1 empty as well as O2, so it uses no strapping
+pin at all. The split is by row rather than by load: 1A draws 2.5 A worst case, 1B 3.2 A,
+both well inside the board's 30 A.
+
+Purely a build convenience — every `kRow` in the configs still names the bin row its entity
+is called after, so nothing about the picture depends on the order. **OPEN:** if a board
+mounts at the bottom of its riser, you may prefer the bottom row on the lowest port; reverse
+the GPIO column.
 
 ### The relay
 
 GPIO23 drives an **external** relay — you supply it. The topology the board expects: a
 secondary feed keeps the controller alive while the relay cuts the main LED rail, so the node
 stays on the network with the pixels dead. Needs a 12 V coil and contacts rated for the
-rack's load (10 A automotive relay or an SSR for rack 1's 5.7 A).
+board's load (a 10 A automotive relay covers any of them: 1A is 2.5 A, 1B 3.2 A, rack 2 2.2 A).
+One relay per board, each switching only that board's LED rail.
 
-`winerack2led.yaml` declares it as a `switch:` that the render script raises whenever any bin
-is lit and drops when the rack goes dark. With no relay fitted it toggles a pin and does
+All three configs declare it as a `switch:` that the render script raises whenever any of
+that board's rows is lit and drops when they all go dark. With no relay fitted it toggles a pin and does
 nothing — harmless, and the intent is recorded.
 
 ---
@@ -376,4 +400,3 @@ Halving the palette's values halves everything above the standing current.
 | **Bin width** | 95 mm and 60/m are what the configs use. Check a few bins agree before cutting — the mapping tolerates up to half an LED of error per piece, not a different number |
 | **1 A fuses instead of 2 A?** | Would make a full row or split row at full white blow its own fuse rather than tripping the supply's current limit. Rack 2's 40 px rows would still not clear, so it buys less than it did |
 | **Which side the riser goes up** | The configs feed every row from the **bin-1** end. If the bin-13 side is more convenient, each row's pieces and `bin_first_led` have to count from the other end — a one-place change, but one the tests should see before the strip is cut |
-| **Rack 1's controller in the config** | `winerack1led.yaml` still drives its 13 strands from one bare ESP32 with FastLED, while this document plans two E8 boards (7 + 6). The horizontal rework does not change that count, but the config needs splitting across two nodes before it matches the hardware |

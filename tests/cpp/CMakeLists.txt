@@ -27,7 +27,7 @@ set(GENERATED ${CMAKE_CURRENT_BINARY_DIR}/generated)
 # One extraction per node. The output list names every .inc the test includes,
 # so editing a lambda in the YAML re-runs this and rebuilds the test.
 set(GENERATED_INCS "")
-foreach(RACK 1 2)
+foreach(RACK 1a 1b 2)
   set(OUT_DIR ${GENERATED}/rack${RACK})
   set(OUTS
     ${OUT_DIR}/bin_first_led.inc

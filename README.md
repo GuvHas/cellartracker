@@ -483,7 +483,7 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | File | What it is |
 |---|---|
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
-| `examples/esphome/winerack1led.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row. One file, nothing beside it |
+| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
 | `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
 
@@ -532,10 +532,15 @@ Each node exposes four actions and knows nothing about wine:
 
 | Action | Takes |
 |---|---|
-| `esphome.winerack1led_light_rack` | `grid`: 169 state characters, row-major — the whole envelope in one call |
-| `esphome.winerack1led_light_row` | `row`: `A`-`M`, `states`: 13 characters |
-| `esphome.winerack1led_light_bin` | `bin_id`: `A2`, `r`/`g`/`b`, `seconds` to hold it |
-| `esphome.winerack1led_clear_all` | nothing |
+| `esphome.winerack1aled_light_rack` | `grid`: 169 state characters, row-major — the whole envelope in one call |
+| `esphome.winerack1aled_light_row` | `row`: `A`-`M`, `states`: 13 characters |
+| `esphome.winerack1aled_light_bin` | `bin_id`: `A2`, `r`/`g`/`b`, `seconds` to hold it |
+| `esphome.winerack1aled_clear_all` | nothing |
+
+Rack 1's other board, `winerack1bled`, takes exactly the same actions with the same data. Both
+halves keep the whole 13 × 13 envelope and draw only their own rows, so the package sends every
+rack-1 call to both and never has to know where the seam is — and a locator aimed at a bin on
+one half blanks the other.
 
 Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per bin — `R` ready,
 `U` urgent, `P` past, `A` aging, `N` no window, `.` empty — means a whole rack fits in one action
@@ -649,9 +654,10 @@ decisions still open. The rest of this section is the short version.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
   dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.
-- **Thirteen strands is more than a classic ESP32 has timing hardware for** — eight RMT channels
-  and two I2S buses is ten. That bounds how many can transmit at once, not how many you can have,
-  so the config drives them with FastLED, which takes a channel per strand and hands it back.
+- **Thirteen strands is more than one controller has ports for.** The Lightish E8-WiFi Plus has
+  eight buffered outputs, seven usable once GPIO12 is left alone, so rack 1 is two boards — seven
+  rows and six. That also keeps every node inside the ESP32's eight RMT channels, so all three run
+  the native `esp32_rmt_led_strip` driver on ESP-IDF.
 
 ---
 

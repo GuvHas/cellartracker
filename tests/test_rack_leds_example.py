@@ -1,9 +1,10 @@
 """The rack LED examples must keep telling the same story as the sensors.
 
 ``examples/`` ships two wine racks lit from this integration: a U-shaped rack
-of 129 bins in a 13 x 13 envelope, and a plain 7 x 7 beside it. Each has an
-ESPHome node that owns the pixels and knows nothing about wine; one Home
-Assistant package turns the inventory into a string of per-bin states for both.
+of 129 bins in a 13 x 13 envelope, and a plain 7 x 7 beside it. The U is two
+ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G, one for rows H-M - and
+the 7 x 7 is a third. Each owns pixels and knows nothing about wine; one Home
+Assistant package turns the inventory into a string of per-bin states.
 
 That string is a third implementation of the drinking-window rule, after
 ``cellar_data.py`` and ``cellar.html``, so the reasoning in
@@ -34,7 +35,8 @@ from cellar_tracker.cellar_data import _drink_window_counts
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
-NODE1_FILE = EXAMPLES / "esphome" / "winerack1led.yaml"
+NODE1A_FILE = EXAMPLES / "esphome" / "winerack1aled.yaml"
+NODE1B_FILE = EXAMPLES / "esphome" / "winerack1bled.yaml"
 NODE2_FILE = EXAMPLES / "esphome" / "winerack2led.yaml"
 PACKAGE_FILE = EXAMPLES / "home_assistant" / "wine_rack_leds.yaml"
 
@@ -86,11 +88,16 @@ def _load(path: pathlib.Path) -> dict:
     return yaml.load(path.read_text(), Loader=_ExampleLoader)
 
 
-NODE1 = _load(NODE1_FILE)
+NODE1A = _load(NODE1A_FILE)
+NODE1B = _load(NODE1B_FILE)
 NODE2 = _load(NODE2_FILE)
+#: Rack 1's two halves carry the same rack - the same table, the same envelope,
+#: the same actions - so anything about the rack as a whole reads NODE1, and
+#: test_the_two_halves_of_rack_one_are_one_rack holds 1B to it.
+NODE1 = NODE1A
+RACK1_HALVES = (NODE1A, NODE1B)
 PACKAGE = _load(PACKAGE_FILE)
-NODES = {NODE1["substitutions"]["device_name"]: NODE1,
-         NODE2["substitutions"]["device_name"]: NODE2}
+NODES = {node["substitutions"]["device_name"]: node for node in (NODE1A, NODE1B, NODE2)}
 
 SENSORS = {s["name"]: s for s in PACKAGE["rest"][0]["sensor"]}
 GRID1 = SENSORS["Wine rack 1 grid"]["value_template"]
@@ -441,24 +448,54 @@ def test_pieces_are_listed_in_the_order_the_data_reaches_them():
 
 
 def test_one_strand_per_row_and_no_shared_pins():
-    for node, rows in ((NODE1, 13), (NODE2, 7)):
-        lights = node["light"]
+    """Every row of each rack has exactly one strand, on exactly one board."""
+    for nodes, rows in ((RACK1_HALVES, 13), ((NODE2,), 7)):
+        lights = [light for node in nodes for light in node["light"]]
         assert len(lights) == rows
         assert [light["id"] for light in lights] == [
             f"row_{chr(ord('a') + i)}" for i in range(rows)
         ]
-        assert [s["row"] for s in strands(node)] == list(range(rows))
-        pins = [light["pin"] for light in lights]
-        assert len(set(pins)) == len(pins), "two strands share a data pin"
+        assert [s["row"] for node in nodes for s in strands(node)] == list(range(rows))
+        for node in nodes:
+            pins = [light["pin"] for light in node["light"]]
+            assert len(set(pins)) == len(pins), "two strands share a data pin"
+
+
+def test_each_half_of_rack_one_drives_the_rows_it_says_it_does():
+    """`node_first_row` and `node_rows` bound the render loop and the locator's
+    ownership check; the lights are what is actually wired. They must agree,
+    or a half would switch a strand on for a row it is not painting."""
+    for node in RACK1_HALVES:
+        first, count = subs(node, "node_first_row"), subs(node, "node_rows")
+        assert [s["row"] for s in strands(node)] == list(range(first, first + count))
+        render_script = next(s for s in node["script"] if s["id"] == "render")
+        listed = re.findall(r"id\((row_[a-m])\)", render_script["then"][0]["lambda"])
+        assert listed == [light["id"] for light in node["light"]]
 
 
 def test_rack_one_needs_no_more_data_lines_than_before():
     """Chaining each split row keeps rack 1 at thirteen data lines.
 
-    That is what lets it stay on two seven-port controllers. Running each
-    piece of a split row as its own strand would make it 21.
+    That is what fits it on two seven-port controllers: seven rows on one and
+    six on the other. Running each piece of a split row as its own strand
+    would make it 21.
     """
-    assert len(NODE1["light"]) == 13
+    assert [len(node["light"]) for node in RACK1_HALVES] == [7, 6]
+
+
+def test_the_two_halves_of_rack_one_are_one_rack():
+    """1A and 1B differ in which rows they drive, their pins and their name.
+
+    Everything else - the shape, the envelope, the arithmetic, the palette,
+    the actions - is the same rack and must stay identical, or one half of the
+    U would disagree with the other about where a bottle is.
+    """
+    allowed = {"device_name", "friendly_name", "node_first_row", "node_rows"}
+    a, b = NODE1A["substitutions"], NODE1B["substitutions"]
+    assert set(a) == set(b)
+    for key in set(a) - allowed:
+        assert a[key] == b[key], key
+    assert _node_actions(NODE1A) == _node_actions(NODE1B)
 
 
 #: ESP32 pins that cannot drive a strand on any board, whoever chose them.
@@ -471,13 +508,16 @@ PINS_NEVER = {6, 7, 8, 9, 10, 11, 12, 34, 35, 36, 37, 38, 39}
 #: pins, 1/3 are UART0 - so using them costs the serial console.
 PINS_AVOID_IF_FREE = {0, 1, 2, 3, 5, 14, 15}
 
-#: Nodes whose pins are fixed by the controller they run on, and the pins that
-#: controller forces us to accept. Rack 2 is a Lightish E8-WiFi Plus, whose
-#: eight ports are GPIO 5, 12, 4, 27, 17, 26, 33 and 25. Seven strands out of
-#: eight ports means exactly one may be skipped, and 12 is the one that
+#: The pins a controller's fixed port map forces us to accept. Every node is a
+#: Lightish E8-WiFi Plus, whose eight ports are GPIO 5, 12, 4, 27, 17, 26, 33
+#: and 25. A seven-strand board may skip exactly one, and 12 is the one that
 #: matters - GPIO5's worst case is a flicker at reset, GPIO12's is a board
-#: that will not start. So GPIO5 is used, deliberately.
-FIXED_PINOUT = {"winerack2led": {5}}
+#: that will not start. So GPIO5 is used, deliberately, on the two
+#: seven-strand boards; rack 1's six-strand half skips it.
+FIXED_PINOUT = {"winerack1aled": {5}, "winerack2led": {5}}
+
+#: The E8-WiFi Plus's ports O1..O8, in order.
+E8_PORTS = [5, 12, 4, 27, 17, 26, 33, 25]
 
 
 def test_no_strand_uses_a_pin_that_cannot_drive_one():
@@ -489,11 +529,11 @@ def test_no_strand_uses_a_pin_that_cannot_drive_one():
 
 
 def test_a_node_that_picks_its_own_pins_picks_good_ones():
-    """Rack 1 is a bare ESP32, so it has no excuse for a strapping pin.
+    """A strapping pin has to be argued for, not appear by accident.
 
-    Rack 2 does: its controller's eight ports are fixed in copper. FIXED_PINOUT
-    records exactly which compromises that forces, so a pin creeping onto this
-    list has to be argued for rather than appearing by accident.
+    The controller's eight ports are fixed in copper. FIXED_PINOUT records
+    exactly which compromises that forces on each node, so a pin creeping onto
+    this list fails here.
     """
     for name, node in NODES.items():
         allowed = FIXED_PINOUT.get(name, set())
@@ -504,19 +544,21 @@ def test_a_node_that_picks_its_own_pins_picks_good_ones():
             assert pin not in PINS_AVOID_IF_FREE, f"{light['id']} is on GPIO{pin}"
 
 
-def test_rack_two_matches_its_controllers_port_map():
+def test_every_node_matches_its_controllers_port_map():
     """The pins are the E8-WiFi Plus's ports, so they cannot drift from it.
 
-    Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Rack 2 uses seven of
-    them with O2 (GPIO12) left empty, in port order from row A down.
+    Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Every board leaves O2
+    (GPIO12) empty and uses the rest in port order from its top row down;
+    rack 1's six-row half leaves O1 empty too.
     """
-    e8_ports = [5, 12, 4, 27, 17, 26, 33, 25]
-    pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in NODE2["light"]]
-
-    assert set(pins) <= set(e8_ports), "a pin that is not one of the board's ports"
-    assert len(set(pins)) == len(pins), "two strands on one port"
-    assert 12 not in pins, "port O2 should be left empty"
-    assert len(pins) == 7
+    for name, node in NODES.items():
+        pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in node["light"]]
+        assert set(pins) <= set(E8_PORTS), f"{name}: a pin that is not one of the board's ports"
+        assert len(set(pins)) == len(pins), f"{name}: two strands on one port"
+        assert 12 not in pins, f"{name}: port O2 should be left empty"
+        assert pins == sorted(pins, key=E8_PORTS.index), f"{name}: rows out of port order"
+        if len(pins) < 7:
+            assert 5 not in pins, f"{name}: a six-strand board has no reason to use O1"
 
 
 def test_the_split_rows_are_the_arms_of_the_u():
@@ -621,13 +663,29 @@ def _split(call: str) -> tuple[str, str]:
     for device in NODES:
         if call.startswith(f"esphome.{device}_"):
             return device, call[len(f"esphome.{device}_"):]
-    raise AssertionError(f"{call} does not name either node")
+    raise AssertionError(f"{call} does not name any node")
 
 
-def test_the_package_calls_both_nodes():
+def test_the_package_calls_every_node():
     """The rest of this section proves nothing if it finds no calls."""
     devices = {_split(c["action"])[0] for c in _calls(PACKAGE)}
     assert devices == set(NODES)
+
+
+def test_every_rack_one_call_goes_to_both_halves():
+    """Each half draws only its own rows, so a call that reached one half
+    would leave the other showing a stale picture - or, for the locator, a
+    lit overview beside the one bin you asked for. Every call must be
+    paired, in order, with the same data."""
+    names = {node["substitutions"]["device_name"] for node in RACK1_HALVES}
+    calls = [c for c in _calls(PACKAGE) if _split(c["action"])[0] in names]
+    assert calls, "the package never calls rack 1"
+    assert len(calls) % 2 == 0
+    for first, second in zip(calls[::2], calls[1::2], strict=True):
+        assert _split(first["action"])[0] == "winerack1aled"
+        assert _split(second["action"])[0] == "winerack1bled"
+        assert _split(first["action"])[1] == _split(second["action"])[1]
+        assert first.get("data") == second.get("data")
 
 
 def test_the_package_only_calls_actions_the_nodes_declare():
@@ -676,7 +734,8 @@ def test_every_state_the_package_emits_is_a_state_the_nodes_draw():
 def test_the_nodes_know_the_racks_the_package_is_describing():
     """Both sides carry each rack's shape; disagreeing means a shifted picture."""
     for template, node, location, letters in (
-        (GRID1, NODE1, RACK1_LOCATION, 13),
+        (GRID1, NODE1A, RACK1_LOCATION, 13),
+        (GRID1, NODE1B, RACK1_LOCATION, 13),
         (GRID2, NODE2, RACK2_LOCATION, 7),
     ):
         assert f"set cols = {subs(node, 'rack_cols')}" in template
@@ -690,7 +749,8 @@ def test_the_two_racks_share_one_palette():
     keys = [k for k in NODE1["substitutions"] if k.startswith("colour_")]
     assert keys, "the palette should be in substitutions"
     for key in keys:
-        assert NODE1["substitutions"][key] == NODE2["substitutions"][key], key
+        for node in NODES.values():
+            assert node["substitutions"][key] == NODE1["substitutions"][key], key
 
 
 # --------------------------------------------------------------------------
@@ -716,9 +776,10 @@ def test_both_nodes_ship_the_same_coordinate_map():
     difference in the maths registers.
     """
     for name in CPP_SUBSTITUTIONS:
-        one = NODE1["substitutions"][name]
-        two = NODE2["substitutions"][name]
-        assert one == two, f"the two nodes disagree about {name}"
+        for device, node in NODES.items():
+            assert node["substitutions"][name] == NODE1["substitutions"][name], (
+                f"{device} disagrees about {name}"
+            )
 
 
 def test_a_node_is_one_file_with_nothing_beside_it():
@@ -728,7 +789,7 @@ def test_a_node_is_one_file_with_nothing_beside_it():
     flashing a rack is copying one file. An `includes:` that crept back would
     compile perfectly well here and fail for whoever copied only the YAML.
     """
-    for node in (NODE1, NODE2):
+    for node in NODES.values():
         assert "includes" not in node.get("esphome", {}), "the node needs a file beside it"
 
     stray = sorted(p.name for p in (EXAMPLES / "esphome").glob("*.h"))
@@ -742,7 +803,7 @@ def test_the_lambdas_paste_the_map_rather_than_retyping_it():
     this file and every test in tests/cpp - because neither would be reading
     it - right up until it disagreed with the other twelve.
     """
-    for node in (NODE1, NODE2):
+    for node in NODES.values():
         for light in node["light"]:
             body = light["effects"][0]["addressable_lambda"]["lambda"]
             statements = [line.strip() for line in body.splitlines() if line.strip()]

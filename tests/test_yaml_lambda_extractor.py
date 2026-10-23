@@ -47,7 +47,7 @@ def test_a_substitution_may_reference_another():
     a different spacing changes one number. ESPHome resolves that; if this did
     not, the tests would compile a literal `${bin_width_mm}` and fail to build.
     """
-    subs = yaml_lambda.substitutions(EXAMPLES / "winerack1led.yaml")
+    subs = yaml_lambda.substitutions(EXAMPLES / "winerack1aled.yaml")
     assert "${" not in subs["bin_first_led"]
     assert "* 95 * 60 +" in subs["bin_first_led"]
 
@@ -81,12 +81,12 @@ def test_secret_tags_do_not_stop_the_parse():
     Reading one would be worse than failing: this runs in CI, where the only
     thing a secrets file could contain is somebody's real WiFi password.
     """
-    subs = yaml_lambda.substitutions(EXAMPLES / "winerack1led.yaml")
-    assert subs["device_name"] == "winerack1led"
+    subs = yaml_lambda.substitutions(EXAMPLES / "winerack1aled.yaml")
+    assert subs["device_name"] == "winerack1aled"
 
 
 def test_emit_writes_every_block_the_tests_include(tmp_path):
-    written = yaml_lambda.emit(EXAMPLES / "winerack1led.yaml", tmp_path)
+    written = yaml_lambda.emit(EXAMPLES / "winerack1aled.yaml", tmp_path)
     assert sorted(p.name for p in written) == [
         f"{name}.inc" for name in sorted(yaml_lambda.CPP_BLOCKS)
     ]
@@ -98,14 +98,14 @@ def test_emit_writes_every_block_the_tests_include(tmp_path):
 def test_emit_leaves_an_unchanged_file_alone(tmp_path):
     """CMake reruns the extractor whenever the YAML is touched; rewriting a
     byte-identical file would relink the test suite for nothing."""
-    (first,) = [p for p in yaml_lambda.emit(EXAMPLES / "winerack1led.yaml", tmp_path)][:1]
+    (first,) = [p for p in yaml_lambda.emit(EXAMPLES / "winerack1aled.yaml", tmp_path)][:1]
     before = first.stat().st_mtime_ns
-    yaml_lambda.emit(EXAMPLES / "winerack1led.yaml", tmp_path)
+    yaml_lambda.emit(EXAMPLES / "winerack1aled.yaml", tmp_path)
     assert first.stat().st_mtime_ns == before
 
 
 def test_both_racks_extract():
-    for name in ("winerack1led.yaml", "winerack2led.yaml"):
+    for name in ("winerack1aled.yaml", "winerack1bled.yaml", "winerack2led.yaml"):
         subs = yaml_lambda.substitutions(EXAMPLES / name)
         for block in yaml_lambda.CPP_BLOCKS:
             assert block in subs, f"{name} is missing {block}"
