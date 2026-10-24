@@ -568,6 +568,12 @@ script:
   # split row; left floating it can oscillate and take the row with it.
   chipset: WS2812
   rgb_order: GRB
+  # One 64-symbol RMT memory block per strand. A classic ESP32 has eight of
+  # them, 512 symbols in all, and ESPHome's default of 192 takes three blocks
+  # per strand - so only two strands start and the rest are marked FAILED at
+  # boot. At 64 every strand fits in its own block; the driver refills it from
+  # an interrupt as the frame goes out.
+  rmt_symbols: 64
   restore_mode: ALWAYS_OFF
   default_transition_length: 0s
   # Status colours, not a dimmable white: the palette reaches the LEDs as

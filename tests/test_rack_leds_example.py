@@ -473,6 +473,26 @@ def test_each_half_of_rack_one_drives_the_rows_it_says_it_does():
         assert listed == [light["id"] for light in node["light"]]
 
 
+#: A classic ESP32 has eight RMT channels with one 64-symbol memory block each.
+RMT_BLOCK_SYMBOLS = 64
+RMT_BLOCKS = 8
+
+
+def test_every_strand_gets_rmt_memory():
+    """Each strand claims `rmt_symbols` of RMT memory, in whole 64-symbol
+    blocks, from the ESP32's 512. ESPHome's default of 192 takes three blocks a
+    strand, so a seven-strand board starts two strands and marks the other
+    five FAILED - which is what rack 2's first boot did."""
+    for name, node in NODES.items():
+        lights = node["light"]
+        blocks = 0
+        for light in lights:
+            symbols = int(light.get("rmt_symbols", 192))
+            assert symbols % RMT_BLOCK_SYMBOLS == 0, f"{name}: {light['id']}"
+            blocks += symbols // RMT_BLOCK_SYMBOLS
+        assert blocks <= RMT_BLOCKS, f"{name} needs {blocks} RMT blocks of {RMT_BLOCKS}"
+
+
 def test_rack_one_needs_no_more_data_lines_than_before():
     """Chaining each split row keeps rack 1 at thirteen data lines.
 
