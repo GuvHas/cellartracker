@@ -493,6 +493,18 @@ def test_every_strand_gets_rmt_memory():
         assert blocks <= RMT_BLOCKS, f"{name} needs {blocks} RMT blocks of {RMT_BLOCKS}"
 
 
+def test_every_strand_sends_colours_in_the_strips_order():
+    """The strip on the racks is RGB, measured: GRB lit red bins green.
+
+    All three nodes drive the same strip, so a node left on another order
+    would paint every ready bottle as past its window, or the reverse.
+    """
+    for name, node in NODES.items():
+        for light in node["light"]:
+            assert light.get("channel_colors") == "RGB", f"{name}: {light['id']}"
+            assert "rgb_order" not in light, f"{name}: rgb_order is deprecated"
+
+
 def test_rack_one_needs_no_more_data_lines_than_before():
     """Chaining each split row keeps rack 1 at thirteen data lines.
 
