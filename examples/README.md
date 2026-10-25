@@ -9,6 +9,7 @@ loaded by Home Assistant on its own — copy what you want.
 | [`esphome/winerack1aled.yaml`](esphome/winerack1aled.yaml), [`esphome/winerack1bled.yaml`](esphome/winerack1bled.yaml) | The U-shaped rack — 129 bins, one WS2815 strand per bin row, mounted horizontally at the back. Two E8-WiFi Plus boards: rows A–G and rows H–M |
 | [`esphome/winerack2led.yaml`](esphome/winerack2led.yaml) | The same design for the second rack, a full 7 × 7 on its own E8-WiFi Plus |
 | [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) | The Home Assistant package that turns the cellar's inventory into what all three nodes paint |
+| [`enclosure/e8_wifi_plus_enclosure.scad`](enclosure/) | Parametric OpenSCAD wall enclosure for one E8-WiFi Plus, printed in PETG |
 
 These are halves of one thing: the nodes own the pixels and know nothing about wine, and the
 package owns the wine and knows nothing about pixels. Each file's header says what you have to set
