@@ -14,14 +14,18 @@
 //    * X6:    EXT PWR input,  X7: two button inputs (spring terminals)
 //    * USB-C: programming. V1.02 changed it from horizontal to VERTICAL.
 //    * ESP32 with an external antenna lead.
-//  NOT published: mounting-hole positions, which board edge each connector
-//  is on, and component heights. Every parameter below tagged  [MEASURE]
-//  is a placeholder -- check it against your board with calipers before
-//  printing. The layout assumed by default is:
-//    * X1-X4 (8 outputs) along one LONG edge  -> "front" wall (-Y)
-//    * X5 power on the LEFT short edge         -> left wall  (-X)
-//    * antenna lead out of the RIGHT short edge -> right wall (+X)
-//    * USB-C vertical, reached through a window in the lid
+//  Positions below were scaled off the vendor's "Board Dimensions" photo of
+//  a V1.02 board (135 x 85 mm, about 4.8 px/mm), so treat them as +-1 mm.
+//  Values tagged [CHECK] are worth a caliper check before printing.
+//  Board layout, seen from above with the terminals towards you:
+//    * FRONT edge (-Y), left to right: X1 X2 X3 X4 (outputs, each block has
+//      O-odd on the upper/back level and O-even on the lower/front level,
+//      pins - D +), then X5 INPUT (orange levers) at the right.
+//    * BACK edge (+Y): ESP32 module with the u.FL antenna socket, vertical
+//      USB-C, X7 BTN INPUT and X6 EXT PWR (both unused here).
+//    * Four mounting holes near the corners. The front-left one sits right
+//      at the corner of the X1 block, so it gets a locating pin instead of
+//      a screw (see board_holes).
 //
 //  COORDINATES (assembled, lying on its back as if the wall were the floor)
 //    X = length (along the outputs), Y = depth, Z = away from the wall.
@@ -54,19 +58,24 @@ $fn = 64;
 /* [Board - E8-WiFi Plus] */
 board_l      = 135.0;       // PCB length along X (datasheet)
 board_w      = 85.0;        // PCB depth along Y (datasheet)
-board_t      = 1.6;         // PCB thickness                           [MEASURE]
-board_comp_h = 24.4;        // tallest part above the PCB top surface   [MEASURE]
+board_t      = 1.6;         // PCB thickness                           [CHECK]
+board_comp_h = 24.4;        // tallest part above the PCB top surface   [CHECK]
                             //   (datasheet overall height 26 mm minus PCB)
-board_under_h = 3.0;        // tallest solder joint / lead under the PCB [MEASURE]
+board_under_h = 3.0;        // tallest solder joint / lead under the PCB [CHECK]
 
-// Mounting holes, measured from the board's front-left corner
-// (front = output-terminal edge). Default: 4 mm in from every corner.  [MEASURE]
+// Mounting holes [x, y, type], measured from the board's front-left corner
+// (front = output-terminal edge), from the photo.                   [CHECK]
+//   "insert" - standoff with a heat-set insert, board screwed down
+//   "pin"    - standoff with a locating pin, for a hole a screw head can't
+//              reach. The front-left hole is under the edge of the X1 block.
 board_holes = [
-    [  4.0,   4.0],
-    [131.0,   4.0],
-    [  4.0,  81.0],
-    [131.0,  81.0]
+    [  2.5,  3.0, "pin"   ],
+    [133.0,  3.3, "insert"],
+    [  2.5, 82.3, "insert"],
+    [130.5, 82.3, "insert"]
 ];
+board_hole_d = 3.2;         // PCB hole, sets the locating pin size     [CHECK]
+pin_h        = 2.5;         // locating pin height above the standoff
 
 
 /* [Material & tolerances] */
@@ -81,10 +90,10 @@ edge_round = 1.5;           // rounding on the outer top edge of the lid
 
 
 /* [Cavity layout] */
-end_bay   = 12.0;           // free space at each short end (lid-screw bosses,
-                            //   power wiring bend). Must exceed boss_d.
-front_bay = 14.0;           // free space in front of the output terminals
-                            //   (gland lock-nuts + wire bend before the terminal)
+end_bay   = 14.0;           // free space at each short end. Must clear the
+                            //   lid-screw bosses AND the X1 gland's lock nut.
+front_bay = 18.0;           // free space in front of the terminals: gland
+                            //   lock-nut, then the cores fan out to - D +
 top_clear = 3.0;            // air between tallest component and the lid lip
 
 
@@ -117,12 +126,20 @@ flange_fillet = 3.0;        // fillet between flange top and side wall
 
 
 /* [Output cable entries (X1-X4, front wall)] */
-output_count     = 8;
-output_hole_d    = 12.2;    // M12x1.5 cable gland (fits ~3-6.5 mm cable).
+// Each double-level block gets two glands, staggered: the lower gland feeds
+// the lower (even) output, the upper gland the upper (odd) output. Keeps
+// every cable straight in front of its own terminal.
+block_x        = [10.2, 36.7, 64.2, 89.9];  // middle (D) pin of X1..X4,
+                                            //   from board's left edge [CHECK]
+outputs_used   = [true, true, true, true, true, true, true, true]; // O1..O8
+                            // Rack 1's second board drives 6 strands: set
+                            // O7/O8 false to leave those holes out.
+output_hole_d  = 12.2;      // M12x1.5 cable gland (fits ~3-6.5 mm cable).
                             //   Use 7.0 for a plain rubber grommet instead.
-output_pitch     = 17.0;    // centre-to-centre; >= gland hex across-corners
-output_offset_x  = 0.0;     // shift the whole row along X       [MEASURE]
-entry_z_above_pcb = 8.0;    // hole centre height above the PCB top surface
+gland_nut_ac   = 17.4;      // gland lock-nut across corners (M12: AF15)
+pair_dx        = 6.5;       // each gland's X offset from its block centre
+lower_z        = 11.5;      // lower-row centre above the floor's top
+upper_z        = 23.5;      // upper-row centre above the floor's top
 
 // Optional zip-tie anchor rib behind the front wall (for grommets instead
 // of glands -- glands already clamp the cable).
@@ -134,27 +151,30 @@ tie_slot_w     = 4.5;       // zip-tie width + clearance
 tie_slot_h     = 2.2;       // zip-tie thickness + clearance
 
 
-/* [Power entry (X5, left wall)] */
+/* [Power entry (X5, front wall)] */
 power_hole_d   = 15.2;      // M16x1.5 gland, takes a 2-core 1.5 mm2 cable
-power_y        = 42.5;      // hole centre from the board's front edge  [MEASURE]
+power_nut_ac   = 22.0;      // M16 lock-nut across corners (AF19)
+power_x        = 119.2;     // X5 centre from board's left edge         [CHECK]
+power_z        = 17.5;      // centre above the floor's top
 
 
-/* [Antenna (right wall)] */
+/* [Antenna (back wall)] */
 antenna_hole   = true;
 antenna_hole_d = 6.6;       // RP-SMA bulkhead. 4.0 for just the lead.
-antenna_y      = 60.0;      // centre from the board's front edge       [MEASURE]
+antenna_x      = 48.6;      // u.FL socket, from board's left edge      [CHECK]
 antenna_z_above_pcb = 12.0;
 
 
 /* [USB-C] */
 usb_mode    = "lid";        // ["lid", "wall", "none"]
 // "lid": window in the lid over a vertical USB-C (board V1.02)
-usb_x       = 20.0;         // connector centre from board's left edge  [MEASURE]
-usb_y       = 70.0;         // connector centre from board's front edge [MEASURE]
+usb_x       = 87.0;         // connector centre from board's left edge  [CHECK]
+usb_y       = 82.0;         // connector centre from board's front edge [CHECK]
 usb_win_l   = 14.0;         // window size: plug overmould + 2 mm
-usb_win_w   = 9.0;
+usb_win_w   = 8.5;          //   (also cut through the lid lip, which sits
+                            //   right over this connector)
 // "wall": horizontal USB-C (board V1.01), cut through the back wall (+Y)
-usb_wall_z_above_pcb = 1.6; // receptacle centre above the PCB top      [MEASURE]
+usb_wall_z_above_pcb = 1.6; // receptacle centre above the PCB top
 usb_wall_w  = 13.0;
 usb_wall_h  = 7.5;
 
@@ -190,8 +210,27 @@ assert(end_bay > boss_inset + boss_d/2,
        "end_bay too small: the lid-screw bosses would hit the board");
 assert(standoff_h >= board_under_h + 2,
        "standoff_h too low for the solder side of the board");
-assert(output_pitch * (output_count - 1) + output_hole_d < cav_l - 2*boss_d,
-       "output glands do not fit between the corner bosses");
+// Glands: [x, z, hole_d, nut_ac] for every front-wall entry in use
+output_glands = [
+    for (i = [0 : 7]) if (outputs_used[i])
+        [bx + block_x[floor(i/2)] + (i % 2 == 0 ? pair_dx : -pair_dx),
+         floor_t + (i % 2 == 0 ? upper_z : lower_z),
+         output_hole_d, gland_nut_ac]
+];
+front_glands = concat(output_glands,
+    [[bx + power_x, floor_t + power_z, power_hole_d, power_nut_ac]]);
+
+boss_reach = wall + boss_inset + boss_d/2;
+assert(front_glands[0][0] - front_glands[0][3]/2 > boss_reach,
+       "left gland nut hits the corner boss: raise end_bay");
+assert(bx + power_x + power_nut_ac/2 < out_l - boss_reach,
+       "power gland nut hits the corner boss: raise end_bay");
+for (a = front_glands, b = front_glands)
+    if (a != b)
+        assert(norm([a[0] - b[0], a[1] - b[1]]) >= (a[3] + b[3])/2 - 0.5,
+               str("gland nuts overlap at x=", a[0], " and x=", b[0]));
+assert(upper_z + gland_nut_ac/2 < cav_h - lip_h,
+       "upper glands reach into the lid lip");
 
 eps = 0.01;
 
@@ -260,13 +299,22 @@ module base_shell() {
 module standoffs() {
     for (p = board_holes)
         translate([bx + p[0], by + p[1], floor_t - eps])
-            difference() {
+            if (p[2] == "pin") {
                 filleted_post(standoff_d, standoff_h + eps, post_fillet);
-                translate([0, 0, standoff_h - insert_depth])
-                    cylinder(d = insert_hole_d, h = insert_depth + 1);
-                translate([0, 0, standoff_h - insert_depth - screw_relief_h])
-                    cylinder(d = screw_relief_d, h = screw_relief_h + eps);
-            }
+                // locating pin with a lead-in chamfer
+                translate([0, 0, standoff_h])
+                    cylinder(d = board_hole_d - 2*fit_clear, h = board_t + pin_h - 0.6);
+                translate([0, 0, standoff_h + board_t + pin_h - 0.6 - eps])
+                    cylinder(d1 = board_hole_d - 2*fit_clear,
+                             d2 = board_hole_d - 2*fit_clear - 1.2, h = 0.6);
+            } else
+                difference() {
+                    filleted_post(standoff_d, standoff_h + eps, post_fillet);
+                    translate([0, 0, standoff_h - insert_depth])
+                        cylinder(d = insert_hole_d, h = insert_depth + 1);
+                    translate([0, 0, standoff_h - insert_depth - screw_relief_h])
+                        cylinder(d = screw_relief_d, h = screw_relief_h + eps);
+                }
 }
 
 // Corner boss: hull of the boss and the cavity corner, so it blends into
@@ -327,39 +375,30 @@ module countersunk_hole() {
     translate([0, 0, flange_t]) cylinder(d = mount_head_d, h = 20);
 }
 
-// Output entry X positions, centred on the board
-function output_x(i) = bx + board_l/2 + output_offset_x
-                        + (i - (output_count - 1)/2) * output_pitch;
-
 module tie_bar_rib() {
     y0 = wall + tie_bar_gap;
-    span = output_pitch * output_count;
+    xs = [for (g = output_glands) g[0]];
+    x_lo = min(xs) - output_hole_d;
+    x_hi = max(xs) + output_hole_d;
     difference() {
-        translate([bx + board_l/2 + output_offset_x - span/2, y0, floor_t - eps])
-            cube([span, tie_bar_t, tie_bar_h]);
-        // one tunnel through the rib's foot between each pair of entries
-        for (i = [0 : output_count - 1])
-            for (s = [-1, 1])
-                translate([output_x(i) + s*output_hole_d*0.45 - tie_slot_w/2,
-                           y0 - 1, floor_t + 1])
-                    cube([tie_slot_w, tie_bar_t + 2, tie_slot_h]);
+        translate([x_lo, y0, floor_t - eps])
+            cube([x_hi - x_lo, tie_bar_t, tie_bar_h]);
+        // a tunnel through the rib's foot either side of each entry
+        for (x = xs, sgn = [-1, 1])
+            translate([x + sgn*output_hole_d*0.45 - tie_slot_w/2, y0 - 1, floor_t + 1])
+                cube([tie_slot_w, tie_bar_t + 2, tie_slot_h]);
     }
 }
 
 module base_cutouts() {
-    // 8 output glands, front wall
-    for (i = [0 : output_count - 1])
-        translate([output_x(i), -1, pcb_top + entry_z_above_pcb])
-            hole_y(output_hole_d, wall + 2);
+    // output and power glands, front wall
+    for (g = front_glands)
+        translate([g[0], -1, g[1]]) hole_y(g[2], wall + 2);
 
-    // power gland, left wall
-    translate([-flange_w - 1, by + power_y, pcb_top + entry_z_above_pcb])
-        hole_x(power_hole_d, flange_w + wall + 2);
-
-    // antenna, right wall
+    // antenna, back wall
     if (antenna_hole)
-        translate([out_l - wall - 1, by + antenna_y, pcb_top + antenna_z_above_pcb])
-            hole_x(antenna_hole_d, wall + flange_w + 2);
+        translate([bx + antenna_x, out_w - wall - 1, pcb_top + antenna_z_above_pcb])
+            hole_y(antenna_hole_d, wall + 2);
 
     // horizontal USB-C through the back wall
     if (usb_mode == "wall")
@@ -442,8 +481,8 @@ module lid() {
                     cylinder(d = lid_head_d, h = lid_head_depth + 1);
         }
         if (usb_mode == "lid")
-            translate([bx + usb_x - usb_win_l/2, by + usb_y - usb_win_w/2, -1])
-                linear_extrude(lid_t + 2) rrect(usb_win_l, usb_win_w, 2);
+            translate([bx + usb_x - usb_win_l/2, by + usb_y - usb_win_w/2, -lip_h - 1])
+                linear_extrude(lid_t + lip_h + 2) rrect(usb_win_l, usb_win_w, 2);
     }
 }
 
@@ -461,11 +500,12 @@ module board_ghost() {
     // component envelope
     color("grey", 0.15)
         translate([bx, by, pcb_top]) cube([board_l, board_w, board_comp_h]);
-    // output terminal blocks (rough, front edge)
-    for (i = [0:3])
-        color("orange", 0.6)
-            translate([bx + board_l/2 - 2*30 + i*30 + 2, by + 1, pcb_top])
-                cube([26, 12, 14]);
+    // output terminal blocks X1-X4 and input X5 (rough, front edge)
+    for (x = block_x)
+        color("DimGray", 0.7)
+            translate([bx + x - 10.5, by, pcb_top]) cube([21, 25, 16]);
+    color("Orange", 0.7)
+        translate([bx + power_x - 9, by, pcb_top]) cube([18, 24, 18]);
 }
 
 
