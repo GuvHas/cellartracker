@@ -1,8 +1,8 @@
-# Wine racks 1 and 2 - driving the rack LEDs from CellarTracker
+# Wine racks 1 and 2 - pushing the integration's rack grids to the LED nodes
 # =============================================================================
 #
-# Turns the integration's inventory into the strings the three ESPHome nodes
-# paint:
+# The integration works out what each rack should show; this file only hands
+# it to the three ESPHome nodes that paint it:
 #
 #   examples/esphome/winerack1aled.yaml  the U-shaped rack, 13 x 13 envelope,
 #   examples/esphome/winerack1bled.yaml  129 bins - rows A-H hold bins 1-4 and
@@ -12,8 +12,9 @@
 #                                        and each draws only its own rows.
 #   examples/esphome/winerack2led.yaml   the second rack, a full 7 x 7
 #
-# One HTTP request serves both: the inventory endpoint returns the whole
-# cellar, and each rack's sensor picks its own bottles out of it by Location.
+# There is no token, no REST sensor and no template here any more. The grids
+# are sensors of the integration itself, computed from the inventory it
+# already holds every time it syncs.
 #
 # Install as a package. In configuration.yaml:
 #
@@ -21,205 +22,44 @@
 #     packages: !include_dir_named packages
 #
 # then save this file as <config>/packages/wine_rack_leds.yaml and restart.
+# Everything below is ordinary automations and scripts, so pasting them into
+# automations.yaml and scripts.yaml works just as well if you would rather not
+# use packages.
 #
 # -----------------------------------------------------------------------------
 # What you have to set
 # -----------------------------------------------------------------------------
 #
-# 1. A long-lived access token. The inventory endpoint is authenticated, so
-#    Home Assistant needs a token to read its own API. Create one under your
-#    profile -> Security -> Long-lived access tokens, then put it in
-#    secrets.yaml *with the word Bearer in front of it*:
+# 1. The racks, in the integration. Settings -> Devices & Services ->
+#    CellarTracker -> Configure -> LED racks, one rack per line:
 #
-#      home_assistant_token: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+#      Wine Rack 1: 13x13 without A5-H9
+#      Wine Rack 2: 7x7
 #
-#    The token is full-account and never expires. Keep it in secrets.yaml, not
-#    in this file, and revoke it from the same page if it ever leaks.
+#    The name before the colon is the CellarTracker `Location` of the bottles
+#    in that rack, exactly - `Bin` is the slot inside it. ROWSxCOLUMNS is the
+#    envelope the node's grid covers, and `without` lists the bins the rack
+#    does not have: A5-H9 is the U's opening. Bins are a row letter and a
+#    column number, so "A2" or "C4"; "a-2", "A 2" and "A02" are read the same
+#    way. Anything else is left dark rather than lit in the wrong place.
 #
-# 2. The two CellarTracker location names, in RACK_LOCATION in each template
-#    below. They have to match the `Location` column of the bottles in that
-#    rack exactly - that is the rack, and `Bin` is the slot inside it. Check a
-#    bottle's location on the dashboard if you are not sure.
+#    Each rack gets two sensors: `<rack> grid`, which this file pushes, and
+#    `<rack> bottles off the rack`, which counts bottles filed at that rack in
+#    a bin it does not have - easy after a rebuild. They are not lost, but no
+#    LED will ever show them, so re-bin them in CellarTracker.
 #
-# 3. Your own entity IDs. `sensor.cellartracker_last_synchronised` below is the
-#    integration's sync sensor; a fresh install names it after your account
-#    (sensor.<account>_last_synchronised), and an install predating v0.0.18
-#    still calls it sensor.<account>_status. Settings -> Devices & Services ->
-#    CellarTracker -> entities has the exact ID.
+# 2. Your own entity IDs. `sensor.cellartracker_wine_rack_1_grid` below is the
+#    integration's grid for "Wine Rack 1"; the integration names its entities
+#    after your account, so yours is sensor.<account>_wine_rack_1_grid.
+#    Settings -> Devices & Services -> CellarTracker -> entities has the exact
+#    IDs.
 #
-# 4. Bins the shape each rack expects: a row letter and a column number, so
-#    "A2" or "C4". "a-2", "A 2" and "A02" are read the same way. Anything else
-#    is dropped rather than lit in the wrong place.
-#
-# -----------------------------------------------------------------------------
-# The U, and bottles that fall in its hole
-# -----------------------------------------------------------------------------
-#
-# Rack 1's grid stays a full 13 x 13 - 169 characters - even though the rack
-# only has 129 bins. The bins the U does not have simply never hold a bottle,
-# so they come through as empty and light nothing. Nothing here needs to know
-# the shape.
-#
-# The exception is a bottle CellarTracker still files at a bin that no longer
-# exists, which is easy after rebuilding a rack. It is not lost and it is not
-# mis-lit: there are no pixels there, so it stays dark. The orphan sensor below
-# counts them so a rebuild does not quietly swallow bottles.
+# 3. Optionally, add the grid sensors to `recorder: exclude:`. They change only
+#    when the cellar does, but each state is up to 169 characters.
 #
 # =============================================================================
 
-rest:
-  # One local request for the whole cellar, feeding every sensor below. The
-  # integration renders this body when it polls CellarTracker, so serving it
-  # costs nothing and asking for it never touches the network.
-  #
-  # Change the host if Home Assistant is not on 8123, or if you have configured
-  # `http: ssl_certificate` - then it is https and its own hostname, because a
-  # certificate will not match 127.0.0.1.
-  - resource: http://127.0.0.1:8123/api/cellartracker/inventory?view=compact
-    method: GET
-    timeout: 30
-    # The cellar is polled every six hours by default, and the automation below
-    # asks for a fresh fetch as soon as it syncs. This is only the safety net
-    # for a missed sync, so it does not need to be frequent.
-    scan_interval: 3600
-    headers:
-      Authorization: !secret home_assistant_token
-    sensor:
-      # --- Rack 1: the U, 13 x 13 envelope ---------------------------------
-      # One character per bin, row-major: A1..A13, then B1..B13, and so on.
-      # 169 characters, which fits inside a state's 255-character limit. Add
-      # these entities to `recorder: exclude:` if you would rather not keep the
-      # history - they change only when the cellar does.
-      - name: Wine rack 1 grid
-        unique_id: wine_rack_1_grid
-        icon: mdi:grid
-        value_template: |-
-          {%- set RACK_LOCATION = 'Wine Rack 1' -%}
-          {%- set rows = 'ABCDEFGHIJKLM' -%}
-          {%- set cols = 13 -%}
-          {#- The year is read once per fetch, the same way the integration's
-              own counts are (cellar_data._current_year). A cellar polled every
-              six hours notices the new year within six hours of midnight. -#}
-          {%- set year = now().year -%}
-          {%- set ns = namespace(cells = [0] * (rows | length * cols)) -%}
-          {%- for bottle in value_json -%}
-            {%- set slot = bottle.Bin | default('', true) | string | trim | upper -%}
-            {%- if (bottle.Location | default('', true) | string | trim) == RACK_LOCATION
-                   and slot | length > 1 -%}
-              {%- set row = rows.find(slot[0]) -%}
-              {%- set col = slot[1:] | regex_findall('[0-9]+') | first | default(0) | int(0) -%}
-              {%- if row >= 0 and 1 <= col <= cols -%}
-                {%- set begin = bottle.BeginConsume | default(0, true) | int(0) -%}
-                {%- set end = bottle.EndConsume | default(0, true) | int(0) -%}
-                {#- The dashboard's rule, in the dashboard's order: an inverted
-                    window (from 2030, by 2020) reads as over rather than as
-                    still laying down, and the final year of a window is urgent
-                    rather than past, because it is still inside the window. -#}
-                {%- set rank = 1 if (begin < 1 and end < 1)
-                          else 5 if (end > 0 and end < year)
-                          else 2 if (begin > 0 and begin > year)
-                          else 4 if end == year
-                          else 3 -%}
-                {#- A bin holds several bottles. Show the one that most wants
-                    dealing with: past, then drink-this-year, then ready, then
-                    aging, then a bottle with no window at all. -#}
-                {%- set cell = row * cols + col - 1 -%}
-                {%- if rank > ns.cells[cell] -%}
-                  {%- set ns.cells = ns.cells[:cell] + [rank] + ns.cells[cell + 1:] -%}
-                {%- endif -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {%- for rank in ns.cells %}{{ '.NARUP'[rank] }}{% endfor -%}
-
-      # --- Rack 2: a full 7 x 7 ---------------------------------------------
-      # Same template, smaller rack: 49 characters, rows A-G, bins 1-7.
-      - name: Wine rack 2 grid
-        unique_id: wine_rack_2_grid
-        icon: mdi:grid
-        value_template: |-
-          {%- set RACK_LOCATION = 'Wine Rack 2' -%}
-          {%- set rows = 'ABCDEFG' -%}
-          {%- set cols = 7 -%}
-          {%- set year = now().year -%}
-          {%- set ns = namespace(cells = [0] * (rows | length * cols)) -%}
-          {%- for bottle in value_json -%}
-            {%- set slot = bottle.Bin | default('', true) | string | trim | upper -%}
-            {%- if (bottle.Location | default('', true) | string | trim) == RACK_LOCATION
-                   and slot | length > 1 -%}
-              {%- set row = rows.find(slot[0]) -%}
-              {%- set col = slot[1:] | regex_findall('[0-9]+') | first | default(0) | int(0) -%}
-              {%- if row >= 0 and 1 <= col <= cols -%}
-                {%- set begin = bottle.BeginConsume | default(0, true) | int(0) -%}
-                {%- set end = bottle.EndConsume | default(0, true) | int(0) -%}
-                {%- set rank = 1 if (begin < 1 and end < 1)
-                          else 5 if (end > 0 and end < year)
-                          else 2 if (begin > 0 and begin > year)
-                          else 4 if end == year
-                          else 3 -%}
-                {%- set cell = row * cols + col - 1 -%}
-                {%- if rank > ns.cells[cell] -%}
-                  {%- set ns.cells = ns.cells[:cell] + [rank] + ns.cells[cell + 1:] -%}
-                {%- endif -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {%- for rank in ns.cells %}{{ '.NARUP'[rank] }}{% endfor -%}
-
-      # --- Bottles filed in bins rack 1 no longer has ------------------------
-      # Rows A-H of the U only have bins 1-4 and 10-13. A bottle still recorded
-      # at A7 after the rebuild is not lost, but nothing will ever light for
-      # it. This counts them so you know to re-bin them in CellarTracker.
-      - name: Wine rack 1 bottles in missing bins
-        unique_id: wine_rack_1_orphan_bins
-        icon: mdi:map-marker-question
-        unit_of_measurement: bottles
-        state_class: measurement
-        value_template: |-
-          {%- set RACK_LOCATION = 'Wine Rack 1' -%}
-          {%- set rows = 'ABCDEFGHIJKLM' -%}
-          {%- set ns = namespace(orphans = 0) -%}
-          {%- for bottle in value_json -%}
-            {%- set slot = bottle.Bin | default('', true) | string | trim | upper -%}
-            {%- if (bottle.Location | default('', true) | string | trim) == RACK_LOCATION
-                   and slot | length > 1 -%}
-              {%- set row = rows.find(slot[0]) -%}
-              {%- set col = slot[1:] | regex_findall('[0-9]+') | first | default(0) | int(0) -%}
-              {#- The U: rows A-H (0-7) exist only at columns 1-4 and 10-13.
-                  Rows I-M (8-12) are full width. Anything else is nowhere. -#}
-              {%- set inside = (row >= 8 and row <= 12 and 1 <= col <= 13)
-                            or (row >= 0 and row <= 7 and (1 <= col <= 4 or 10 <= col <= 13)) -%}
-              {%- if not inside -%}
-                {%- set ns.orphans = ns.orphans + 1 -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ ns.orphans }}
-
 automation:
-  # --- Keep both grids in step with the cellar --------------------------------
-  - id: wine_rack_refresh_grids
-    alias: "Wine racks: re-read the cellar when it syncs"
-    description: >-
-      The integration publishes a new inventory when it polls CellarTracker.
-      Fetching on that rather than on a timer is what keeps the racks no more
-      stale than the cellar itself. One request serves both racks.
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: sensor.cellartracker_last_synchronised
-    conditions:
-      - condition: template
-        value_template: >-
-          {{ trigger.to_state.state not in ['unknown', 'unavailable', none] }}
-    actions:
-      - action: homeassistant.update_entity
-        target:
-          entity_id:
-            - sensor.wine_rack_1_grid
-            - sensor.wine_rack_2_grid
-            - sensor.wine_rack_1_bottles_in_missing_bins
-
   # --- Push each grid to its own rack -----------------------------------------
   - id: wine_rack_1_push_grid
     alias: "Wine rack 1: paint the rack"
@@ -232,7 +72,7 @@ automation:
     mode: restart
     triggers:
       - trigger: state
-        entity_id: sensor.wine_rack_1_grid
+        entity_id: sensor.cellartracker_wine_rack_1_grid
         id: grid
       # The board forgets everything it was showing when it reboots, and its
       # entities go unavailable and back while it does. Repainting on that is
@@ -249,7 +89,7 @@ automation:
     conditions:
       - condition: template
         value_template: >-
-          {{ states('sensor.wine_rack_1_grid') not in ['unknown', 'unavailable', ''] }}
+          {{ states('sensor.cellartracker_wine_rack_1_grid') not in ['unknown', 'unavailable', ''] }}
     actions:
       - if:
           - condition: trigger
@@ -259,18 +99,18 @@ automation:
       - action: esphome.winerack1aled_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_1_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
       - action: esphome.winerack1bled_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_1_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
 
   - id: wine_rack_2_push_grid
     alias: "Wine rack 2: paint the rack"
     mode: restart
     triggers:
       - trigger: state
-        entity_id: sensor.wine_rack_2_grid
+        entity_id: sensor.cellartracker_wine_rack_2_grid
         id: grid
       - trigger: state
         entity_id: light.wine_rack_2_row_a
@@ -282,7 +122,7 @@ automation:
     conditions:
       - condition: template
         value_template: >-
-          {{ states('sensor.wine_rack_2_grid') not in ['unknown', 'unavailable', ''] }}
+          {{ states('sensor.cellartracker_wine_rack_2_grid') not in ['unknown', 'unavailable', ''] }}
     actions:
       - if:
           - condition: trigger
@@ -292,7 +132,7 @@ automation:
       - action: esphome.winerack2led_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_2_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_2_grid') }}"
 
 script:
   # --- Where is that bottle? --------------------------------------------------
@@ -388,12 +228,12 @@ script:
       - action: esphome.winerack1aled_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_1_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
       - action: esphome.winerack1bled_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_1_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
       - action: esphome.winerack2led_light_rack
         continue_on_error: true
         data:
-          grid: "{{ states('sensor.wine_rack_2_grid') }}"
+          grid: "{{ states('sensor.cellartracker_wine_rack_2_grid') }}"

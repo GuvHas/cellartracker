@@ -4,10 +4,11 @@
 of 129 bins in a 13 x 13 envelope, and a plain 7 x 7 beside it. The U is two
 ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G, one for rows H-M - and
 the 7 x 7 is a third. Each owns pixels and knows nothing about wine; one Home
-Assistant package turns the inventory into a string of per-bin states.
+Assistant package hands each node the integration's per-rack grid sensor.
 
-That string is a third implementation of the drinking-window rule, after
-``cellar_data.py`` and ``cellar.html``, so the reasoning in
+That grid, built in ``racks.py``, is a third implementation of the
+drinking-window rule, after ``cellar_data.py`` and ``cellar.html``, so the
+reasoning in
 ``test_dashboard_agrees_with_sensors.py`` applies here too: run it over one
 cellar beside the definition and compare. A rack painting a bottle red while
 the sensor counts it as ready is the integration contradicting itself in the
@@ -23,15 +24,14 @@ opening, and this file asserts that the row table describes exactly that.
 
 from __future__ import annotations
 
-import datetime
 import math
 import pathlib
 import re
 
-import jinja2.sandbox
 import yaml
 
 from cellar_tracker.cellar_data import _drink_window_counts
+from cellar_tracker.racks import STATES, bottles_off_rack, parse_racks, rack_grid
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -99,10 +99,11 @@ RACK1_HALVES = (NODE1A, NODE1B)
 PACKAGE = _load(PACKAGE_FILE)
 NODES = {node["substitutions"]["device_name"]: node for node in (NODE1A, NODE1B, NODE2)}
 
-SENSORS = {s["name"]: s for s in PACKAGE["rest"][0]["sensor"]}
-GRID1 = SENSORS["Wine rack 1 grid"]["value_template"]
-GRID2 = SENSORS["Wine rack 2 grid"]["value_template"]
-ORPHANS = SENSORS["Wine rack 1 bottles in missing bins"]["value_template"]
+# The rack lines the package's header tells you to type into the options, read
+# the way the options flow reads them. Tested here so the instructions and the
+# nodes cannot drift apart.
+RACK_LINES = re.findall(r"^#\s+(Wine Rack \d+: .+)$", PACKAGE_FILE.read_text(), re.MULTILINE)
+RACK1, RACK2 = parse_racks("\n".join(RACK_LINES))
 
 
 def subs(node: dict, key: str) -> int:
@@ -122,27 +123,8 @@ def resolve(node: dict, value: object) -> str:
 
 
 # --------------------------------------------------------------------------
-# Rendering the package's templates the way Home Assistant would
+# What the integration's grid sensors hold for a cellar
 # --------------------------------------------------------------------------
-def _regex_findall(value, find="", ignorecase=False):
-    """Home Assistant's filter of the same name."""
-    return re.findall(find, str(value), re.I if ignorecase else 0)
-
-
-def _environment() -> jinja2.sandbox.SandboxedEnvironment:
-    """Home Assistant renders templates in a sandbox, so this does too.
-
-    The sandbox is not a detail: it refuses the mutating methods a template
-    might reach for (``list.append``, ``dict.update``), which is why the
-    templates build their grids by rebuilding a list rather than writing into
-    one.
-    """
-    env = jinja2.sandbox.SandboxedEnvironment()
-    env.filters["regex_findall"] = _regex_findall
-    env.globals["now"] = lambda: datetime.datetime(YEAR, 6, 1, 12, 0, 0)
-    return env
-
-
 def bottle(bin_id: str, begin: str = "", end: str = "", location: str = RACK1_LOCATION) -> dict:
     return {
         "Bin": bin_id,
@@ -153,14 +135,13 @@ def bottle(bin_id: str, begin: str = "", end: str = "", location: str = RACK1_LO
     }
 
 
-def render(template: str, bottles: list[dict]) -> str:
-    """What the sensor would hold for this cellar."""
-    # Home Assistant strips a rendered template before storing it as a state.
-    return _environment().from_string(template).render(value_json=bottles).strip()
+def render(rack, bottles: list[dict]) -> str:
+    """What the rack's grid sensor would hold for this cellar."""
+    return rack_grid(bottles, rack, YEAR)
 
 
 def grid(bottles: list[dict]) -> str:
-    return render(GRID1, bottles)
+    return render(RACK1, bottles)
 
 
 def cell(rendered: str, bin_id: str, cols: int = 13) -> str:
@@ -239,12 +220,12 @@ def test_the_two_racks_do_not_read_each_others_bottles():
     bottle in one would light a bin in the other.
     """
     in_two = [bottle("A1", "2020", "2030", location=RACK2_LOCATION)]
-    assert set(render(GRID1, in_two)) == {"."}
-    assert cell(render(GRID2, in_two), "A1", cols=7) == "R"
+    assert set(render(RACK1, in_two)) == {"."}
+    assert cell(render(RACK2, in_two), "A1", cols=7) == "R"
 
     in_one = [bottle("A1", "2020", "2030", location=RACK1_LOCATION)]
-    assert set(render(GRID2, in_one)) == {"."}
-    assert cell(render(GRID1, in_one), "A1") == "R"
+    assert set(render(RACK2, in_one)) == {"."}
+    assert cell(render(RACK1, in_one), "A1") == "R"
 
 
 def test_a_bin_outside_the_envelope_lights_nothing():
@@ -268,16 +249,16 @@ def test_a_bottle_in_the_us_opening_is_counted_as_an_orphan():
     something has to say they exist, or a rebuild quietly swallows them.
     """
     gone = [bottle("A7", "2020", "2030"), bottle("C6", "2020", "2030")]
-    assert render(ORPHANS, gone) == "2"
+    assert bottles_off_rack(gone, RACK1) == 2
 
 
 def test_bins_the_rack_still_has_are_not_orphans():
     kept = [bottle(f"{chr(ord('A') + r)}{c + 1}", "2020", "2030") for r, c in sorted(RACK1_SHAPE)]
-    assert render(ORPHANS, kept) == "0"
+    assert bottles_off_rack(kept, RACK1) == 0
 
 
 def test_the_other_racks_bottles_are_not_rack_ones_orphans():
-    assert render(ORPHANS, [bottle("A1", "2020", "2030", location=RACK2_LOCATION)]) == "0"
+    assert bottles_off_rack([bottle("A1", "2020", "2030", location=RACK2_LOCATION)], RACK1) == 0
 
 
 # --------------------------------------------------------------------------
@@ -285,13 +266,13 @@ def test_the_other_racks_bottles_are_not_rack_ones_orphans():
 # --------------------------------------------------------------------------
 def test_each_grid_is_one_character_per_bin_of_its_envelope():
     assert len(grid([])) == subs(NODE1, "rack_cells") == 13 * 13
-    assert len(render(GRID2, [])) == subs(NODE2, "rack_cells") == 7 * 7
+    assert len(render(RACK2, [])) == subs(NODE2, "rack_cells") == 7 * 7
 
 
 def test_the_grids_fit_in_a_state():
     """Home Assistant truncates a state longer than 255 characters."""
     assert len(grid(one_bottle_per_bin())) <= 255
-    assert len(render(GRID2, [])) <= 255
+    assert len(render(RACK2, [])) <= 255
 
 
 def test_a_full_rack_is_still_one_character_per_bin():
@@ -745,35 +726,52 @@ def test_the_locate_script_sends_exactly_the_variables_light_bin_takes():
         assert set(payload) == _node_actions(node)["light_bin"]
 
 
-def test_every_state_the_package_emits_is_a_state_the_nodes_draw():
-    """The alphabet is the contract between the files.
+def test_every_state_the_integration_emits_is_a_state_the_nodes_draw():
+    """The alphabet is the contract between the integration and the nodes.
 
-    Each grid template ends by indexing a literal alphabet with a rank; the
-    nodes switch on the same characters. Adding a state to one side without
-    the other paints an occupied bin as empty.
+    The grid sensors index racks.STATES with a rank; the nodes switch on the
+    same characters. Adding a state to one side without the other paints an
+    occupied bin as empty.
     """
-    for template in (GRID1, GRID2):
-        alphabet = re.search(r"'([.A-Z]+)'\[rank\]", template)
-        assert alphabet, "the template should render its states from one literal alphabet"
-        emitted = set(alphabet.group(1)) - {"."}
-
-        for node in NODES.values():
-            render_script = next(s for s in node["script"] if s["id"] == "render")
-            drawn = set(re.findall(r"case '([A-Z])':", render_script["then"][0]["lambda"]))
-            assert emitted == drawn, "the package and a node disagree about the states"
+    emitted = set(STATES) - {"."}
+    for node in NODES.values():
+        render_script = next(s for s in node["script"] if s["id"] == "render")
+        drawn = set(re.findall(r"case '([A-Z])':", render_script["then"][0]["lambda"]))
+        assert emitted == drawn, "the integration and a node disagree about the states"
 
 
 def test_the_nodes_know_the_racks_the_package_is_describing():
     """Both sides carry each rack's shape; disagreeing means a shifted picture."""
-    for template, node, location, letters in (
-        (GRID1, NODE1A, RACK1_LOCATION, 13),
-        (GRID1, NODE1B, RACK1_LOCATION, 13),
-        (GRID2, NODE2, RACK2_LOCATION, 7),
+    for rack, node, location, shape in (
+        (RACK1, NODE1A, RACK1_LOCATION, RACK1_SHAPE),
+        (RACK1, NODE1B, RACK1_LOCATION, RACK1_SHAPE),
+        (RACK2, NODE2, RACK2_LOCATION, RACK2_SHAPE),
     ):
-        assert f"set cols = {subs(node, 'rack_cols')}" in template
-        assert re.search(rf"set rows = '[A-Z]{{{subs(node, 'rack_rows')}}}'", template)
-        assert f"RACK_LOCATION = '{location}'" in template
-        assert subs(node, "rack_rows") == letters
+        assert rack.location == location
+        assert rack.rows == subs(node, "rack_rows")
+        assert rack.cols == subs(node, "rack_cols")
+        assert rack.cells == subs(node, "rack_cells")
+        envelope = {(r, c) for r in range(rack.rows) for c in range(rack.cols)}
+        assert {cell for cell in envelope if rack.has(cell)} == shape
+
+
+def test_the_package_pushes_the_integrations_grid_sensors():
+    """The entity the push automation watches is the one the integration makes.
+
+    A has-entity-name sensor on the account's device is
+    sensor.<account>_<rack name>_grid; the package uses the placeholder
+    account "cellartracker", as the header says.
+    """
+    text = PACKAGE_FILE.read_text()
+    for rack in (RACK1, RACK2):
+        slug = re.sub(r"[^a-z0-9]+", "_", rack.location.lower()).strip("_")
+        assert f"sensor.cellartracker_{slug}_grid" in text
+
+
+def test_the_package_needs_no_token_any_more():
+    """The whole point of moving the grid into the integration."""
+    assert "rest" not in PACKAGE
+    assert "!secret" not in PACKAGE_FILE.read_text()
 
 
 def test_the_two_racks_share_one_palette():

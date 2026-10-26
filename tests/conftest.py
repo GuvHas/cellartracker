@@ -264,6 +264,36 @@ _module(
 )
 
 _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
+
+
+@dataclasses.dataclass(frozen=True)
+class TextSelectorConfig:
+    """Stub of homeassistant.helpers.selector.TextSelectorConfig."""
+
+    multiline: bool = False
+
+
+class TextSelector:
+    """Stub of homeassistant.helpers.selector.TextSelector.
+
+    Callable like the real one, which voluptuous uses to validate the field:
+    it accepts a string and returns it unchanged.
+    """
+
+    def __init__(self, config=None):
+        self.config = config or TextSelectorConfig()
+
+    def __call__(self, value):
+        if not isinstance(value, str):
+            raise ValueError("expected a string")
+        return value
+
+
+_module(
+    "homeassistant.helpers.selector",
+    TextSelector=TextSelector,
+    TextSelectorConfig=TextSelectorConfig,
+)
 # The real ConfigType is dict[str, Any]; async_setup takes one.
 _module("homeassistant.helpers.typing", ConfigType=dict)
 _module("homeassistant.util")
@@ -346,6 +376,7 @@ class SensorEntity:
     _attr_native_unit_of_measurement = None
     _attr_state_class = None
     _attr_translation_key = None
+    _attr_translation_placeholders = None
     _attr_unique_id = None
 
     @property
@@ -396,6 +427,10 @@ class SensorEntity:
     @property
     def translation_key(self):
         return self._described("translation_key")
+
+    @property
+    def translation_placeholders(self):
+        return self._attr_translation_placeholders or {}
 
     @property
     def unique_id(self):

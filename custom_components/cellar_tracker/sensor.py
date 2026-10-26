@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime
 from typing import Literal
 
@@ -15,8 +17,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .cellar_data import CellarData, CellarTrackerConfigEntry, WineCellarData
+from .cellar_data import CellarData, CellarTrackerConfigEntry, RackState, WineCellarData
 from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
+from .racks import Rack
 
 # One typed place for what five constructors used to spell out. The key is
 # also the translation key and the unique-id suffix, so nothing can drift
@@ -47,6 +50,18 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         key="past_drink_window",
         translation_key="past_drink_window",
         icon="mdi:clock-alert-outline",
+        native_unit_of_measurement="bottles",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="rack_grid",
+        translation_key="rack_grid",
+        icon="mdi:grid",
+    ),
+    SensorEntityDescription(
+        key="rack_off_rack",
+        translation_key="rack_off_rack",
+        icon="mdi:map-marker-question",
         native_unit_of_measurement="bottles",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -111,6 +126,11 @@ async def async_setup_entry(
         PastDrinkWindowSensor(coordinator, device_info, entry.entry_id),
         CellarLastSyncSensor(coordinator, device_info, entry.entry_id),
     ]
+
+    # Two per configured rack, and none for a cellar without LEDs.
+    for rack in coordinator.racks:
+        sensors.append(RackGridSensor(coordinator, device_info, entry.entry_id, rack))
+        sensors.append(RackOffRackSensor(coordinator, device_info, entry.entry_id, rack))
 
     async_add_entities(sensors)
 
@@ -237,3 +257,95 @@ class CellarLastSyncSensor(CoordinatorEntity[WineCellarData], SensorEntity):
     def native_value(self) -> datetime | None:
         """The last successful refresh, or None if none has happened yet."""
         return self.coordinator.last_success
+
+
+def _rack_slug(location: str) -> str:
+    """A unique-id fragment for a rack, stable across renames of its sensors.
+
+    Readable, plus a short hash of the exact location: the readable part alone
+    collapses "Wine Rack 1" and "Wine-Rack-1", or any two all non-ASCII names,
+    into one id, and Home Assistant would then drop one rack's sensors.
+    """
+    readable = re.sub(r"[^a-z0-9]+", "_", location.casefold()).strip("_") or "rack"
+    return f"{readable}_{hashlib.sha256(location.encode('utf-8')).hexdigest()[:8]}"
+
+
+class _RackSensor(CoordinatorEntity[WineCellarData], SensorEntity):
+    """Shared shape for the per-rack sensors.
+
+    Keyed by the rack's CellarTracker location, which is what the user typed
+    and what the bottles are filed under. Renaming a location in CellarTracker
+    and in the options therefore makes a new entity, which is right: the old
+    one described a rack that no longer has that name anywhere.
+    """
+
+    _attr_has_entity_name = True
+    _key: Literal["rack_grid", "rack_off_rack"]
+
+    def __init__(
+        self,
+        coordinator: WineCellarData,
+        device_info: DeviceInfo,
+        entry_id: str,
+        rack: Rack,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = DESCRIPTIONS_BY_KEY[self._key]
+        self._rack = rack
+        self._attr_unique_id = f"{entry_id}_{self._key}_{_rack_slug(rack.location)}"
+        self._attr_device_info = device_info
+        self._attr_translation_placeholders = {"rack": rack.location}
+
+    def _state(self) -> RackState | None:
+        data = self.coordinator.data
+        racks = None if data is None else data.get("racks")
+        return None if racks is None else racks.get(self._rack.location)
+
+
+class RackGridSensor(_RackSensor):
+    """One state character per bin of a rack, for its LED node to paint.
+
+    The node's ``light_rack`` action takes this string as it is. Characters
+    are row-major over the rack's whole envelope - ``.NARUP``: empty, no
+    window, aging, ready, drink this year, past - and bins the rack does not
+    have are always ``.``, so the length never depends on the shape.
+    """
+
+    _key = "rack_grid"
+
+    def __init__(
+        self,
+        coordinator: WineCellarData,
+        device_info: DeviceInfo,
+        entry_id: str,
+        rack: Rack,
+    ) -> None:
+        super().__init__(coordinator, device_info, entry_id, rack)
+        # Static, so an automation can check it is talking to the rack it
+        # thinks it is without parsing the options.
+        self._attr_extra_state_attributes = {
+            "location": rack.location,
+            "rows": rack.rows,
+            "columns": rack.cols,
+        }
+
+    @property
+    def native_value(self) -> str | None:
+        """None until the first poll that knew about this rack."""
+        state = self._state()
+        return None if state is None else state["grid"]
+
+
+class RackOffRackSensor(_RackSensor):
+    """Bottles filed at a rack that no bin on it will light.
+
+    A bin outside the rack, in a gap the rack does not have, or unreadable.
+    Typically what a rebuild leaves behind; re-bin them in CellarTracker.
+    """
+
+    _key = "rack_off_rack"
+
+    @property
+    def native_value(self) -> int | None:
+        state = self._state()
+        return None if state is None else state["off_rack"]

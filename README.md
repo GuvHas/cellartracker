@@ -485,12 +485,26 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
 | `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
-| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that turns this integration's inventory into what both nodes paint |
+| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that pushes the integration's rack grids to the nodes, plus the locator scripts |
 
 Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
 slot, so bin `A2` is row A, column 2. Rack 1's rows **A**–**H** hold bins 1–4 and 10–13 with an
 opening across the middle; rows **I**–**M** run the full width. Rack 2 is rows **A**–**G**,
 bins 1–7.
+
+The integration itself knows your racks. Under **Settings → Devices & Services → CellarTracker →
+Configure → LED racks**, list one per line — the CellarTracker location, its rows × columns, and
+any bins the rack does not have:
+
+```text
+Wine Rack 1: 13x13 without A5-H9
+Wine Rack 2: 7x7
+```
+
+Each rack then gets two sensors on the CellarTracker device: **`<rack> grid`**, the string its
+LED node paints, and **`<rack> bottles off the rack`**, bottles filed at that rack in a bin no LED
+will ever show. Both update with every sync. A cellar without LEDs leaves the field empty and
+gets neither.
 
 ### What it shows
 
@@ -544,15 +558,15 @@ one half blanks the other.
 
 Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per bin — `R` ready,
 `U` urgent, `P` past, `A` aging, `N` no window, `.` empty — means a whole rack fits in one action
-call and in an ordinary sensor state. The package builds those strings from
-`/api/cellartracker/inventory?view=compact` with the same rule
+call and in an ordinary sensor state. The integration builds those strings during each sync, in
+[`racks.py`](custom_components/cellar_tracker/racks.py), with the same rule
 [`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
-in one request for both racks, and pushes them when the cellar syncs rather than on a timer.
+and the package pushes them when the grid sensor changes rather than on a timer.
 
 Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins the U does not have
 are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
-the rebuild removed is not mis-lit — it is just dark, and a diagnostic sensor counts them so a
-rebuild does not quietly swallow bottles.
+the rebuild removed is not mis-lit — it is just dark, and the rack's *bottles off the rack* sensor
+counts them so a rebuild does not quietly swallow bottles.
 
 ### Changing the shape of a rack
 
@@ -645,8 +659,9 @@ an unavailable entity leaves the rack dark.
 the reasoning behind it, the wiring and termination spec, the controller pin map, and the
 decisions still open. The rest of this section is the short version.
 
-- **The endpoint is authenticated**, so Home Assistant needs a long-lived access token to read its
-  own API. The package expects it in `secrets.yaml`.
+- **No token is needed.** The grids are sensors of the integration, so the package only calls
+  the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
+  long-lived access token; if you set one up for that, you can revoke it.)
 - **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
   2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
   end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and

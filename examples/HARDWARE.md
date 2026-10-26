@@ -366,7 +366,7 @@ controller gets you there, and anything learned applies thirteen times over on r
 2. Flash and bench-test the controller over USB-C before wiring anything to 12 V.
 3. Cut, solder and heatshrink seven strands. Test each one on the bench.
 4. Mount, route, ferrule, fuse at 2 A.
-5. Run the Home Assistant package and check a bin you know against the dashboard.
+5. Add the racks in the integration's options, install the Home Assistant package, and check a bin you know against the dashboard.
 6. Then rack 1.
 
 ---
@@ -394,7 +394,7 @@ Halving the palette's values halves everything above the standing current.
 
 | | Why it matters |
 |---|---|
-| **Which CellarTracker `Location` is the 7 × 7 rack?** | [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) maps `'Wine Rack 1'` to the 13-strand U and `'Wine Rack 2'` to the 7 × 7. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix, best caught before soldering |
+| **Which CellarTracker `Location` is the 7 × 7 rack?** | The integration's *LED racks* option names `Wine Rack 1` as the 13-strand U and `Wine Rack 2` as the 7 × 7, and [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) sends each grid to its node. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix in the options, best caught before soldering |
 | **Does rack 2's board sit at the top or the bottom of the riser?** | Decides whether the port → row table above runs A→G or G→A. One-line change either way |
 | **Which GPIO, if any, the relay needs beyond 23** | The secondary-power input's wiring is not in the published spec |
 | **Bin width** | 95 mm and 60/m are what the configs use. Check a few bins agree before cutting — the mapping tolerates up to half an LED of error per piece, not a different number |

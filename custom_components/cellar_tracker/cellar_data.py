@@ -36,11 +36,13 @@ from homeassistant.util import dt as dt_util
 from .const import (
     COMPACT_FIELDS,
     CONF_CURRENCY,
+    CONF_RACKS,
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     normalize_currency,
 )
+from .racks import Rack, bottles_off_rack, parse_racks, rack_grid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +61,13 @@ REQUEST_TIMEOUT = 60
 MAX_BACKOFF = 21600
 
 
+class RackState(TypedDict):
+    """What one rack shows: its grid, and the bottles it cannot show."""
+
+    grid: str
+    off_rack: int
+
+
 class CellarData(TypedDict):
     """What one successful poll produces.
 
@@ -72,6 +81,9 @@ class CellarData(TypedDict):
     bottles: list[dict[str, Any]]
     ready_to_drink: int
     past_drink_window: int
+    # Keyed by the rack's Location. Absent from a payload computed before racks
+    # existed, and empty when none are configured.
+    racks: NotRequired[dict[str, RackState]]
     # Attached after the parse returns, so it is absent from the executor's
     # own result for the moment between the two.
     last_success: NotRequired[datetime]
@@ -281,6 +293,8 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             )
         )
+        self._racks = _configured_racks(entry)
+
         # Kept so a rate-limit backoff knows what to restore, and so it never
         # polls sooner than the user asked for.
         self._scan_interval = scan_interval
@@ -316,6 +330,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
     def currency(self) -> str:
         """Return the configured currency symbol."""
         return self._currency
+
+    @property
+    def racks(self) -> list[Rack]:
+        """The racks configured in the options, in the order they were listed."""
+        return self._racks
 
     @property
     def inventory_body(self) -> bytes:
@@ -572,6 +591,16 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         """Parse the tab-separated export, then summarise it. Runs in an executor."""
         rows = list(csv.DictReader(io.StringIO(payload), dialect="excel-tab"))
         result = self._process_inventory(rows, previous=previous)
+        # Here rather than in a template: the bottles are already in memory,
+        # and this is the thread that is allowed to spend time on them.
+        year = self._current_year()
+        result["racks"] = {
+            rack.location: {
+                "grid": rack_grid(result["bottles"], rack, year),
+                "off_rack": bottles_off_rack(result["bottles"], rack),
+            }
+            for rack in self._racks
+        }
         # Rendered here, on the executor thread, for the HTTP views to serve.
         bottles = result["bottles"]
         self._inventory_body = json_bytes(bottles)
@@ -582,6 +611,24 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             ]
         )
         return result
+
+
+def _configured_racks(entry: ConfigEntry) -> list[Rack]:
+    """Read the racks from the options, or none if they no longer parse.
+
+    The options flow refuses text that does not parse, so this only fails on
+    an entry edited by hand or written by a version with different rules.
+    That must not take the cellar's sensors down with it.
+    """
+    try:
+        return parse_racks(entry.options.get(CONF_RACKS))
+    except ValueError as err:
+        _LOGGER.warning(
+            "Ignoring the CellarTracker rack configuration: %s. Set the racks "
+            "again in the integration options.",
+            err,
+        )
+        return []
 
 
 # Carries the coordinator's type on the entry, so `entry.runtime_data` is

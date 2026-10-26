@@ -29,6 +29,7 @@ STRINGS = json.loads(
 
 class _Coordinator:
     currency = "USD"
+    racks = ()
     last_success = None
 
     def __init__(self, data=None):

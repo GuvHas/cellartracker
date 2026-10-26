@@ -46,6 +46,9 @@ EXPECTED_KEYS = {
     "ready_to_drink",
     "past_drink_window",
     "last_synchronised",
+    # Built once per configured rack; tests/test_rack_sensors.py covers them.
+    "rack_grid",
+    "rack_off_rack",
 }
 
 
@@ -58,6 +61,7 @@ def _built() -> dict:
 
     class _Coordinator:
         currency = "USD"
+        racks = ()
         last_success = None
         data = {"total_bottles": 0, "total_value": 0.0, "bottles": []}
 

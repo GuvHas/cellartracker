@@ -31,6 +31,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from cellar_tracker import cellar_data as cellar_data_module
 from cellar_tracker.cellar_data import CellarData, WineCellarData
 from cellar_tracker.const import DOMAIN
+from cellar_tracker.racks import Rack
 from cellar_tracker.sensor import SENSOR_DESCRIPTIONS
 from cellar_tracker.sensor import async_setup_entry as sensor_setup_entry
 from conftest import ConfigEntry, ViewHass
@@ -46,6 +47,8 @@ CI = (
 
 class _Coordinator:
     currency = "USD"
+    # One rack, so the per-rack descriptions are built too.
+    racks = (Rack("Wine Rack 2", 7, 7),)
     last_success = None
     data = {
         "total_bottles": 3,
@@ -53,6 +56,7 @@ class _Coordinator:
         "bottles": [],
         "ready_to_drink": 1,
         "past_drink_window": 0,
+        "racks": {"Wine Rack 2": {"grid": "." * 49, "off_rack": 0}},
     }
 
 
@@ -120,6 +124,8 @@ def test_every_sensor_is_described():
         "ready_to_drink",
         "past_drink_window",
         "last_synchronised",
+        "rack_grid",
+        "rack_off_rack",
     }
 
 
@@ -164,6 +170,10 @@ def test_unique_ids_still_derive_from_the_description_key():
         "e1_past_drink_window",
         # Unchanged from when this entity reported "Connected".
         "e1_inventory_status",
+        # Per rack, keyed by its location rather than by its position in the
+        # options, so reordering the racks does not swap their entities.
+        "e1_rack_grid_wine_rack_2_81030e09",
+        "e1_rack_off_rack_wine_rack_2_81030e09",
     }
 
 

@@ -35,6 +35,8 @@ COMPACT_FIELDS = (
 )
 
 CONF_CURRENCY = "currency"
+# Free text, one rack per line - see racks.py for the format.
+CONF_RACKS = "racks"
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600
 MIN_SCAN_INTERVAL = 900
