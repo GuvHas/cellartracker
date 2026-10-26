@@ -533,7 +533,6 @@ def test_the_two_halves_of_rack_one_are_one_rack():
 #: ESP32 pins that cannot drive a strand on any board, whoever chose them.
 #: 6-11 are the SPI flash. 12 is MTDI, which selects flash voltage at reset -
 #: held high, a 3.3 V module does not boot at all. 34-39 are input-only.
-#: A board can only get past this list through FIXED_PINOUT below.
 PINS_NEVER = {6, 7, 8, 9, 10, 11, 12, 34, 35, 36, 37, 38, 39}
 
 #: Pins to avoid when the choice is yours. These all work; they are just worse
@@ -545,29 +544,19 @@ PINS_AVOID_IF_FREE = {0, 1, 2, 3, 5, 14, 15}
 #: Lightish E8-WiFi Plus, whose eight ports are GPIO 5, 12, 4, 27, 17, 26, 33
 #: and 25. A seven-strand board may skip exactly one, and 12 is the one that
 #: matters - GPIO5's worst case is a flicker at reset, GPIO12's is a board
-#: that will not start. So GPIO5 is used, deliberately, on rack 1's
-#: seven-strand half; rack 1's six-strand half skips it.
-#:
-#: Rack 2's O1 port is damaged (2026-10-26), which leaves it seven strands for
-#: seven ports, so its row A is on O2 (GPIO12). That only works because the pin
-#: drives the port's buffer, never the cable, and is held low at reset.
-FIXED_PINOUT = {"winerack1aled": {5}, "winerack2led": {12}}
-
-#: Ports that are physically broken on a given board and must stay empty.
-DEAD_PORTS = {"winerack2led": {5}}
+#: that will not start. So GPIO5 is used, deliberately, on the two
+#: seven-strand boards; rack 1's six-strand half skips it.
+FIXED_PINOUT = {"winerack1aled": {5}, "winerack2led": {5}}
 
 #: The E8-WiFi Plus's ports O1..O8, in order.
 E8_PORTS = [5, 12, 4, 27, 17, 26, 33, 25]
 
 
 def test_no_strand_uses_a_pin_that_cannot_drive_one():
-    """The flash pins, MTDI and the input-only pins, unless a board's port map
-    forces one and FIXED_PINOUT says so."""
-    for name, node in NODES.items():
+    """The flash pins, MTDI and the input-only pins, on any board."""
+    for node in NODES.values():
         for light in node["light"]:
             pin = int(re.sub(r"\D", "", str(light["pin"])))
-            if pin in FIXED_PINOUT.get(name, set()):
-                continue
             assert pin not in PINS_NEVER, f"{light['id']} is on GPIO{pin}"
 
 
@@ -590,19 +579,15 @@ def test_a_node_that_picks_its_own_pins_picks_good_ones():
 def test_every_node_matches_its_controllers_port_map():
     """The pins are the E8-WiFi Plus's ports, so they cannot drift from it.
 
-    Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Every board uses
-    them in port order from its top row down. A board leaves O2 (GPIO12) empty
-    unless a dead port forces it into use, as on rack 2; rack 1's six-row half
-    leaves O1 empty too.
+    Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Every board leaves O2
+    (GPIO12) empty and uses the rest in port order from its top row down;
+    rack 1's six-row half leaves O1 empty too.
     """
     for name, node in NODES.items():
         pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in node["light"]]
         assert set(pins) <= set(E8_PORTS), f"{name}: a pin that is not one of the board's ports"
         assert len(set(pins)) == len(pins), f"{name}: two strands on one port"
-        dead = DEAD_PORTS.get(name, set())
-        assert not dead & set(pins), f"{name}: a strand on a damaged port"
-        if not dead:
-            assert 12 not in pins, f"{name}: port O2 should be left empty"
+        assert 12 not in pins, f"{name}: port O2 should be left empty"
         assert pins == sorted(pins, key=E8_PORTS.index), f"{name}: rows out of port order"
         if len(pins) < 7:
             assert 5 not in pins, f"{name}: a six-strand board has no reason to use O1"

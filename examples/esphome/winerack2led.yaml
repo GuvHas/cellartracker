@@ -455,23 +455,20 @@ script:
 #
 # The pins are the E8-WiFi Plus's ports, which are fixed in copper:
 #
-#   row A -> O2 (GPIO12)   row E -> O6 (GPIO26)
+#   row A -> O1 (GPIO5)    row E -> O6 (GPIO26)
 #   row B -> O3 (GPIO4)    row F -> O7 (GPIO33)
 #   row C -> O4 (GPIO27)   row G -> O8 (GPIO25)
 #   row D -> O5 (GPIO17)
 #
-# O1 (GPIO5) is empty because the port on this board is damaged (2026-10-26),
-# so row A moved to the other half of the same X1 terminal block, O2.
+# O2 (GPIO12) is deliberately left empty. GPIO12 is MTDI, which selects flash
+# voltage at reset: held high, a 3.3 V module does not boot at all. The port's
+# buffer makes that unlikely, but seven strands into eight ports means one can
+# be skipped for free, so it is.
 #
-# O2 (GPIO12) was the port we meant to skip. GPIO12 is MTDI, which selects
-# flash voltage at reset: held high, a 3.3 V module does not boot at all. On
-# this board it only drives the port's buffer, a high-impedance input, so
-# nothing on the cable side can pull it up, and the pin's own pull-down holds
-# it low at reset. With O1 dead it is seven strands into seven ports, so the
-# risk is taken. If the board ever refuses to boot, burning the flash-voltage
-# eFuse to 3.3 V (examples/HARDWARE.md) makes GPIO12 an ordinary pin for good.
-# tests/test_rack_leds_example.py records that compromise explicitly rather
-# than letting it pass unnoticed.
+# GPIO5 is a strapping pin and would not be my choice either - its worst case
+# is one row flickering at reset. Skipping both 5 and 12 would leave six
+# ports for seven strands, so it stays. tests/test_rack_leds_example.py
+# records that compromise explicitly rather than letting it pass unnoticed.
 #
 # Rows descend the rack as the ports ascend, so the bundle that comes up the
 # riser peels off one cable per shelf in port order instead of crossing over
@@ -504,7 +501,7 @@ light:
   - <<: *strand
     id: row_a
     name: "Row A"
-    pin: GPIO12
+    pin: GPIO5
     effects:
       - addressable_lambda:
           name: Rack
