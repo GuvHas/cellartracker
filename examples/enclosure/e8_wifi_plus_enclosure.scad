@@ -23,9 +23,8 @@
 //      pins - D +), then X5 INPUT (orange levers) at the right.
 //    * BACK edge (+Y): ESP32 module with the u.FL antenna socket, vertical
 //      USB-C, X7 BTN INPUT and X6 EXT PWR (both unused here).
-//    * Four mounting holes near the corners. The front-left one sits right
-//      at the corner of the X1 block, so it gets a locating pin instead of
-//      a screw (see board_holes).
+//    * Four M3 mounting holes on a 127 x 77 mm rectangle, centred on the
+//      board (measured on a real board).
 //
 //  COORDINATES (assembled, lying on its back as if the wall were the floor)
 //    X = length (along the outputs), Y = depth, Z = away from the wall.
@@ -63,19 +62,10 @@ board_comp_h = 24.4;        // tallest part above the PCB top surface   [CHECK]
                             //   (datasheet overall height 26 mm minus PCB)
 board_under_h = 3.0;        // tallest solder joint / lead under the PCB [CHECK]
 
-// Mounting holes [x, y, type], measured from the board's front-left corner
-// (front = output-terminal edge), from the photo.                   [CHECK]
-//   "insert" - standoff with a heat-set insert, board screwed down
-//   "pin"    - standoff with a locating pin, for a hole a screw head can't
-//              reach. The front-left hole is under the edge of the X1 block.
-board_holes = [
-    [  2.5,  3.0, "pin"   ],
-    [133.0,  3.3, "insert"],
-    [  2.5, 82.3, "insert"],
-    [130.5, 82.3, "insert"]
-];
-board_hole_d = 3.2;         // PCB hole, sets the locating pin size     [CHECK]
-pin_h        = 2.5;         // locating pin height above the standoff
+// Mounting holes: a rectangle of hole centres, centred on the board
+// (measured on a real board).
+hole_span_x  = 127.0;
+hole_span_y  = 77.0;
 
 
 /* [Material & tolerances] */
@@ -94,6 +84,8 @@ end_bay   = 14.0;           // free space at each short end. Must clear the
                             //   lid-screw bosses AND the X1 gland's lock nut.
 front_bay = 18.0;           // free space in front of the terminals: gland
                             //   lock-nut, then the cores fan out to - D +
+back_bay  = 10.0;           // extra space behind the board, along the top
+                            //   (+Y) wall, for routing the antenna lead
 top_clear = 3.0;            // air between tallest component and the lid lip
 
 
@@ -184,7 +176,7 @@ usb_wall_h  = 7.5;
 // =============================================================================
 
 cav_l = board_l + 2*board_clear + 2*end_bay;
-cav_w = board_w + 2*board_clear + front_bay;
+cav_w = board_w + 2*board_clear + front_bay + back_bay;
 cav_h = standoff_h + board_t + board_comp_h + top_clear + lip_h;
 
 out_l  = cav_l + 2*wall;
@@ -197,6 +189,12 @@ bx = wall + end_bay + board_clear;
 by = wall + front_bay + board_clear;
 bz = floor_t + standoff_h;
 pcb_top = bz + board_t;
+
+// Mounting-hole positions from the board's front-left corner
+board_holes = [
+    for (sx = [-1, 1], sy = [-1, 1])
+        [board_l/2 + sx*hole_span_x/2, board_w/2 + sy*hole_span_y/2]
+];
 
 // Lid-screw boss centres
 boss_pos = [
@@ -299,22 +297,13 @@ module base_shell() {
 module standoffs() {
     for (p = board_holes)
         translate([bx + p[0], by + p[1], floor_t - eps])
-            if (p[2] == "pin") {
+            difference() {
                 filleted_post(standoff_d, standoff_h + eps, post_fillet);
-                // locating pin with a lead-in chamfer
-                translate([0, 0, standoff_h])
-                    cylinder(d = board_hole_d - 2*fit_clear, h = board_t + pin_h - 0.6);
-                translate([0, 0, standoff_h + board_t + pin_h - 0.6 - eps])
-                    cylinder(d1 = board_hole_d - 2*fit_clear,
-                             d2 = board_hole_d - 2*fit_clear - 1.2, h = 0.6);
-            } else
-                difference() {
-                    filleted_post(standoff_d, standoff_h + eps, post_fillet);
-                    translate([0, 0, standoff_h - insert_depth])
-                        cylinder(d = insert_hole_d, h = insert_depth + 1);
-                    translate([0, 0, standoff_h - insert_depth - screw_relief_h])
-                        cylinder(d = screw_relief_d, h = screw_relief_h + eps);
-                }
+                translate([0, 0, standoff_h - insert_depth])
+                    cylinder(d = insert_hole_d, h = insert_depth + 1);
+                translate([0, 0, standoff_h - insert_depth - screw_relief_h])
+                    cylinder(d = screw_relief_d, h = screw_relief_h + eps);
+            }
 }
 
 // Corner boss: hull of the boss and the cavity corner, so it blends into
