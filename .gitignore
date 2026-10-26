@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+
+# CMake writes the C++ test build here; ctest is run from a clean tree in CI.
+build/

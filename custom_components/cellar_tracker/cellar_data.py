@@ -46,6 +46,7 @@ from .analytics import drink_window_counts as _drink_window_counts  # noqa: F401
 from .const import (
     COMPACT_FIELDS,
     CONF_CURRENCY,
+    CONF_RACKS,
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -55,6 +56,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
     normalize_currency,
 )
+from .racks import Rack, bottles_off_rack, parse_racks, rack_grid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,6 +116,13 @@ async def async_remove_cache(hass: HomeAssistant, entry_id: str) -> None:
     ).async_remove()
 
 
+class RackState(TypedDict):
+    """What one rack shows: its grid, and the bottles it cannot show."""
+
+    grid: str
+    off_rack: int
+
+
 class CellarData(TypedDict):
     """What one successful poll produces.
 
@@ -131,6 +140,9 @@ class CellarData(TypedDict):
     needs_aging: int
     peak_drinking: int
     location_index: LocationIndex
+    # Keyed by the rack's Location. Absent from a payload computed before racks
+    # existed, and empty when none are configured.
+    racks: NotRequired[dict[str, RackState]]
     # Attached after the parse returns, so it is absent from the executor's
     # own result for the moment between the two.
     last_success: NotRequired[datetime]
@@ -318,6 +330,8 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             )
         )
+        self._racks = _configured_racks(entry)
+
         # Kept so a rate-limit backoff knows what to restore, and so it never
         # polls sooner than the user asked for.
         self._scan_interval = scan_interval
@@ -398,6 +412,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
     def currency(self) -> str:
         """Return the configured currency symbol."""
         return self._currency
+
+    @property
+    def racks(self) -> list[Rack]:
+        """The racks configured in the options, in the order they were listed."""
+        return self._racks
 
     @property
     def inventory_body(self) -> bytes:
@@ -536,6 +555,8 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
                 "needs_aging": 0,
                 "peak_drinking": 0,
                 "location_index": {},
+                # Every rack is dark, whatever year it is.
+                "racks": self._rack_states([], 0),
             }
 
         total_value = 0.0
@@ -619,7 +640,9 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             # Real inventory came back; any earlier suspicion is resolved.
             self._suspicious_empty_polls = 0
 
-        window = drink_window_breakdown(processed_bottles, self._current_year())
+        # Read once and shared: the racks and the counts must agree on the year.
+        year = self._current_year()
+        window = drink_window_breakdown(processed_bottles, year)
 
         return {
             "total_bottles": len(processed_bottles),
@@ -630,6 +653,21 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             "needs_aging": window["needs_aging"],
             "peak_drinking": window["peak_drinking"],
             "location_index": index_by_location_bin(processed_bottles),
+            "racks": self._rack_states(processed_bottles, year),
+        }
+
+    def _rack_states(self, bottles: list[dict[str, Any]], year: int) -> dict[str, RackState]:
+        """Each configured rack's grid and off-rack count, keyed by Location.
+
+        Here rather than in a template: the bottles are already in memory, and
+        this is the thread that is allowed to spend time on them.
+        """
+        return {
+            rack.location: {
+                "grid": rack_grid(bottles, rack, year),
+                "off_rack": bottles_off_rack(bottles, rack),
+            }
+            for rack in self._racks
         }
 
     async def _fetch_payload(self) -> str:
@@ -920,6 +958,24 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             [{field: b[field] for field in COMPACT_FIELDS if field in b} for b in bottles]
         )
         return result
+
+
+def _configured_racks(entry: ConfigEntry) -> list[Rack]:
+    """Read the racks from the options, or none if they no longer parse.
+
+    The options flow refuses text that does not parse, so this only fails on
+    an entry edited by hand or written by a version with different rules.
+    That must not take the cellar's sensors down with it.
+    """
+    try:
+        return parse_racks(entry.options.get(CONF_RACKS))
+    except ValueError as err:
+        _LOGGER.warning(
+            "Ignoring the CellarTracker rack configuration: %s. Set the racks "
+            "again in the integration options.",
+            err,
+        )
+        return []
 
 
 # Carries the coordinator's type on the entry, so `entry.runtime_data` is

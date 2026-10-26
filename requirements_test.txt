@@ -2,3 +2,8 @@ pytest>=8.0
 aiohttp>=3.9
 cellartracker==1.1.1
 voluptuous>=0.13
+
+# tests/test_rack_leds_example.py reads the example configurations in
+# examples/, so it needs a YAML parser. It is not a dependency of the
+# integration itself.
+PyYAML>=6.0

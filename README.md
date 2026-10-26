@@ -25,6 +25,7 @@ bottle down to the ones you can drink tonight.
 - [Resilience](#resilience)
 - [Actions and events](#actions-and-events)
 - [Lovelace and automation examples](#lovelace-and-automation-examples)
+- [Lighting the rack](#lighting-the-rack)
 - [Troubleshooting and FAQ](#troubleshooting-and-faq)
 - [Development](#development)
 - [License](#license)
@@ -622,6 +623,207 @@ recorder cost is the user's to accept.
 
 ---
 
+## Lighting the rack
+
+If your bottles live in a rack you can put LEDs behind, the cellar can answer "what should I open"
+in the room rather than on a screen. `examples/` holds a working set of configurations for two:
+
+| File | What it is |
+|---|---|
+| `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
+| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
+| `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
+| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that pushes the integration's rack grids to the nodes, plus the locator scripts |
+
+Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
+slot, so bin `A2` is row A, column 2. Rack 1's rows **A**–**H** hold bins 1–4 and 10–13 with an
+opening across the middle; rows **I**–**M** run the full width. Rack 2 is rows **A**–**G**,
+bins 1–7.
+
+The integration itself knows your racks. Under **Settings → Devices & Services → CellarTracker →
+Configure → LED racks**, list one per line — the CellarTracker location, its rows × columns, and
+any bins the rack does not have:
+
+```text
+Wine Rack 1: 13x13 without A5-H9
+Wine Rack 2: 7x7
+```
+
+Each rack then gets two sensors on the CellarTracker device: **`<rack> grid`**, the string its
+LED node paints, and **`<rack> bottles off the rack`**, bottles filed at that rack in a bin no LED
+will ever show. Both update with every sync. A cellar without LEDs leaves the field empty and
+gets neither.
+
+### What it shows
+
+Every lit bin carries the same drinking-window state the dashboard paints, so the racks and
+`/cellartracker/cellar.html` cannot tell you different things about the same bottle:
+
+| Bin | Meaning |
+|---|---|
+| Green | **Ready** — this year is inside the drinking window |
+| Amber | **Drink this year** — the final year of the window |
+| Red | **Past window** — the window closed before this year |
+| Blue | **Needs aging** — the window has not opened yet |
+| Dim white | **No window** — CellarTracker has no recommendation for that bottle |
+| Dark | No bottle, or no bin there at all |
+
+A bin usually holds several bottles. It shows the one that most wants dealing with: past, then
+drink-this-year, then ready, then aging, then a bottle with no window at all.
+
+There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
+particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_locate`
+script, and walk to the rack. The overview comes back when the hold expires, and a poll that lands
+while you are looking does not steal the answer from you.
+
+### Why the strips run horizontally
+
+The strip's holder sits behind the bins, and anywhere but horizontal along the back of the rack
+it covers a bin's opening. So there is one strand per bin **row**, fed from the bin-1 end.
+
+Eight of rack 1's thirteen rows are split in two by the U's opening — bins 1–4 and 10–13. Each
+of those is still one strand: the two pieces are chained by a jumper carrying 12 V, ground and
+data across the gap, and the firmware continues the pixel count from bin 4 straight to bin 10.
+That keeps rack 1 at thirteen data lines; running every piece as its own strand would make it
+21. The test suite asserts that every piece of strip is exactly one unbroken run of bins and
+that only rows A–H need a jumper, so the wiring cannot quietly stop matching the rack.
+
+### How the two halves talk
+
+Each node exposes four actions and knows nothing about wine:
+
+| Action | Takes |
+|---|---|
+| `esphome.winerack1aled_light_rack` | `grid`: 169 state characters, row-major — the whole envelope in one call |
+| `esphome.winerack1aled_light_row` | `row`: `A`-`M`, `states`: 13 characters |
+| `esphome.winerack1aled_light_bin` | `bin_id`: `A2`, `r`/`g`/`b`, `seconds` to hold it |
+| `esphome.winerack1aled_clear_all` | nothing |
+
+Rack 1's other board, `winerack1bled`, takes exactly the same actions with the same data. Both
+halves keep the whole 13 × 13 envelope and draw only their own rows, so the package sends every
+rack-1 call to both and never has to know where the seam is — and a locator aimed at a bin on
+one half blanks the other.
+
+Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per bin — `R` ready,
+`U` urgent, `P` past, `A` aging, `N` no window, `.` empty — means a whole rack fits in one action
+call and in an ordinary sensor state. The integration builds those strings during each sync, in
+[`racks.py`](custom_components/cellar_tracker/racks.py), with the same rule
+[`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
+and the package pushes them when the grid sensor changes rather than on a timer.
+
+Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins the U does not have
+are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
+the rebuild removed is not mis-lit — it is just dark, and the rack's *bottles off the rack* sensor
+counts them so a rebuild does not quietly swallow bottles.
+
+### Changing the shape of a rack
+
+Neither node's YAML knows how big its rack is up front, and neither needs a file
+beside it. The rack's shape and the arithmetic that turns a bin into a run of
+pixels are both `substitutions:` at the top of the node's own configuration:
+
+```yaml
+  # {first column, bins, first column, bins} per bin row: the piece of strip
+  # the data reaches first, then the piece after the jumper. Row A is 0.
+  rack_table: >-
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
+
+  bin_first_led: |-
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
+                            int *count) -> int {
+      auto edge = [](int k) -> int {
+        return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
+      };
+      int offset = 0;
+      int k = -1;
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a) {
+        k = col - first_a;
+      } else if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        offset = bins_a > 0 ? edge(bins_a) : 0;
+        k = col - first_b;
+      }
+      if (k < 0) return -1;
+      if (count != nullptr) *count = edge(k + 1) - edge(k);
+      return offset + edge(k);
+    };
+```
+
+A row is at most two pieces, each a first column and a count, so a rack with an
+opening in it is a table rather than a special case. Bins are placed by position
+rather than at a fixed number of LEDs each: a 95 mm bin on a 60/m strip is 5.7
+LEDs, and `edge(k)` is the first LED whose centre lies past the k-th bin wall,
+so bins get 5 or 6 LEDs and bin 13 is where bin 13 actually is. Each strand's lambda is its
+row number and three `${...}` references — thirteen copies of an integer and one
+copy of the maths. To rebuild a rack, edit `rack_table` and the matching
+`num_leds:`; `tests/test_rack_leds_example.py` fails if the two stop agreeing.
+
+**Data enters at the bin-1 end.** Pixel 0 of every row is its bin 1 and the
+bin numbers count up along the strand, across the jumper on a split row. That
+puts every feed on one riser at the side of the rack.
+
+### Testing C++ that lives inside a YAML string
+
+An `addressable_lambda` body is ordinary C++ that happens to be written inside a
+string, which normally makes it testable only by flashing a board.
+[`tests/cpp`](tests/cpp) does not flash anything and does not keep a copy:
+`yaml_lambda.py` lifts those blocks straight out of the configuration, and
+[`test_yaml_lambdas.cpp`](tests/cpp/test_yaml_lambdas.cpp) `#include`s them
+inside wrappers that supply the same names a lambda has in scope:
+
+```cpp
+void paint(FakeLight &it, int kRow) {
+#include "rack1/row_extent.inc"
+#include "rack1/bin_first_led.inc"
+#include "rack1/paint_row.inc"
+}
+```
+
+Those three lines are the strand's lambda, in the order the YAML has them. The
+text under test is the text that ships, so a test cannot pass against a copy
+that has drifted. `FakeLight::operator[]` goes through `std::vector::at`, which
+turns the bug this whole arrangement exists to catch — a split row indexed as
+a full one, writing past the end of a 46-pixel strand — into a thrown exception
+a test can assert on rather than a flickering row somewhere else on the rack.
+
+```console
+$ cmake -S tests/cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir build/cpp
+```
+
+CI runs the same three commands.
+
+**Why the geometry is compile-time rather than Home Assistant entities.** Every
+number above is folded into flash by the compiler, so a rack's shape costs zero
+bytes of RAM and is readable before WiFi comes up. Measured on both nodes,
+moving all of it out of the twenty hand-written lambdas it used to live in cost
+no RAM at all. Runtime entities would buy re-shaping a rack without reflashing —
+which happens roughly never — at the price of heap and a new failure mode where
+an unavailable entity leaves the rack dark.
+
+### Before you build it
+
+[`examples/HARDWARE.md`](examples/HARDWARE.md) is the full build document — every part with
+the reasoning behind it, the wiring and termination spec, the controller pin map, and the
+decisions still open. The rest of this section is the short version.
+
+- **No token is needed.** The grids are sensors of the integration, so the package only calls
+  the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
+  long-lived access token; if you set one up for that, you can revoke it.)
+- **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
+  2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
+  end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
+  signal share one run up the riser. Halve the lit part by halving the palette.
+- **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
+  dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
+  LEDs, 5 V from a buck for the ESP32 and the level shifters.
+- **Thirteen strands is more than one controller has ports for.** The Lightish E8-WiFi Plus has
+  eight buffered outputs, seven usable once GPIO12 is left alone, so rack 1 is two boards — seven
+  rows and six. That also keeps every node inside the ESP32's eight RMT channels, so all three run
+  the native `esp32_rmt_led_strip` driver on ESP-IDF.
+
+---
+
 ## Troubleshooting and FAQ
 
 ### "Invalid username or password" when adding the integration
@@ -785,6 +987,7 @@ at the root for every consumer — roughly:
 
 ```python
 DEFAULT_TIMEOUT = 60
+
 
 def execute(self, url=BASE_URL, params={}, timeout=DEFAULT_TIMEOUT):
     ...

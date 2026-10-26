@@ -47,6 +47,8 @@ class LifecycleHass(ViewHass):
 class _Coordinator:
     """Stands in for WineCellarData without touching the network."""
 
+    racks = ()
+
     def __init__(self, data=None):
         self.data = data
         self.currency = "USD"

@@ -13,10 +13,12 @@ from cellartracker.errors import AuthenticationError, CannotConnect
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 
 from .cellar_data import async_fetch_inventory_payload
 from .const import (
     CONF_CURRENCY,
+    CONF_RACKS,
     CURRENCY_OPTIONS,
     DEFAULT_CURRENCY,
     DEFAULT_SCAN_INTERVAL,
@@ -24,6 +26,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
     normalize_currency,
 )
+from .racks import parse_racks
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,7 +141,16 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         """Manage the options."""
+        errors: dict[str, str] = {}
+        racks_problem = ""
         if user_input is not None:
+            try:
+                parse_racks(user_input.get(CONF_RACKS))
+            except ValueError as err:
+                errors[CONF_RACKS] = "invalid_racks"
+                racks_problem = str(err)
+
+        if user_input is not None and not errors:
             previous = self._current_currency()
             user_input[CONF_CURRENCY] = normalize_currency(
                 user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
@@ -165,6 +177,13 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
         current_currency = self._current_currency()
+        # What the user just typed survives a rejected submit, so a typo in one
+        # line does not cost them the other racks.
+        current_racks = (
+            user_input.get(CONF_RACKS, "")
+            if user_input is not None
+            else self.config_entry.options.get(CONF_RACKS, "")
+        )
 
         options_schema = vol.Schema(
             {
@@ -172,7 +191,16 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL)
                 ),
                 vol.Optional(CONF_CURRENCY, default=current_currency): vol.In(CURRENCY_OPTIONS),
+                # Optional and empty by default: most cellars have no LEDs.
+                vol.Optional(
+                    CONF_RACKS, description={"suggested_value": current_racks}
+                ): TextSelector(TextSelectorConfig(multiline=True)),
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=options_schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=options_schema,
+            errors=errors,
+            description_placeholders={"racks_problem": racks_problem},
+        )

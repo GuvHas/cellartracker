@@ -36,10 +36,17 @@
         "title": "CellarTracker options",
         "data": {
           "scan_interval": "Seconds between refreshes",
-          "currency": "Currency"
+          "currency": "Currency",
+          "racks": "LED racks"
         },
-        "description": "Changing the currency relabels the cellar value; it does not convert it. Home Assistant records the value as a long-term statistic in its current unit, so after a change you may need to clear that sensor's statistics before it records again."
+        "description": "Changing the currency relabels the cellar value; it does not convert it. Home Assistant records the value as a long-term statistic in its current unit, so after a change you may need to clear that sensor's statistics before it records again.",
+        "data_description": {
+          "racks": "Only for wine racks with LED strips. One rack per line: the CellarTracker location, a colon, then rows x columns, and optionally the bins the rack does not have. For example 'Wine Rack 1: 13x13 without A5-H9' or 'Wine Rack 2: 7x7'. Each rack gets a grid sensor for its LED controller."
+        }
       }
+    },
+    "error": {
+      "invalid_racks": "{racks_problem}"
     }
   },
   "entity": {
@@ -58,6 +65,12 @@
       },
       "past_drink_window": {
         "name": "Past drinking window"
+      },
+      "rack_grid": {
+        "name": "{rack} grid"
+      },
+      "rack_off_rack": {
+        "name": "{rack} bottles off the rack"
       }
     }
   },

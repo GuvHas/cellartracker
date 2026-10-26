@@ -47,6 +47,8 @@ BOTTLE = {
 
 
 class _Coordinator:
+    racks = ()
+
     def __init__(self, data=None, last_update_success=True, **state):
         self.data = data
         self.currency = "SEK"

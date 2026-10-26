@@ -1,0 +1,678 @@
+# Wine rack 1, rows H-M - bin lighting for the CellarTracker integration
+# =============================================================================
+#
+# A U-shaped rack: rows A-H hold bins 1-4 and 10-13 with an opening across the
+# middle, and rows I-M run the full width. 129 bins in a 13 x 13 envelope.
+#
+# Thirteen rows are more strands than one controller has ports, so rack 1 is
+# two **Lightish E8-WiFi Plus** boards - this one drives rows H-M (6
+# strands) and examples/esphome/winerack1aled.yaml drives rows A-G. The two
+# files are the same node with a different `node_first_row`, `node_rows`, pin
+# list and name; tests/test_rack_leds_example.py fails if they drift apart in
+# anything else.
+#
+# One WS2815 strand per bin ROW, mounted horizontally along the back of the
+# rack and fed from the column-1 end. Rows A-H are split by the U's opening
+# into bins 1-4 and 10-13; each is still one strand, its two pieces chained by
+# a jumper of the same 3-core cable (12 V, ground, data) across the opening.
+# The jumper has no pixels, so the firmware simply continues the count: bin 10
+# is the first pixel after bin 4. See examples/HARDWARE.md for the build.
+#
+# Actions exposed to Home Assistant (node name + action name):
+#
+#   esphome.winerack1bled_light_rack   grid: 169 state characters, row-major
+#   esphome.winerack1bled_light_row    row: "A".."M", states: 13 characters
+#   esphome.winerack1bled_light_bin    bin_id: "A2", r/g/b: 0-255, seconds: hold
+#   esphome.winerack1bled_clear_all    turn everything off
+#
+# The action surface is the whole rack, not this half of it. Both halves take
+# the same 169-character grid and the same locator call; each keeps the whole
+# envelope and draws only its own rows. That keeps Home Assistant's side
+# trivial - send everything to both - and means a locator aimed at a bin on
+# the other half still blanks this one, which is what a locator is for.
+#
+# State characters, which are the dashboard's five drinking-window states:
+#
+#   R  ready          - this year is inside the drinking window
+#   U  urgent         - the final year of the window ("drink this year")
+#   P  past           - the window closed before this year
+#   A  aging          - the window has not opened yet
+#   N  no window      - a bottle CellarTracker has no recommendation for
+#   .  empty          - no bottle, or no bin there at all
+#
+# The integration builds those strings as its "Wine Rack 1 grid" sensor, and
+# examples/home_assistant/wine_rack_leds.yaml calls the actions on both halves.
+#
+# -----------------------------------------------------------------------------
+# Before you flash this
+# -----------------------------------------------------------------------------
+#
+# 1. Secrets. Nothing about your network is written into this file - every
+#    credential, and every name that would identify one house's network, is a
+#    `!secret` reference. Your ESPHome secrets.yaml needs:
+#
+#      wifi_ssid / wifi_password / wifi_domain   shared with the other nodes
+#      winerack1bled_api_key:       `esphome generate-encryption-key`
+#      winerack1bled_ota_password:  anything long and random
+#      winerack1bled_ap_ssid:       the fallback hotspot's name
+#      winerack1bled_ap_password:   and its password, 8 characters or more
+#
+#    Give each half its own key and password rather than sharing them.
+#
+# 2. Power. The strips are WS2815 on a 12 V rail. Budget a pixel at 0.3 W -
+#    25 mA at 12 V - at full white, scaling with the sum of its channels,
+#    plus about 1 mA standing for the controller and the backup-line logic:
+#
+#      (R + G + B) / 765 * 25 mA + 1 mA        @ 12 V
+#
+#    This half powers 416 pixels, every one behind a bin:
+#
+#      everything off ............................  0.4 A   (5 W)
+#      every bin ready (0, 110, 0) ...............  1.9 A
+#      every bin drink-this-year (150, 55, 0) ....  3.2 A   <- the worst case
+#      per strand, at that worst case ............  0.6 A   (a 13-bin row)
+#
+#    The whole of rack 1 is 5.7 A at worst, and with rack 2's 2.2 A one 12 V
+#    16 A Mean Well XLG-200-12 runs everything at 49 % load. Fuse each strand
+#    at 2 A, not the 5 A the board ships with: the fuse protects 0.42 mm2
+#    cable. A split row's second piece is fed through its jumper.
+#
+# 3. Driver. 6 strands fit inside the ESP32's eight RMT channels, so this
+#    node uses `esp32_rmt_led_strip` on ESP-IDF, the same as rack 2. That is
+#    the reason rack 1 is two boards rather than one: thirteen strands on one
+#    ESP32 needed FastLED, the Arduino framework and transmitting in batches.
+#
+# 4. LED power. GPIO23 drives an external relay that cuts this board's 12 V
+#    LED rail when every row it drives is dark. See the `switch:` block.
+#
+# =============================================================================
+
+substitutions:
+  device_name: winerack1bled
+  friendly_name: Wine Rack 1B
+
+  # --- This half ------------------------------------------------------------
+  # Which rows of the rack this board drives: `node_rows` rows starting at
+  # `node_first_row` (row A is 0). The other half has the rest.
+  node_first_row: "7" # row H
+  node_rows: "6" # rows H-M
+
+  # --- Rack geometry -------------------------------------------------------
+  # The envelope is 13 x 13; which of those bins exist is decided by the
+  # `rack_table` below. These are the same numbers for the parts of the config
+  # that need a plain literal - `num_leds` on each light, and the array sizes
+  # further down, neither of which can hold an expression.
+  #
+  # A bin is 95 mm wide and the strip has 60 LEDs per metre, so a bin is 5.7
+  # LEDs - not a whole number, which is why `bin_first_led` places each bin by
+  # its position rather than at a fixed pitch. A piece of N bins is the LEDs
+  # whose centres fall inside its N * 95 mm: 23 for four bins, 74 for 13.
+  rack_rows: "13" # rows A..M, one strand each across the two halves
+  rack_cols: "13" # bin columns 1..13
+  rack_cells: "169" # rack_rows * rack_cols, the whole envelope
+  bin_width_mm: "95" # one bin, wall to wall, measured along the back
+  strip_density: "60" # LEDs per metre, cut line to cut line
+  full_strand: "74" # 13 bins, bins 1..13   - rows I-M
+  split_strand: "46" # 2 x 4 bins, 23 + 23   - rows A-H, jumpered across the U
+
+  # --- The coordinate map --------------------------------------------------
+  # Everything from here to `redraw_interval` is C++, pasted into the lambdas
+  # that need it. There is one copy and this is it: tests/cpp lifts these exact
+  # characters out of this file and compiles them under doctest, so what the
+  # tests prove is literally what the board runs. Retyping any of it into a
+  # lambda below would put that guarantee back where it was.
+
+  # The rack's shape, one entry per bin row in row order (row A is 0, row M
+  # is 12): {first column, bins, first column, bins} - the piece of strip the
+  # data reaches first, then the piece after the jumper. Columns count from 0,
+  # so bin 10 is column 9. A row with no jumper has {0, 0} for its second
+  # piece. Rows A-H are the U's arms, two pieces each; rows I-M are its base.
+  rack_table: >-
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
+
+  # Which bins row kRow carries. A strand only has to say which row it is; the
+  # table above answers the rest. `static const` puts it in flash.
+  row_extent: |-
+    static const int kTable[${rack_rows}][4] = {${rack_table}};
+    const bool kKnown = kRow >= 0 && kRow < ${rack_rows};
+    const int kFirstA = kKnown ? kTable[kRow][0] : 0;
+    const int kBinsA = kKnown ? kTable[kRow][1] : 0;
+    const int kFirstB = kKnown ? kTable[kRow][2] : 0;
+    const int kBinsB = kKnown ? kTable[kRow][3] : 0;
+
+  # The first LED of bin column `col` on a strand made of piece A (`bins_a`
+  # bins from column `first_a`) and then piece B, or -1 for a column this row
+  # does not have. When `count` is not null it gets how many LEDs that bin
+  # owns - 5 or 6 on this rack.
+  #
+  # DIN enters at the COLUMN-1 END of every row, so bin 1 is pixel 0 and the
+  # bin numbers count up along the strand. Every row's feed comes up one
+  # riser at the side of the rack instead of crossing the back.
+  #
+  # Bins are placed by where they physically are, not by a whole number of
+  # LEDs each. A bin is `bin_width_mm` wide and the strip has `strip_density`
+  # LEDs per metre, so at 95 mm and 60/m a bin is 5.7 LEDs. A fixed 6 per bin
+  # would be 4 LEDs - 65 mm - out by bin 13; instead `edge(k)` is the first
+  # LED whose centre lies past the k-th bin wall of a piece, which is
+  # ceil(k * width * density / 1000 - 1/2) in integers. A bin owns the LEDs
+  # between its two walls, so the error never exceeds half an LED.
+  #
+  # Each piece is cut at its first bin's wall, so piece B is aligned to bin 10
+  # on its own and starts on the pixel after piece A's last. The jumper across
+  # the U's opening carries data and power but no pixels, so its length does
+  # not enter the arithmetic.
+  #
+  # The range checks are what keep a column in the opening - bin 7 on row A -
+  # from landing on a plausible pixel of either piece.
+  bin_first_led: |-
+    auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
+                            int *count) -> int {
+      auto edge = [](int k) -> int {
+        return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
+      };
+      int offset = 0;
+      int k = -1;
+      if (bins_a > 0 && col >= first_a && col < first_a + bins_a) {
+        k = col - first_a;
+      } else if (bins_b > 0 && col >= first_b && col < first_b + bins_b) {
+        offset = bins_a > 0 ? edge(bins_a) : 0;
+        k = col - first_b;
+      }
+      if (k < 0) return -1;
+      if (count != nullptr) *count = edge(k + 1) - edge(k);
+      return offset + edge(k);
+    };
+
+  # Read a bin id like "A7" into a zero-indexed column and row. Accepts the
+  # ways a bin gets written down by hand and by CellarTracker: lower case, a
+  # leading zero, and a space, dash or underscore between letter and number.
+  #
+  # Hand-rolled rather than sscanf: it has to reject "12A" and "A1B", which a
+  # scanf format quietly accepts by stopping early. Not isdigit() either, whose
+  # argument is an int that must be representable as unsigned char - a signed
+  # char above 127 is undefined behaviour there.
+  parse_bin_id: |-
+    auto parse_bin_id = [](const char *bin_id, int *column, int *row) -> bool {
+      if (bin_id == nullptr || column == nullptr || row == nullptr) return false;
+      const char *p = bin_id;
+      while (*p == ' ' || *p == '\t') p++;
+      char letter = *p;
+      if (letter >= 'a' && letter <= 'z') letter = (char) (letter - ('a' - 'A'));
+      if (letter < 'A' || letter > 'Z') return false;
+      p++;
+      int number = 0;
+      bool any_digit = false;
+      for (; *p != '\0'; p++) {
+        const char ch = *p;
+        if (ch >= '0' && ch <= '9') {
+          number = number * 10 + (ch - '0');
+          any_digit = true;
+        } else if (ch == ' ' || ch == '\t' || ch == '-' || ch == '_') {
+          continue;
+        } else {
+          return false;
+        }
+      }
+      if (!any_digit || number < 1) return false;
+      *row = letter - 'A';
+      *column = number - 1;
+      return true;
+    };
+
+  # Paint one strand from cell_rgb. Needs kRow, and row_extent and
+  # bin_first_led declared ahead of it.
+  paint_row: |-
+    for (int i = 0; i < it.size(); i++) it[i] = Color(0, 0, 0);
+    for (int col = 0; col < ${rack_cols}; col++) {
+      int leds = 0;
+      const int base = bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB, &leds);
+      if (base < 0) continue;
+      const uint8_t *rgb = &id(cell_rgb)[(kRow * ${rack_cols} + col) * 3];
+      for (int i = 0; i < leds && base + i < it.size(); i++)
+        it[base + i] = Color(rgb[0], rgb[1], rgb[2]);
+    }
+
+  # How often a strand redraws itself. The picture is static between action
+  # calls, so this is only how long a change takes to appear - 200 ms is
+  # instant to a human and costs a fifth of the refreshes 100 ms would.
+  redraw_interval: 200ms
+
+  # --- Palette -------------------------------------------------------------
+  # The dashboard's status colours, dimmed for LEDs a metre from your eyes in
+  # a dark cellar. Keep the ratios if you brighten them: green and amber are
+  # the two that get confused.
+  colour_ready: "0, 110, 0" # dashboard --status-green
+  colour_urgent: "150, 55, 0" # dashboard --status-amber
+  colour_past: "140, 0, 0" # dashboard --status-red
+  colour_aging: "0, 45, 120" # dashboard --accent-color
+  colour_no_window: "35, 35, 35" # dashboard --status-grey
+  colour_locate: "150, 120, 0" # the locator, when the caller passes r=g=b=0
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  # No `includes:`. The coordinate map is the `${...}` C++ in the substitutions
+  # above, so this node is one file with nothing beside it to copy or forget.
+
+esp32:
+  board: esp32dev
+  framework:
+    # 6 strands fit the ESP32's eight RMT channels, so this is the native
+    # ESP-IDF driver and no Arduino. See note 3 above.
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret winerack1bled_api_key
+
+  actions:
+    # --- Cellar overview, whole rack in one call --------------------------
+    # `grid` is rack_cells state characters, row-major: A1..A13, then B1..B13,
+    # and so on across the whole 13 x 13 envelope. The same grid goes to both
+    # halves; this one draws rows H-M of it. Bins the U does not have are
+    # sent as '.' like any other empty bin and light nothing.
+    - action: light_rack
+      variables:
+        grid: string
+      then:
+        - lambda: |-
+            for (int i = 0; i < ${rack_cells}; i++) {
+              id(cell_state)[i] = i < (int) grid.length() ? (uint8_t) toupper(grid[i]) : (uint8_t) '.';
+            }
+        - script.execute: render
+
+    # --- Cellar overview, one row -----------------------------------------
+    # `states` is rack_cols characters for bins 1..13 of that row. Any row of
+    # the rack is accepted, so Home Assistant can send a row to both halves
+    # without knowing which one draws it.
+    - action: light_row
+      variables:
+        row: string
+        states: string
+      then:
+        - lambda: |-
+            if (row.empty()) {
+              ESP_LOGW("winerack", "light_row: no row given");
+              return;
+            }
+            const int r = toupper(row[0]) - 'A';
+            if (r < 0 || r >= ${rack_rows}) {
+              ESP_LOGW("winerack", "light_row: '%s' is not a row between A and M", row.c_str());
+              return;
+            }
+            for (int c = 0; c < ${rack_cols}; c++) {
+              id(cell_state)[r * ${rack_cols} + c] =
+                  c < (int) states.length() ? (uint8_t) toupper(states[c]) : (uint8_t) '.';
+            }
+        - script.execute: render
+
+    # --- Locator ----------------------------------------------------------
+    # Light one bin and nothing else. `bin_id` is a row letter and a column
+    # number - "A2", "a-2" and "A 02" all mean the same bin. Pass r=g=b=0 for
+    # the default locator colour. `seconds` is how long to hold it: 0 holds it
+    # until something else changes the rack, anything above that restores the
+    # overview when it expires.
+    #
+    # Home Assistant sends this to both halves. The half without that row
+    # takes the locator all the same and goes dark, so the bin is the only
+    # thing lit on the whole rack. A bin in the U's opening - A7, say - is
+    # accepted and lights nothing; there are no pixels there.
+    - action: light_bin
+      variables:
+        bin_id: string
+        r: int
+        g: int
+        b: int
+        seconds: int
+      then:
+        - lambda: |-
+            // "A2", "a-2" and "A 02" all mean the same bin; anything that is
+            // not a row letter followed by digits is refused. Tested in
+            // tests/cpp rather than trusted - the same characters, compiled.
+            ${parse_bin_id}
+            int col = 0, row = 0;
+            if (!parse_bin_id(bin_id.c_str(), &col, &row)) {
+              ESP_LOGW("winerack", "light_bin: '%s' is not a bin id", bin_id.c_str());
+              return;
+            }
+            if (row < 0 || row >= ${rack_rows} || col < 0 || col >= ${rack_cols}) {
+              ESP_LOGW("winerack", "light_bin: '%s' is outside this rack", bin_id.c_str());
+              return;
+            }
+            // Inside the envelope but not a bin the U actually has - a bottle
+            // still filed at A7 after the rebuild, say. Worth saying out loud,
+            // because the locator will simply light nothing. Only the half
+            // that owns the row says it, so the log is not doubled.
+            const int kRow = row;
+            ${row_extent}
+            ${bin_first_led}
+            const bool mine = row >= ${node_first_row} && row < ${node_first_row} + ${node_rows};
+            if (mine && bin_first_led(col, kFirstA, kBinsA, kFirstB, kBinsB, nullptr) < 0) {
+              ESP_LOGI("winerack", "light_bin: '%s' is a bin this rack no longer has",
+                       bin_id.c_str());
+            }
+            const Color fallback(${colour_locate});
+            id(locate_cell) = row * ${rack_cols} + col;
+            id(locate_r) = (r | g | b) ? r : fallback.r;
+            id(locate_g) = (r | g | b) ? g : fallback.g;
+            id(locate_b) = (r | g | b) ? b : fallback.b;
+        - script.execute: render
+        - if:
+            condition:
+              lambda: 'return seconds > 0;'
+            then:
+              - script.execute:
+                  id: hold_locator
+                  duration: !lambda 'return seconds;'
+            else:
+              - script.stop: hold_locator
+
+    # --- Everything off ---------------------------------------------------
+    - action: clear_all
+      then:
+        - script.stop: hold_locator
+        - lambda: |-
+            for (int i = 0; i < ${rack_cells}; i++) id(cell_state)[i] = (uint8_t) '.';
+            id(locate_cell) = -1;
+        - script.execute: render
+
+ota:
+  - platform: esphome
+    password: !secret winerack1bled_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # The DNS suffix this node registers under, leading dot included, e.g.
+  # ".iot.example.com". Delete both lines if your network has no such suffix -
+  # an empty secret is not the same thing as an absent option.
+  domain: !secret wifi_domain
+
+  # The fallback hotspot, for when the WiFi it is meant to join is not there.
+  ap:
+    ssid: !secret winerack1bled_ap_ssid
+    password: !secret winerack1bled_ap_password
+
+captive_portal:
+
+# --- STATE -------------------------------------------------------------------
+# Two arrays over the whole 13 x 13 envelope, both row-major and both indexed
+# by cell: row * rack_cols + column. cell_state is what Home Assistant said;
+# cell_rgb is what the strands draw, composed from it by the render script.
+# Keeping them apart is what lets the locator hide the overview without
+# destroying it. This half keeps the other half's rows too and never draws
+# them - 169 bytes is cheaper than teaching Home Assistant where the seam is.
+globals:
+  - id: cell_state
+    type: uint8_t[169] # rack_cells
+    restore_value: false
+
+  - id: cell_rgb
+    type: uint8_t[507] # rack_cells * 3
+    restore_value: false
+
+  # The cell the locator is showing, or -1 when it is not showing one.
+  - id: locate_cell
+    type: int
+    restore_value: false
+    initial_value: '-1'
+
+  - id: locate_r
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: locate_g
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: locate_b
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+# --- LED POWER ---------------------------------------------------------------
+# The E8-WiFi Plus brings its relay control out on GPIO23. The board expects a
+# secondary feed to keep the ESP32 alive while the relay cuts the main 12 V
+# rail, so the node stays on the network with every pixel dead.
+#
+# A WS2815 draws about 1 mA just being powered: this half's 416 pixels burn
+# 5 W continuously to show nothing. The render script raises this whenever
+# any of this board's rows is lit and drops it when they all go dark.
+#
+# With no relay fitted this toggles a pin and does nothing, which is harmless.
+# `internal: true` keeps it out of Home Assistant - it is a consequence of the
+# picture, not something to switch by hand.
+switch:
+  - platform: gpio
+    id: led_power
+    pin: GPIO23
+    internal: true
+    restore_mode: ALWAYS_OFF
+
+# --- RENDERING ---------------------------------------------------------------
+script:
+  # Compose cell_rgb, then switch each of this board's strands on or off to
+  # match. Every action ends here, so the picture is decided in one place.
+  - id: render
+    mode: restart
+    then:
+      - lambda: |-
+          auto colour_of = [](uint8_t state) -> Color {
+            switch (state) {
+              case 'R': return Color(${colour_ready});
+              case 'U': return Color(${colour_urgent});
+              case 'P': return Color(${colour_past});
+              case 'A': return Color(${colour_aging});
+              case 'N': return Color(${colour_no_window});
+              default:  return Color(0, 0, 0);
+            }
+          };
+
+          // A locator answers "which bin", so it blacks out everything else
+          // rather than competing with the overview for your attention.
+          const int located = id(locate_cell);
+          for (int i = 0; i < ${rack_cells}; i++) {
+            Color c(0, 0, 0);
+            if (located >= 0) {
+              if (i == located)
+                c = Color(id(locate_r), id(locate_g), id(locate_b));
+            } else {
+              c = colour_of(id(cell_state)[i]);
+            }
+            id(cell_rgb)[i * 3] = c.r;
+            id(cell_rgb)[i * 3 + 1] = c.g;
+            id(cell_rgb)[i * 3 + 2] = c.b;
+          }
+
+          // One strand per bin row this board drives, in row order. A row with
+          // nothing to show is switched off, so Home Assistant's light
+          // entities say which rows are lit.
+          esphome::light::LightState *strand[${node_rows}] = {
+            id(row_h), id(row_i), id(row_j), id(row_k), id(row_l), id(row_m),
+          };
+
+          bool any_lit = false;
+          for (int s = 0; s < ${node_rows}; s++) {
+            const int r = ${node_first_row} + s;
+            bool lit = false;
+            for (int c = 0; c < ${rack_cols} && !lit; c++) {
+              const uint8_t *rgb = &id(cell_rgb)[(r * ${rack_cols} + c) * 3];
+              lit = rgb[0] || rgb[1] || rgb[2];
+            }
+            any_lit = any_lit || lit;
+            if (lit) {
+              auto call = strand[s]->turn_on();
+              call.set_effect("Rack");
+              call.perform();
+            } else {
+              strand[s]->turn_off().perform();
+            }
+          }
+
+          // Power the strips before they are asked to show anything, and cut
+          // the rail only once every row on this board is dark. The effect
+          // repaints every ${redraw_interval}, so a strand that was unpowered
+          // a moment ago is repainted within one interval of the relay closing.
+          if (any_lit) {
+            id(led_power).turn_on();
+          } else {
+            id(led_power).turn_off();
+          }
+
+  # Hands the overview back when a locator's hold expires. `mode: restart` so
+  # locating a second bottle extends the hold rather than cutting it short.
+  - id: hold_locator
+    mode: restart
+    parameters:
+      duration: int
+    then:
+      - delay: !lambda 'return duration * 1000;'
+      - lambda: 'id(locate_cell) = -1;'
+      - script.execute: render
+
+# --- STRANDS -----------------------------------------------------------------
+# One literal per strand: which bin row it is. `row_extent` looks that up in
+# `rack_table` to get the pieces the row is made of; `bin_first_led` turns a
+# column into a run of pixels; `paint_row` walks the row and paints them. All
+# three are the substitutions at the top of this file.
+#
+# DATA AND POWER ENTER AT THE COLUMN-1 END of every row, and pixel 0 is that
+# row's bin 1. The bin numbers count up along the strand, across the jumper on
+# rows A-H, to bin 13 at the far end.
+#
+# The pins are the E8-WiFi Plus's ports, which are fixed in copper:
+#
+#   row H -> O3 (GPIO4)     row K -> O6 (GPIO26)
+#   row I -> O4 (GPIO27)    row L -> O7 (GPIO33)
+#   row J -> O5 (GPIO17)    row M -> O8 (GPIO25)
+#
+# O1 (GPIO5) and O2 (GPIO12) are both left empty. GPIO12 is MTDI, which
+# selects flash voltage at reset - held high, a 3.3 V module does not boot -
+# and GPIO5 is a strapping pin that can flicker a row at reset. Six strands
+# into eight ports means both can be skipped, so this half has none of the
+# compromise the A-G half and rack 2 make.
+#
+# It has to be an effect rather than direct pixel writes: with no effect
+# running, any light command (a brightness change, a toggle from the Home
+# Assistant UI) repaints the whole strand in the light's own colour and would
+# wipe the picture.
+.strand: &strand
+  platform: esp32_rmt_led_strip
+  # WS2815 - 12 V, with the backup data line that keeps a row alive when one
+  # pixel dies. It speaks the WS2812 protocol, which is the name this component
+  # knows. Tie the first pixel's BI pad alongside its DI - on both pieces of a
+  # split row; left floating it can oscillate and take the row with it.
+  chipset: WS2812
+  # This strip takes its colours red, green, blue - not the GRB a WS2812B
+  # does. Measured on rack 2's first row: with GRB, red from Home Assistant
+  # lit green. `channel_colors` replaces the deprecated `rgb_order`.
+  channel_colors: RGB
+  # One 64-symbol RMT memory block per strand. A classic ESP32 has eight of
+  # them, 512 symbols in all, and ESPHome's default of 192 takes three blocks
+  # per strand - so only two strands start and the rest are marked FAILED at
+  # boot. At 64 every strand fits in its own block; the driver refills it from
+  # an interrupt as the frame goes out.
+  rmt_symbols: 64
+  restore_mode: ALWAYS_OFF
+  default_transition_length: 0s
+  # Status colours, not a dimmable white: the palette reaches the LEDs as
+  # written. Brightness still scales the whole row, so Home Assistant's slider
+  # is a master dimmer.
+  gamma_correct: 1.0
+
+light:
+  # --- Row H: the last arm row, two pieces jumpered across the U ---------
+  - <<: *strand
+    id: row_h
+    name: "Row H"
+    pin: GPIO4
+    num_leds: ${split_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 7;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}
+
+  # --- Rows I-M: the base of the U, one unbroken piece of 13 bins ---------
+  - <<: *strand
+    id: row_i
+    name: "Row I"
+    pin: GPIO27
+    num_leds: ${full_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 8;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}
+
+  - <<: *strand
+    id: row_j
+    name: "Row J"
+    pin: GPIO17
+    num_leds: ${full_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 9;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}
+
+  - <<: *strand
+    id: row_k
+    name: "Row K"
+    pin: GPIO26
+    num_leds: ${full_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 10;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}
+
+  - <<: *strand
+    id: row_l
+    name: "Row L"
+    pin: GPIO33
+    num_leds: ${full_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 11;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}
+
+  - <<: *strand
+    id: row_m
+    name: "Row M"
+    pin: GPIO25
+    num_leds: ${full_strand}
+    effects:
+      - addressable_lambda:
+          name: Rack
+          update_interval: ${redraw_interval}
+          lambda: |-
+            constexpr int kRow = 12;
+            ${row_extent}
+            ${bin_first_led}
+            ${paint_row}

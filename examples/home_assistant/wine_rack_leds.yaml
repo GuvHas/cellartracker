@@ -1,0 +1,261 @@
+# Wine racks 1 and 2 - pushing the integration's rack grids to the LED nodes
+# =============================================================================
+#
+# The integration works out what each rack should show; this file only hands
+# it to the three ESPHome nodes that paint it:
+#
+#   examples/esphome/winerack1aled.yaml  the U-shaped rack, 13 x 13 envelope,
+#   examples/esphome/winerack1bled.yaml  129 bins - rows A-H hold bins 1-4 and
+#                                        10-13, rows I-M run the full width.
+#                                        Two boards: 1A drives rows A-G, 1B
+#                                        rows H-M. Both get every rack 1 call
+#                                        and each draws only its own rows.
+#   examples/esphome/winerack2led.yaml   the second rack, a full 7 x 7
+#
+# There is no token, no REST sensor and no template here any more. The grids
+# are sensors of the integration itself, computed from the inventory it
+# already holds every time it syncs.
+#
+# Install as a package. In configuration.yaml:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# then save this file as <config>/packages/wine_rack_leds.yaml and restart.
+# Everything below is ordinary automations and scripts, so pasting them into
+# automations.yaml and scripts.yaml works just as well if you would rather not
+# use packages.
+#
+# -----------------------------------------------------------------------------
+# What you have to set
+# -----------------------------------------------------------------------------
+#
+# 1. The racks, in the integration. Settings -> Devices & Services ->
+#    CellarTracker -> Configure -> LED racks, one rack per line:
+#
+#      Wine Rack 1: 13x13 without A5-H9
+#      Wine Rack 2: 7x7
+#
+#    The name before the colon is the CellarTracker `Location` of the bottles
+#    in that rack, exactly - `Bin` is the slot inside it. ROWSxCOLUMNS is the
+#    envelope the node's grid covers, and `without` lists the bins the rack
+#    does not have: A5-H9 is the U's opening. Bins are a row letter and a
+#    column number, so "A2" or "C4"; "a-2", "A 2" and "A02" are read the same
+#    way. Anything else is left dark rather than lit in the wrong place.
+#
+#    Each rack gets two sensors: `<rack> grid`, which this file pushes, and
+#    `<rack> bottles off the rack`, which counts bottles filed at that rack in
+#    a bin it does not have - easy after a rebuild. They are not lost, but no
+#    LED will ever show them, so re-bin them in CellarTracker.
+#
+# 2. Your own entity IDs. `sensor.cellartracker_wine_rack_1_grid` below is the
+#    integration's grid for "Wine Rack 1"; the integration names its entities
+#    after your account, so yours is sensor.<account>_wine_rack_1_grid.
+#    The same goes for sensor.cellartracker_last_synchronised, which repaints
+#    the racks after every sync. Settings -> Devices & Services ->
+#    CellarTracker -> entities has the exact IDs.
+#
+# 3. Optionally, add the grid sensors to `recorder: exclude:`. They change only
+#    when the cellar does, but each state is up to 169 characters.
+#
+# =============================================================================
+
+automation:
+  # --- Push each grid to its own rack -----------------------------------------
+  - id: wine_rack_1_push_grid
+    alias: "Wine rack 1: paint the rack"
+    description: >-
+      The same grid goes to both of rack 1's boards, and each paints its own
+      rows, so the rack is never half old and half new for longer than two
+      calls. The boards keep a locator showing over the top of this, so a
+      repaint that lands while you are looking for a bottle does not steal the
+      answer.
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: sensor.cellartracker_wine_rack_1_grid
+        id: grid
+      # Every sync, too, even when the grid has not changed: an unchanged
+      # grid fires no state change, and without this a rack put out by
+      # wine_rack_clear would stay dark until a bottle moved.
+      - trigger: state
+        entity_id: sensor.cellartracker_last_synchronised
+        id: synced
+      # The board forgets everything it was showing when it reboots, and its
+      # entities go unavailable and back while it does. Repainting on that is
+      # what stops a power cut leaving the rack dark until the next sync.
+      - trigger: state
+        entity_id:
+          - light.wine_rack_1a_row_a
+          - light.wine_rack_1b_row_h
+        from: unavailable
+        id: reconnected
+      - trigger: homeassistant
+        event: start
+        id: reconnected
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ states('sensor.cellartracker_wine_rack_1_grid') not in ['unknown', 'unavailable', ''] }}
+    actions:
+      - if:
+          - condition: trigger
+            id: reconnected
+        then:
+          - delay: "00:00:05"
+      - action: esphome.winerack1aled_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
+      - action: esphome.winerack1bled_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
+
+  - id: wine_rack_2_push_grid
+    alias: "Wine rack 2: paint the rack"
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: sensor.cellartracker_wine_rack_2_grid
+        id: grid
+      - trigger: state
+        entity_id: sensor.cellartracker_last_synchronised
+        id: synced
+      - trigger: state
+        entity_id: light.wine_rack_2_row_a
+        from: unavailable
+        id: reconnected
+      - trigger: homeassistant
+        event: start
+        id: reconnected
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ states('sensor.cellartracker_wine_rack_2_grid') not in ['unknown', 'unavailable', ''] }}
+    actions:
+      - if:
+          - condition: trigger
+            id: reconnected
+        then:
+          - delay: "00:00:05"
+      - action: esphome.winerack2led_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_2_grid') }}"
+
+script:
+  # --- Where is that bottle? --------------------------------------------------
+  # Copy a bin from the dashboard's bottle drawer, pick its rack, run this.
+  wine_rack_locate:
+    alias: "Wine racks: light one bin"
+    description: Light a single bin on one rack and dim the rest until it times out.
+    mode: single
+    fields:
+      rack:
+        name: Rack
+        description: Which rack the bottle is in.
+        required: true
+        default: 1
+        selector:
+          select:
+            options:
+              - label: Rack 1 - the U
+                value: "1"
+              - label: Rack 2 - the 7 by 7
+                value: "2"
+      bin:
+        name: Bin
+        description: 'The bin to light, as a row letter and a column: A2.'
+        required: true
+        example: A2
+        selector:
+          text:
+      seconds:
+        name: Hold for
+        description: >-
+          How long to hold it before the cellar overview comes back. 0 holds it
+          until something else changes the rack.
+        default: 120
+        selector:
+          number:
+            min: 0
+            max: 3600
+            unit_of_measurement: s
+            mode: box
+      colour:
+        name: Colour
+        description: >-
+          The locator colour as [r, g, b]. Leave it alone for the board's own,
+          which is chosen not to be mistaken for any of the status colours.
+        default: [0, 0, 0]
+        selector:
+          object:
+    sequence:
+      - variables:
+          payload:
+            bin_id: "{{ bin }}"
+            r: "{{ (colour | default([0, 0, 0]))[0] | int(0) }}"
+            g: "{{ (colour | default([0, 0, 0]))[1] | int(0) }}"
+            b: "{{ (colour | default([0, 0, 0]))[2] | int(0) }}"
+            seconds: "{{ seconds | default(120) | int(120) }}"
+      - choose:
+          - conditions: "{{ rack | string == '2' }}"
+            sequence:
+              - action: esphome.winerack2led_light_bin
+                data: "{{ payload }}"
+        default:
+          # Both halves of rack 1: the one with the bin lights it, the other
+          # goes dark, so the bin is the only thing lit on the rack.
+          - action: esphome.winerack1aled_light_bin
+            continue_on_error: true
+            data: "{{ payload }}"
+          - action: esphome.winerack1bled_light_bin
+            continue_on_error: true
+            data: "{{ payload }}"
+
+  # --- Put both racks out -----------------------------------------------------
+  # The overview comes back on the next sync, or run wine_rack_show_overview.
+  wine_rack_clear:
+    alias: "Wine racks: turn the LEDs off"
+    mode: single
+    sequence:
+      - action: esphome.winerack1aled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack1bled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack2led_clear_all
+        continue_on_error: true
+        data: {}
+
+  # --- Put the overviews back without waiting for a sync ----------------------
+  wine_rack_show_overview:
+    alias: "Wine racks: show the cellar overview"
+    mode: single
+    sequence:
+      # light_rack alone leaves a running locator on top, which is right for a
+      # background push but not for "show me the overview". clear_all is the
+      # only action that cancels it, so put the racks out first.
+      - action: esphome.winerack1aled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack1bled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack2led_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack1aled_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
+      - action: esphome.winerack1bled_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_1_grid') }}"
+      - action: esphome.winerack2led_light_rack
+        continue_on_error: true
+        data:
+          grid: "{{ states('sensor.cellartracker_wine_rack_2_grid') }}"

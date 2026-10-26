@@ -48,6 +48,8 @@ EVENT_BOTTLE_FIELDS = ("unique_bottle_id", "iWine", "Wine", "Vintage", "Location
 MAX_EVENT_BOTTLES = 50
 
 CONF_CURRENCY = "currency"
+# Free text, one rack per line - see racks.py for the format.
+CONF_RACKS = "racks"
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600
 MIN_SCAN_INTERVAL = 900

@@ -51,6 +51,8 @@ EMPTY = {
     "needs_aging": 0,
     "peak_drinking": 0,
     "location_index": {},
+    # No racks configured, so none to describe - but the key is there.
+    "racks": {},
 }
 
 REAL_ROWS = [
