@@ -40,6 +40,7 @@ ENTITY_NAMES = json.loads(
 
 
 class _Coordinator:
+    racks = ()
     data = {"total_bottles": 3, "total_value": 30.0, "bottles": []}
     currency = "USD"
     last_success = datetime(2026, 8, 28, 9, 30, tzinfo=UTC)

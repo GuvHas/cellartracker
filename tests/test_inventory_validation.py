@@ -192,7 +192,7 @@ def test_last_bottle_drunk_recovers_within_two_polls():
 
     with pytest.raises(UpdateFailed):
         asyncio.run(coordinator._async_update_data())
-    assert inventory_of(asyncio.run(coordinator._async_update_data())) == EMPTY
+    assert inventory_of(asyncio.run(coordinator._async_update_data())) == {**EMPTY, "racks": {}}
 
 
 # --------------------------------------------------------------------------
@@ -207,4 +207,4 @@ def test_coordinator_passes_previous_data_through():
 
 def test_coordinator_first_poll_of_empty_account_succeeds():
     coordinator = build_coordinator(returns=[], previous=None)
-    assert inventory_of(asyncio.run(coordinator._async_update_data())) == EMPTY
+    assert inventory_of(asyncio.run(coordinator._async_update_data())) == {**EMPTY, "racks": {}}

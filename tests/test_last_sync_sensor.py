@@ -33,6 +33,8 @@ from conftest import ConfigEntry, ViewHass
 
 
 class _Coordinator:
+    racks = ()
+
     def __init__(self, last_success=None, data=None):
         self.data = data if data is not None else {"total_bottles": 2, "bottles": []}
         self.currency = "USD"

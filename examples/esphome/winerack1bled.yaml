@@ -40,8 +40,8 @@
 #   N  no window      - a bottle CellarTracker has no recommendation for
 #   .  empty          - no bottle, or no bin there at all
 #
-# examples/home_assistant/wine_rack_leds.yaml builds those strings from the
-# integration's inventory endpoint and calls the actions on both halves.
+# The integration builds those strings as its "Wine Rack 1 grid" sensor, and
+# examples/home_assistant/wine_rack_leds.yaml calls the actions on both halves.
 #
 # -----------------------------------------------------------------------------
 # Before you flash this
