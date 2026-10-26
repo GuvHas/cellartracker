@@ -125,8 +125,9 @@ flange_fillet = 3.0;        // fillet between flange top and side wall
 block_x        = [10.2, 36.7, 64.2, 89.9];  // middle (D) pin of X1..X4,
                                             //   from board's left edge [CHECK]
 outputs_used   = [true, true, true, true, true, true, true, true]; // O1..O8
-                            // Rack 1's second board drives 6 strands: set
-                            // O7/O8 false to leave those holes out.
+                            // Board 1B (winerack1bled) leaves O1 and O2
+                            // empty: [false, false, true, true, true, true,
+                            // true, true] drops the X1 holes.
 output_hole_d  = 12.2;      // M12x1.5 cable gland (fits ~3-6.5 mm cable).
                             //   Use 7.0 for a plain rubber grommet instead.
 gland_nut_ac   = 17.4;      // gland lock-nut across corners (M12: AF15)

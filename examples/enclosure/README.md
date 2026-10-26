@@ -29,8 +29,7 @@ Positions come from the vendor's *Board Dimensions* photo of a V1.02 board, scal
 - **Lid:** a window over the vertical USB-C at the back edge.
 - **Standoffs:** four, each with a heat-set insert, on the board's 127 × 77 mm hole rectangle
   (measured on a real board).
-- `outputs_used` drops the holes for outputs a board doesn't drive. Rack 1's second board
-  only uses 6.
+- `outputs_used` drops the holes for outputs a board doesn't drive (see board 1B below).
 
 ## Check before printing
 
@@ -60,8 +59,9 @@ in, which the 11 mm front gap takes easily.
 | M16 × 1.5 cable gland | 1, power in |
 | 4 mm countersunk wood screw + plug | 4 |
 
-For rack 1's second board (6 strands), set O7 and O8 to `false` in `outputs_used` and print
-it with 6 output holes.
+Board 1B (`winerack1bled.yaml`) drives O3–O8 and leaves O1 and O2 empty, so print its box with
+`outputs_used = [false, false, true, true, true, true, true, true]`. That leaves out both X1
+holes. Keep all 8 holes on board 1A and rack 2, since a strand may move from O1 to O2.
 
 ## Print settings
 
