@@ -11,9 +11,9 @@ in OpenSCAD, set `part`, press F6 and export the STL.
 
 | | |
 |---|---|
-| Outside, without flanges | 171 × 111 × 47 mm |
+| Outside, without flanges | 171 × 111 × 50.6 mm |
 | Footprint with flanges | 199 × 111 mm |
-| Cavity | 165 × 105 × 41 mm |
+| Cavity | 165 × 105 × 44.6 mm |
 
 ## Layout
 
@@ -41,11 +41,13 @@ calipers is worth it for these:
 |---|---|---|
 | `block_x`, `power_x` | 10.2 / 36.7 / 64.2 / 89.9, 119.2 mm | Centre of X1–X4 (the D pin) and of X5 |
 | `usb_x`, `usb_y` | 87.0, 82.0 mm | USB-C centre |
-| `board_comp_h` | 24.4 mm | Tallest part above the PCB (the fuses or the terminals) |
+| `power_entry_h` | 14 mm | Height of X5's wire entry above the PCB |
 
-One thing the photo can't settle: the gland rows sit about 3 mm and 15 mm above the PCB
-(`lower_z`, `upper_z`). Measure how high the two wire entries of a block are and move the
-rows to match, so each cable runs straight in.
+Measured on a real board: the X5 block is the tallest part at 28 mm above the PCB, and the
+output blocks' wire entries are at 13 mm (lower) and 21 mm (upper). The entries are only 8 mm
+apart, which is too close for staggered M12 lock-nuts, so the gland rows are spread to
+11.5 mm (`gland_row_dz`) and sit at 10.5 and 22 mm. Each cable bends by 1–2.5 mm on its way
+in, which the 11 mm front gap takes easily.
 
 ## Hardware per enclosure
 

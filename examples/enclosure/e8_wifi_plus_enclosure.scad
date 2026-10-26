@@ -58,8 +58,8 @@ $fn = 64;
 board_l      = 135.0;       // PCB length along X (datasheet)
 board_w      = 85.0;        // PCB depth along Y (datasheet)
 board_t      = 1.6;         // PCB thickness                           [CHECK]
-board_comp_h = 24.4;        // tallest part above the PCB top surface   [CHECK]
-                            //   (datasheet overall height 26 mm minus PCB)
+board_comp_h = 28.0;        // tallest part above the PCB top surface
+                            //   (X5 power block, measured)
 board_under_h = 3.0;        // tallest solder joint / lead under the PCB [CHECK]
 
 // Mounting holes: a rectangle of hole centres, centred on the board
@@ -130,9 +130,16 @@ outputs_used   = [true, true, true, true, true, true, true, true]; // O1..O8
 output_hole_d  = 12.2;      // M12x1.5 cable gland (fits ~3-6.5 mm cable).
                             //   Use 7.0 for a plain rubber grommet instead.
 gland_nut_ac   = 17.4;      // gland lock-nut across corners (M12: AF15)
-pair_dx        = 6.5;       // each gland's X offset from its block centre
-lower_z        = 11.5;      // lower-row centre above the floor's top
-upper_z        = 23.5;      // upper-row centre above the floor's top
+pair_dx        = 6.4;       // each gland's X offset from its block centre
+                            //   (half the tightest block pitch, X3-X4)
+lower_entry_h  = 13.0;      // lower terminal level's wire entry above
+                            //   the PCB top (measured)
+upper_entry_h  = 21.0;      // upper level's wire entry above the PCB top
+                            //   (measured)
+gland_row_dz   = 11.5;      // minimum height between the two gland rows so
+                            //   neighbouring lock-nuts don't collide. The
+                            //   entries are only 8 mm apart, so the rows are
+                            //   spread around their midpoint by this much.
 
 // Optional zip-tie anchor rib behind the front wall (for grommets instead
 // of glands -- glands already clamp the cable).
@@ -148,7 +155,7 @@ tie_slot_h     = 2.2;       // zip-tie thickness + clearance
 power_hole_d   = 15.2;      // M16x1.5 gland, takes a 2-core 1.5 mm2 cable
 power_nut_ac   = 22.0;      // M16 lock-nut across corners (AF19)
 power_x        = 119.2;     // X5 centre from board's left edge         [CHECK]
-power_z        = 17.5;      // centre above the floor's top
+power_entry_h  = 14.0;      // X5 wire entry above the PCB top        [CHECK]
 
 
 /* [Antenna (back wall)] */
@@ -209,15 +216,25 @@ assert(end_bay > boss_inset + boss_d/2,
        "end_bay too small: the lid-screw bosses would hit the board");
 assert(standoff_h >= board_under_h + 2,
        "standoff_h too low for the solder side of the board");
+// Gland row heights (absolute z): spread to at least gland_row_dz around
+// the entries' midpoint, then pulled down if the upper nuts would reach
+// the lid lip.
+row_mid    = pcb_top + (lower_entry_h + upper_entry_h)/2;
+row_dz     = max(upper_entry_h - lower_entry_h, gland_row_dz);
+row_top_max = base_h - lip_h - gland_nut_ac/2 - 0.3;
+row_shift  = min(0, row_top_max - (row_mid + row_dz/2));
+upper_row_z = row_mid + row_dz/2 + row_shift;
+lower_row_z = row_mid - row_dz/2 + row_shift;
+
 // Glands: [x, z, hole_d, nut_ac] for every front-wall entry in use
 output_glands = [
     for (i = [0 : 7]) if (outputs_used[i])
         [bx + block_x[floor(i/2)] + (i % 2 == 0 ? pair_dx : -pair_dx),
-         floor_t + (i % 2 == 0 ? upper_z : lower_z),
+         i % 2 == 0 ? upper_row_z : lower_row_z,
          output_hole_d, gland_nut_ac]
 ];
 front_glands = concat(output_glands,
-    [[bx + power_x, floor_t + power_z, power_hole_d, power_nut_ac]]);
+    [[bx + power_x, pcb_top + power_entry_h, power_hole_d, power_nut_ac]]);
 
 boss_reach = wall + boss_inset + boss_d/2;
 assert(front_glands[0][0] - front_glands[0][3]/2 > boss_reach,
@@ -228,7 +245,9 @@ for (a = front_glands, b = front_glands)
     if (a != b)
         assert(norm([a[0] - b[0], a[1] - b[1]]) >= (a[3] + b[3])/2 - 0.5,
                str("gland nuts overlap at x=", a[0], " and x=", b[0]));
-assert(upper_z + gland_nut_ac/2 < cav_h - lip_h,
+assert(lower_row_z - gland_nut_ac/2 > floor_t,
+       "lower gland nuts hit the floor: raise standoff_h or lower gland_row_dz");
+assert(upper_row_z + gland_nut_ac/2 < base_h - lip_h,
        "upper glands reach into the lid lip");
 
 eps = 0.01;
@@ -525,3 +544,5 @@ echo(str("Outer size (without flanges): ", out_l, " x ", out_w, " x ",
          base_h + lid_t, " mm"));
 echo(str("Footprint with flanges: ", out_l + 2*flange_w, " x ", out_w, " mm"));
 echo(str("Cavity: ", cav_l, " x ", cav_w, " x ", cav_h, " mm"));
+echo(str("Gland rows above PCB top: lower ", lower_row_z - pcb_top,
+         ", upper ", upper_row_z - pcb_top, " mm"));
