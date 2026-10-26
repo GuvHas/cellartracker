@@ -207,13 +207,21 @@ shelf, top row first, so the ports run in order down the rack instead of crossin
 
 | Bin row | Port | GPIO |
 |---|---|---|
-| A | O1 | 5 |
+| — | O1 | *damaged, empty* |
+| A | O2 | 12 |
 | B | O3 | 4 |
 | C | O4 | 27 |
 | D | O5 | 17 |
 | E | O6 | 26 |
 | F | O7 | 33 |
 | G | O8 | 25 |
+
+Rack 2's O1 port was damaged on 2026-10-26, so row A runs from O2, the other half of the
+same X1 terminal block. That puts a strand on GPIO12 after all. It works because the pin only
+drives the port's buffer and its own pull-down holds it low at reset. If the board ever fails
+to boot, burn the flash-voltage eFuse to 3.3 V once (`espefuse.py --port <port>
+set_flash_voltage 3.3V`, with the board on USB) and GPIO12 stops being a strapping pin. The
+eFuse cannot be undone, so first check the module's flash is 3.3 V.
 
 ### Port → bin row, rack 1
 
