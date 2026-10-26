@@ -51,8 +51,9 @@
 # 2. Your own entity IDs. `sensor.cellartracker_wine_rack_1_grid` below is the
 #    integration's grid for "Wine Rack 1"; the integration names its entities
 #    after your account, so yours is sensor.<account>_wine_rack_1_grid.
-#    Settings -> Devices & Services -> CellarTracker -> entities has the exact
-#    IDs.
+#    The same goes for sensor.cellartracker_last_synchronised, which repaints
+#    the racks after every sync. Settings -> Devices & Services ->
+#    CellarTracker -> entities has the exact IDs.
 #
 # 3. Optionally, add the grid sensors to `recorder: exclude:`. They change only
 #    when the cellar does, but each state is up to 169 characters.
@@ -74,6 +75,12 @@ automation:
       - trigger: state
         entity_id: sensor.cellartracker_wine_rack_1_grid
         id: grid
+      # Every sync, too, even when the grid has not changed: an unchanged
+      # grid fires no state change, and without this a rack put out by
+      # wine_rack_clear would stay dark until a bottle moved.
+      - trigger: state
+        entity_id: sensor.cellartracker_last_synchronised
+        id: synced
       # The board forgets everything it was showing when it reboots, and its
       # entities go unavailable and back while it does. Repainting on that is
       # what stops a power cut leaving the rack dark until the next sync.
@@ -112,6 +119,9 @@ automation:
       - trigger: state
         entity_id: sensor.cellartracker_wine_rack_2_grid
         id: grid
+      - trigger: state
+        entity_id: sensor.cellartracker_last_synchronised
+        id: synced
       - trigger: state
         entity_id: light.wine_rack_2_row_a
         from: unavailable
@@ -225,6 +235,18 @@ script:
     alias: "Wine racks: show the cellar overview"
     mode: single
     sequence:
+      # light_rack alone leaves a running locator on top, which is right for a
+      # background push but not for "show me the overview". clear_all is the
+      # only action that cancels it, so put the racks out first.
+      - action: esphome.winerack1aled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack1bled_clear_all
+        continue_on_error: true
+        data: {}
+      - action: esphome.winerack2led_clear_all
+        continue_on_error: true
+        data: {}
       - action: esphome.winerack1aled_light_rack
         continue_on_error: true
         data:

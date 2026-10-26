@@ -842,3 +842,21 @@ def test_the_lambdas_paste_the_map_rather_than_retyping_it():
                 "${paint_row}",
             ], f"{light['id']} has maths of its own"
             assert re.fullmatch(r"constexpr int kRow = \d+;", statements[0]), light["id"]
+
+
+def test_every_sync_repaints_even_when_the_grid_has_not_changed():
+    """An unchanged grid fires no state change, so a rack put out by
+    wine_rack_clear would otherwise stay dark until a bottle moved."""
+    pushes = [a for a in PACKAGE["automation"] if a["id"].endswith("_push_grid")]
+    assert len(pushes) == 2
+    for automation in pushes:
+        watched = {str(t.get("entity_id")) for t in automation["triggers"]}
+        assert "sensor.cellartracker_last_synchronised" in watched, automation["id"]
+
+
+def test_show_overview_cancels_a_locator_before_painting():
+    """light_rack leaves a running locator on top; only clear_all cancels it."""
+    calls = _calls(PACKAGE["script"]["wine_rack_show_overview"])
+    for device in NODES:
+        names = [_split(c["action"])[1] for c in calls if _split(c["action"])[0] == device]
+        assert names == ["clear_all", "light_rack"], device
