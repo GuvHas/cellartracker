@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime
 from typing import Literal
@@ -259,8 +260,14 @@ class CellarLastSyncSensor(CoordinatorEntity[WineCellarData], SensorEntity):
 
 
 def _rack_slug(location: str) -> str:
-    """A unique-id fragment for a rack, stable across renames of its sensors."""
-    return re.sub(r"[^a-z0-9]+", "_", location.casefold()).strip("_") or "rack"
+    """A unique-id fragment for a rack, stable across renames of its sensors.
+
+    Readable, plus a short hash of the exact location: the readable part alone
+    collapses "Wine Rack 1" and "Wine-Rack-1", or any two all non-ASCII names,
+    into one id, and Home Assistant would then drop one rack's sensors.
+    """
+    readable = re.sub(r"[^a-z0-9]+", "_", location.casefold()).strip("_") or "rack"
+    return f"{readable}_{hashlib.sha256(location.encode('utf-8')).hexdigest()[:8]}"
 
 
 class _RackSensor(CoordinatorEntity[WineCellarData], SensorEntity):

@@ -172,8 +172,8 @@ def test_unique_ids_still_derive_from_the_description_key():
         "e1_inventory_status",
         # Per rack, keyed by its location rather than by its position in the
         # options, so reordering the racks does not swap their entities.
-        "e1_rack_grid_wine_rack_2",
-        "e1_rack_off_rack_wine_rack_2",
+        "e1_rack_grid_wine_rack_2_81030e09",
+        "e1_rack_off_rack_wine_rack_2_81030e09",
     }
 
 

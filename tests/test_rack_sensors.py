@@ -258,3 +258,14 @@ def test_unique_ids_follow_the_location_not_the_order():
     first = {s.unique_id for s in build([Rack("A", 1, 1), Rack("B", 1, 1)], None)}
     second = {s.unique_id for s in build([Rack("B", 1, 1), Rack("A", 1, 1)], None)}
     assert first == second
+
+
+@pytest.mark.parametrize(
+    "locations",
+    [("Wine Rack 1", "Wine-Rack-1"), ("Wine Rack 1", "wine rack 1 "), ("酒架", "葡萄酒")],
+)
+def test_locations_that_slug_alike_still_get_distinct_ids(locations):
+    """Home Assistant drops an entity whose unique id is already taken."""
+    racks = [Rack(location, 1, 1) for location in locations]
+    ids = [s.unique_id for s in build(racks, None)]
+    assert len(set(ids)) == len(ids)
