@@ -39,8 +39,7 @@ PASSWORD = "hunter2-do-not-leak"
 USERNAME = "alice"
 
 REQUEST_URL = URL(
-    "https://www.cellartracker.com/xlquery.asp"
-    f"?User={USERNAME}&Password={PASSWORD}&Table=Inventory"
+    f"https://www.cellartracker.com/xlquery.asp?User={USERNAME}&Password={PASSWORD}&Table=Inventory"
 )
 
 

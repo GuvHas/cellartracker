@@ -40,9 +40,7 @@ def options_flow(current: str) -> CellarTrackerOptionsFlowHandler:
 
 
 def submit(flow, currency: str):
-    return asyncio.run(
-        flow.async_step_init({"currency": currency, "scan_interval": 21600})
-    )
+    return asyncio.run(flow.async_step_init({"currency": currency, "scan_interval": 21600}))
 
 
 # --------------------------------------------------------------------------
@@ -74,9 +72,7 @@ def test_the_options_form_explains_the_consequence():
     import pathlib
 
     component = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "custom_components"
-        / "cellar_tracker"
+        pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "cellar_tracker"
     )
     strings = json.loads((component / "strings.json").read_text())
     init = strings["options"]["step"]["init"]

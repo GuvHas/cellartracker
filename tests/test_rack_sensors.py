@@ -41,9 +41,10 @@ def test_a_range_removes_a_rectangle():
 
 
 def test_a_range_can_be_written_either_way_round():
-    assert parse_racks("R: 9x9 without H9-A5")[0].missing == parse_racks(
-        "R: 9x9 without A5-H9"
-    )[0].missing
+    assert (
+        parse_racks("R: 9x9 without H9-A5")[0].missing
+        == parse_racks("R: 9x9 without A5-H9")[0].missing
+    )
 
 
 def test_single_bins_and_ranges_mix():
@@ -101,9 +102,7 @@ def test_bins_are_read_the_way_people_write_them(written, cell):
 # --------------------------------------------------------------------------
 def options_flow(options=None) -> CellarTrackerOptionsFlowHandler:
     flow = CellarTrackerOptionsFlowHandler()
-    flow.config_entry = ConfigEntry(
-        data={"username": "a", "password": "b"}, options=options or {}
-    )
+    flow.config_entry = ConfigEntry(data={"username": "a", "password": "b"}, options=options or {})
     return flow
 
 

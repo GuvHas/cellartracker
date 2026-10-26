@@ -116,9 +116,7 @@ def test_a_client_error_becomes_update_failed():
 
 
 def test_an_http_error_status_becomes_update_failed():
-    coordinator = build(
-        raise_for_status=aiohttp.ClientResponseError(None, None, status=503)
-    )
+    coordinator = build(raise_for_status=aiohttp.ClientResponseError(None, None, status=503))
     with pytest.raises(UpdateFailed):
         update(coordinator)
 

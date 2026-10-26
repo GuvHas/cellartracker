@@ -81,8 +81,7 @@ def test_ids_are_independent_of_row_order():
 
 def test_ids_are_independent_of_order_for_a_larger_group():
     rows = [
-        {"iWine": "7", "Bin": "B", "Valuation": "20", "Note": name}
-        for name in ("a", "b", "c", "d")
+        {"iWine": "7", "Bin": "B", "Valuation": "20", "Note": name} for name in ("a", "b", "c", "d")
     ]
     shuffled = [rows[2], rows[0], rows[3], rows[1]]
     assert ids_by(rows, "Note") == ids_by(shuffled, "Note")
@@ -95,16 +94,12 @@ def test_ids_survive_a_re_pricing():
     """Valuation moves constantly; an id keyed on it would churn every poll."""
     cheap = process([{"iWine": "1", "Bin": "A", "Valuation": "10"}])
     dear = process([{"iWine": "1", "Bin": "A", "Valuation": "999"}])
-    assert (
-        cheap["bottles"][0]["unique_bottle_id"]
-        == dear["bottles"][0]["unique_bottle_id"]
-    )
+    assert cheap["bottles"][0]["unique_bottle_id"] == dear["bottles"][0]["unique_bottle_id"]
 
 
 @pytest.mark.parametrize("field", ["iWine", "PurchaseDate", "Barcode", "Location", "Bin"])
 def test_a_different_identifying_field_yields_a_different_id(field):
-    base = {"iWine": "1", "PurchaseDate": "2024-01-01", "Barcode": "b",
-            "Location": "L", "Bin": "A"}
+    base = {"iWine": "1", "PurchaseDate": "2024-01-01", "Barcode": "b", "Location": "L", "Bin": "A"}
     changed = {**base, field: "CHANGED"}
     assert (
         process([base])["bottles"][0]["unique_bottle_id"]

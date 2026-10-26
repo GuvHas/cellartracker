@@ -49,7 +49,7 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _async_check_credentials(self, username: str, password: str) -> dict:
+    async def _async_check_credentials(self, username: str, password: str) -> dict[str, str]:
         """Return a form-errors dict; empty means the credentials are valid."""
         try:
             # The same non-blocking fetch the coordinator uses, so a hung
@@ -66,9 +66,7 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return {"base": "unknown"}
         return {}
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
         """Handle the initial user step."""
         # One CellarTracker account per installation. Checked before anything
         # else so a duplicate is refused without a round trip to CellarTracker,
@@ -92,30 +90,22 @@ class CellarTrackerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # whichever account it names.
                 await self.async_set_unique_id(DOMAIN)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME], data=user_input
-                )
+                return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
 
-        return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
-        )
+        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> Any:
         """Entry point when the coordinator raises ConfigEntryAuthFailed."""
         return await self.async_step_reauth_confirm()
 
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> Any:
         """Ask for a new password for the existing account."""
         entry = self._get_reauth_entry()
         username = entry.data[CONF_USERNAME]
         errors = {}
 
         if user_input is not None:
-            errors = await self._async_check_credentials(
-                username, user_input[CONF_PASSWORD]
-            )
+            errors = await self._async_check_credentials(username, user_input[CONF_PASSWORD])
             if not errors:
                 return self.async_update_reload_and_abort(
                     entry, data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]}
@@ -149,9 +139,7 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
             )
         )
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         """Manage the options."""
         errors: dict[str, str] = {}
         racks_problem = ""

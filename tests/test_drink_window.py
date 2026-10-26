@@ -34,8 +34,7 @@ HEADER = "iWine\tWine\tValuation\tBeginConsume\tEndConsume"
 
 def export(*windows: tuple[str, str]) -> str:
     rows = [
-        f"{i}\tWine {i}\t10.00\t{begin}\t{end}"
-        for i, (begin, end) in enumerate(windows, start=1)
+        f"{i}\tWine {i}\t10.00\t{begin}\t{end}" for i, (begin, end) in enumerate(windows, start=1)
     ]
     return "\n".join([HEADER, *rows])
 
@@ -113,10 +112,10 @@ def test_an_unparseable_year_is_treated_as_absent(value):
 # --------------------------------------------------------------------------
 def test_a_mixed_cellar_is_counted_correctly():
     ready, past = counts(
-        ("2020", "2030"),   # ready
-        ("2010", "2020"),   # past
-        ("2030", "2040"),   # too early
-        ("", ""),           # unknown
+        ("2020", "2030"),  # ready
+        ("2010", "2020"),  # past
+        ("2030", "2040"),  # too early
+        ("", ""),  # unknown
         ("2015", str(YEAR)),  # last year of its window: ready
     )
     assert (ready, past) == (2, 1)
@@ -129,10 +128,17 @@ def test_an_empty_cellar_counts_zero():
     data = asyncio.run(coordinator._async_update_data())
     assert data["ready_to_drink"] == 1
 
-    # An export with no rows at all short-circuits before any counting.
-    hass.session = FakeSession(text=HEADER)
-    coordinator.data = None
-    empty = asyncio.run(coordinator._async_update_data())
+    # An export with no rows at all short-circuits before any counting. This is a
+    # separate coordinator with nothing on disk: polling an empty export from
+    # the one above would be a restart *with a stocked cache*, where the empty
+    # response is deliberately refused (see test_cache.py) rather than counted.
+    fresh = FakeHass()
+    fresh.session = FakeSession(text=HEADER)
+    empty = asyncio.run(
+        WineCellarData(
+            fresh, ConfigEntry(data={"username": "a", "password": "b"})
+        )._async_update_data()
+    )
     assert empty["ready_to_drink"] == 0
     assert empty["past_drink_window"] == 0
 

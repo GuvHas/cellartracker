@@ -276,10 +276,7 @@ def test_the_grids_fit_in_a_state():
 
 
 def test_a_full_rack_is_still_one_character_per_bin():
-    full = [
-        bottle(f"{chr(ord('A') + r)}{c + 1}", "2020", "2030")
-        for r, c in sorted(RACK1_SHAPE)
-    ]
+    full = [bottle(f"{chr(ord('A') + r)}{c + 1}", "2020", "2030") for r, c in sorted(RACK1_SHAPE)]
     rendered = grid(full)
     assert len(rendered) == subs(NODE1, "rack_cells")
     assert set(rendered) == {"R", "."}, "only the bins the rack has should light"
@@ -345,11 +342,13 @@ def strands(node: dict) -> list[dict]:
         body = light["effects"][0]["addressable_lambda"]["lambda"]
         m = re.search(r"constexpr int kRow = (\d+);", body)
         assert m, f"{light['id']} does not say which row it is"
-        out.append({
-            "id": light["id"],
-            "row": int(m.group(1)),
-            "num_leds": int(resolve(node, light["num_leds"])),
-        })
+        out.append(
+            {
+                "id": light["id"],
+                "row": int(m.group(1)),
+                "num_leds": int(resolve(node, light["num_leds"])),
+            }
+        )
     return out
 
 
@@ -652,8 +651,7 @@ def test_the_row_table_agrees_with_the_rest_of_the_substitutions():
 def _node_actions(node: dict) -> dict[str, set[str]]:
     """Every action a node declares, and the variables it takes."""
     return {
-        action["action"]: set(action.get("variables") or {})
-        for action in node["api"]["actions"]
+        action["action"]: set(action.get("variables") or {}) for action in node["api"]["actions"]
     }
 
 
@@ -675,7 +673,7 @@ def _calls(node: object) -> list[dict]:
 def _split(call: str) -> tuple[str, str]:
     for device in NODES:
         if call.startswith(f"esphome.{device}_"):
-            return device, call[len(f"esphome.{device}_"):]
+            return device, call[len(f"esphome.{device}_") :]
     raise AssertionError(f"{call} does not name any node")
 
 

@@ -26,7 +26,10 @@ import pytest
 
 CELLAR_HTML = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "custom_components" / "cellar_tracker" / "www" / "cellar.html"
+    / "custom_components"
+    / "cellar_tracker"
+    / "www"
+    / "cellar.html"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -101,19 +104,19 @@ def run_scenario(*, search="", parent_token=None, own_token=None, session=None, 
             "session": session or {},
         }
     )
-    source = "\n".join(
-        [PRELUDE % scenario, page_script(), textwrap.dedent(checks)]
-    )
+    source = "\n".join([PRELUDE % scenario, page_script(), textwrap.dedent(checks)])
     result = subprocess.run(
         ["node", "--input-type=commonjs", "-e", source],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stderr or result.stdout
     return result.stdout
 
 
 def assert_js(expression, message):
-    return f'if (!({expression})) {{ console.error({json.dumps(message)}); process.exit(1); }}\n'
+    return f"if (!({expression})) {{ console.error({json.dumps(message)}); process.exit(1); }}\n"
 
 
 # --------------------------------------------------------------------------

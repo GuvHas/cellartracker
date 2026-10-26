@@ -29,13 +29,40 @@ from cellar_tracker.const import COMPACT_FIELDS, DOMAIN
 from cellar_tracker.views import CellarTrackerInventoryView
 from conftest import ConfigEntry, FakeHass, FakeRequest, FakeSession, ViewHass
 
-NAMED = ["iWine", "Wine", "Vintage", "Valuation", "Location", "Bin", "Barcode",
-         "BeginConsume", "EndConsume", "Producer", "Country", "Region",
-         "Varietal", "Size", "Notes"]
-VALUES = ["1", "Barolo", "2016", "45.50", "Rack", "A", "7350012345678",
-          "2022", "2035",
-          "Giacosa", "Italy", "Piedmont", "Nebbiolo", "750ml",
-          "a long tasting note that nobody reading a bottle table needs"]
+NAMED = [
+    "iWine",
+    "Wine",
+    "Vintage",
+    "Valuation",
+    "Location",
+    "Bin",
+    "Barcode",
+    "BeginConsume",
+    "EndConsume",
+    "Producer",
+    "Country",
+    "Region",
+    "Varietal",
+    "Size",
+    "Notes",
+]
+VALUES = [
+    "1",
+    "Barolo",
+    "2016",
+    "45.50",
+    "Rack",
+    "A",
+    "7350012345678",
+    "2022",
+    "2035",
+    "Giacosa",
+    "Italy",
+    "Piedmont",
+    "Nebbiolo",
+    "750ml",
+    "a long tasting note that nobody reading a bottle table needs",
+]
 
 # The real export carries 66 columns. A fixture with only the interesting ones
 # would understate the saving and make the size assertion meaningless.
@@ -93,9 +120,7 @@ def test_the_compact_body_is_pre_rendered_too():
     """Identity: serving it must not re-encode on the event loop."""
     coord = coordinator()
     hass = ViewHass({DOMAIN: {"a": coord}})
-    response = asyncio.run(
-        CellarTrackerInventoryView(hass).get(FakeRequest(view="compact"))
-    )
+    response = asyncio.run(CellarTrackerInventoryView(hass).get(FakeRequest(view="compact")))
     assert response.body is coord.compact_body
 
 
@@ -119,9 +144,7 @@ def test_a_missing_field_is_simply_absent_rather_than_an_error():
 
 def test_an_empty_cellar_compacts_to_an_empty_list():
     hass = ViewHass({})
-    response = asyncio.run(
-        CellarTrackerInventoryView(hass).get(FakeRequest(view="compact"))
-    )
+    response = asyncio.run(CellarTrackerInventoryView(hass).get(FakeRequest(view="compact")))
     assert json.loads(response.body) == []
 
 
@@ -136,9 +159,7 @@ def test_the_dashboard_asks_for_the_compact_view():
         / "www"
         / "cellar.html"
     ).read_text()
-    assert "'view', 'compact'" in page, (
-        "the page must request the compact projection"
-    )
+    assert "'view', 'compact'" in page, "the page must request the compact projection"
 
 
 # --------------------------------------------------------------------------
@@ -168,6 +189,4 @@ def test_every_field_the_page_searches_is_actually_served():
     assert fields, "SEARCH_FIELDS parsed as empty"
 
     missing = [field for field in fields if field not in COMPACT_FIELDS]
-    assert not missing, (
-        f"the page searches {missing}, which the compact view never sends"
-    )
+    assert not missing, f"the page searches {missing}, which the compact view never sends"

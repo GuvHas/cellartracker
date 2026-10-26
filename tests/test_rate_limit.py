@@ -127,9 +127,7 @@ DAILY = 86400
 def daily(**session_kwargs) -> WineCellarData:
     hass = FakeHass()
     hass.session = FakeSession(**session_kwargs)
-    entry = ConfigEntry(
-        data={"username": "alice", "password": "s3cret", "scan_interval": DAILY}
-    )
+    entry = ConfigEntry(data={"username": "alice", "password": "s3cret", "scan_interval": DAILY})
     return WineCellarData(hass, entry)
 
 

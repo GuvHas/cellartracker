@@ -144,3 +144,22 @@ def test_the_job_runs_a_python_the_pinned_home_assistant_supports():
     assert CONFIG["python_version"] == "3.13"
     job = CI.split("  mypy:")[1].split("\n  hassfest:")[0]
     assert 'python-version: "3.13"' in job
+
+
+# --------------------------------------------------------------------------
+# Strict mode: what "fully typed" is asked to mean
+# --------------------------------------------------------------------------
+def test_the_gate_runs_in_strict_mode():
+    """`mypy --strict` is the bar, and it is only a bar if the config sets it.
+
+    The individual flags below it in pyproject.toml covered most of strict, but
+    not disallow_any_generics or no_implicit_reexport - which is how three bare
+    `dict` annotations and two re-exported imports went unreported.
+    """
+    assert CONFIG.get("strict") is True
+
+
+def test_the_flags_strict_does_not_include_are_still_set():
+    """strict is additive here: these were already on and must stay on."""
+    assert CONFIG["disallow_any_unimported"] is True
+    assert CONFIG["warn_unreachable"] is True

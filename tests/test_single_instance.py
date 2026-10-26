@@ -114,7 +114,9 @@ def test_the_abort_reason_is_translated():
     strings = json.loads(
         (
             pathlib.Path(__file__).resolve().parent.parent
-            / "custom_components" / "cellar_tracker" / "strings.json"
+            / "custom_components"
+            / "cellar_tracker"
+            / "strings.json"
         ).read_text()
     )
     assert "single_instance_allowed" in strings["config"]["abort"]
