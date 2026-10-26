@@ -82,10 +82,11 @@ edge_round = 1.5;           // rounding on the outer top edge of the lid
 /* [Cavity layout] */
 end_bay   = 14.0;           // free space at each short end. Must clear the
                             //   lid-screw bosses AND the X1 gland's lock nut.
-front_bay = 18.0;           // free space in front of the terminals: gland
+front_bay = 10.0;           // free space in front of the terminals: gland
                             //   lock-nut, then the cores fan out to - D +
-back_bay  = 10.0;           // extra space behind the board, along the top
-                            //   (+Y) wall, for routing the antenna lead
+back_bay  = 8.0;            // extra space behind the board, along the top
+                            //   (+Y) wall, for routing the antenna lead.
+                            //   front_bay + back_bay sets the box depth.
 top_clear = 3.0;            // air between tallest component and the lid lip
 
 

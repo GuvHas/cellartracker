@@ -11,9 +11,9 @@ in OpenSCAD, set `part`, press F6 and export the STL.
 
 | | |
 |---|---|
-| Outside, without flanges | 171 × 121 × 47 mm |
-| Footprint with flanges | 199 × 121 mm |
-| Cavity | 165 × 115 × 41 mm |
+| Outside, without flanges | 171 × 111 × 47 mm |
+| Footprint with flanges | 199 × 111 mm |
+| Cavity | 165 × 105 × 41 mm |
 
 ## Layout
 
@@ -23,8 +23,9 @@ Positions come from the vendor's *Board Dimensions* photo of a V1.02 board, scal
 - **Front wall:** two staggered M12 glands per output block, right in front of it. The lower
   gland feeds the block's lower (even) output and the upper gland its upper (odd) output.
   The M16 power gland sits in front of X5 at the right.
-- **Back wall:** the antenna hole, behind the ESP32's u.FL socket. The board sits 11 mm
-  clear of this wall (`back_bay`) so the antenna lead has room to route.
+- **Back wall:** the antenna hole, behind the ESP32's u.FL socket. The board sits 9 mm
+  clear of this wall (`back_bay`) so the antenna lead has room to route, and 11 mm from the
+  front wall (`front_bay`). Trade one against the other to keep the box the same size.
 - **Lid:** a window over the vertical USB-C at the back edge.
 - **Standoffs:** four, each with a heat-set insert, on the board's 127 × 77 mm hole rectangle
   (measured on a real board).
