@@ -23,12 +23,14 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
 from .cellar_data import CellarTrackerConfigEntry
+from .const import CONF_RACKS
 
 # "title" as well as the credential keys: async_step_user names the entry
 # after the account, so the title *is* the username for every entry this
 # integration creates. Redacting only the username field would have published
-# it one line further down.
-TO_REDACT = {CONF_PASSWORD, CONF_USERNAME, "title"}
+# it one line further down. The LED racks option starts every line with a
+# CellarTracker location, which is the user's rack name.
+TO_REDACT = {CONF_PASSWORD, CONF_USERNAME, "title", CONF_RACKS}
 
 # The sample bottle is an allowlist rather than a denylist. A denylist has to
 # be right about every column CellarTracker has today and every one it adds

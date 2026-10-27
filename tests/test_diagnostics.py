@@ -30,6 +30,7 @@ from conftest import ConfigEntry, ViewHass
 
 PASSWORD = "hunter2-do-not-leak"
 USERNAME = "alice@example.com"
+RACK_NAME = "Wine rack in the guest room"
 
 BOTTLE = {
     "iWine": "1",
@@ -71,7 +72,7 @@ def diagnostics(coordinator) -> dict:
         # to something else, which is why the leak below went unnoticed.
         title=USERNAME,
         data={"username": USERNAME, "password": PASSWORD, "currency": "SEK"},
-        options={"scan_interval": 21600},
+        options={"scan_interval": 21600, "racks": f"{RACK_NAME}: 13x13 without A5-H9"},
     )
     entry.runtime_data = coordinator
     return asyncio.run(async_get_config_entry_diagnostics(ViewHass(), entry))
@@ -285,6 +286,14 @@ def test_rack_names_do_not_leak_through_the_analytics():
     report = rendered(diagnostics(_Coordinator(with_analytics())))
     assert "Cellar under the stairs" not in report
     assert "location_index" not in report
+
+
+def test_rack_names_do_not_leak_through_the_led_racks_option():
+    """Each line of the option starts with the rack's location."""
+    report = diagnostics(_Coordinator(stocked()))
+    assert RACK_NAME not in rendered(report)
+    assert report["entry"]["options"]["racks"] == "**REDACTED**"
+    assert report["entry"]["options"]["scan_interval"] == 21600
 
 
 def test_the_cached_payload_is_never_exported():
