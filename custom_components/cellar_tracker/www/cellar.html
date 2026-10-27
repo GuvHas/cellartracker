@@ -59,6 +59,10 @@
         margin: 0;
         padding: 12px 12px calc(24px + env(safe-area-inset-bottom));
         -webkit-text-size-adjust: 100%;
+        /* Whatever happens below, the page never scrolls sideways inside its
+           card. clip, not hidden: hidden would make the body a scroll
+           container and unstick the controls. */
+        overflow-x: clip;
     }
 
     /* ---------------------------------------------------------------- *
@@ -74,7 +78,13 @@
         margin-bottom: 4px;
     }
 
+    /* The search box, and the Light racks switch beside it as one square
+       button: as a labelled chip on the sort row it made that row wider
+       than a phone with large text. */
+    #searchbar { display: flex; gap: 8px; }
     input#search {
+        flex: 1 1 auto;
+        min-width: 0;
         width: 100%;
         height: var(--touch);
         padding: 0 14px;
@@ -134,10 +144,6 @@
 
     #sortbar {
         display: flex;
-        /* With the Light racks switch the row no longer fits a narrow phone,
-           or one with larger text: the switch moves to a line of its own
-           rather than pushing the page sideways. */
-        flex-wrap: wrap;
         align-items: center;
         gap: 8px;
         margin-top: 8px;
@@ -145,16 +151,25 @@
         color: var(--text-secondary);
     }
     #sortbar label { flex: 0 0 auto; }
-    /* Shown only once the settings say there are LED racks. A chip in look,
-       because like the chips it is a state you switch, not a one-off action. */
-    #light-racks { min-height: 36px; }
+    /* Shown only once the settings say there are LED racks. Coloured like a
+       chip when on, because like the chips it is a state you switch. */
+    #light-racks {
+        flex: 0 0 var(--touch);
+        width: var(--touch);
+        height: var(--touch);
+        padding: 0;
+        justify-content: center;
+        border-radius: var(--radius);
+        color: var(--text-secondary);
+    }
+    #light-racks svg { width: 24px; height: 24px; }
+    #light-racks[aria-pressed="true"] { color: var(--accent-contrast); }
     #light-racks[hidden] { display: none; }
     #sort {
-        /* A select is otherwise as wide as its longest option and refuses to
-           shrink, so the row overflowed instead of wrapping. 7.5em still
-           reads "Drink by"; below that the switch wraps instead. */
-        flex: 1 1 7.5em;
-        min-width: 7.5em;
+        /* A select is otherwise as wide as its longest option and refuses
+           to shrink, which pushed the row past the edge of a narrow phone. */
+        flex: 1 1 auto;
+        min-width: 0;
         height: 36px;
         font: inherit;
         font-size: 0.8125rem;
@@ -210,6 +225,8 @@
     .summary:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
 
     .name {
+        min-width: 0;
+        overflow-wrap: anywhere;
         font-weight: 600;
         font-size: 0.9375rem;
         line-height: 1.3;
@@ -322,9 +339,18 @@
 <body>
 
 <div id="controls">
-    <input type="text" id="search" placeholder="Search wines, vintage, bin…"
-           autocomplete="off" autocorrect="off" spellcheck="false"
-           aria-label="Search the cellar">
+    <div id="searchbar">
+        <input type="text" id="search" placeholder="Search wines, vintage, bin…"
+               autocomplete="off" autocorrect="off" spellcheck="false"
+               aria-label="Search the cellar">
+        <button type="button" id="light-racks" class="chip" aria-pressed="true" hidden
+                aria-label="Light racks"
+                title="Light racks: show the list on the wine racks, and tap a bottle to light its bin">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                <path d="M12 2a7 7 0 0 0-4 12.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26A7 7 0 0 0 12 2zm-3 18h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1z"/>
+            </svg>
+        </button>
+    </div>
 
     <!-- Static markup rather than generated: the chips are the page's primary
          navigation, so they paint before any data arrives. Only the counts are
@@ -355,10 +381,6 @@
             <option value="Location">Location</option>
         </select>
         <button type="button" id="direction" aria-label="Reverse sort order">▲</button>
-        <button type="button" id="light-racks" class="chip" aria-pressed="true" hidden
-                title="Show the list on the wine racks: tap a bottle to light its bin">
-            Light racks
-        </button>
     </div>
 </div>
 

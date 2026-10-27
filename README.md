@@ -350,7 +350,7 @@ and the drawer has a **Show on rack** button to light it again. A chip or a sear
 the bottles in the list, in their drinking-window colours: tap *Ready to drink* and the racks show
 exactly what you can open tonight. Back on *All wines* with an empty search, the overview returns;
 a highlight also gives way to the overview by itself after ten minutes. The **Light racks**
-switch beside the sort turns this off on that device, and appears only once LED racks are set up.
+switch, the light-bulb button beside the search box, turns this off on that device, and appears only once LED racks are set up.
 See [Lighting the rack](#lighting-the-rack).
 
 The page follows your Home Assistant light/dark theme, and every control is sized for a thumb.
