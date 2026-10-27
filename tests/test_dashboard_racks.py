@@ -299,3 +299,20 @@ def test_the_switch_appears_only_with_led_racks():
             wines=cellar(),
             racks=racks,
         )
+
+
+def test_opening_a_bottle_cancels_a_list_update_still_waiting():
+    """Reported by Codex on #29: the late highlight would clear the locator.
+    The latest thing the user did is what the rack shows."""
+    page(
+        "setFilter('ready'); syncRacks();\n"
+        "open('Ready Red');\n"
+        + later(
+            equals(
+                "posted.map((p) => p.url)",
+                ["/api/services/cellar_tracker/locate_bottle"],
+                "a stale highlight followed the locator",
+            ),
+            ms=700,
+        )
+    )

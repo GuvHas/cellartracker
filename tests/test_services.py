@@ -482,3 +482,46 @@ def test_without_led_racks_the_highlight_does_nothing(hass):
     call(hass, "highlight_bottles", {"bottles": ["u1"]})
     call(hass, "show_overview")
     assert hass.bus.events == []
+
+
+# Reported by Codex on #29: a restore that fires during a locator's hold ends
+# it, because the overview repaint clears the board first.
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr("cellar_tracker.services.time.monotonic", lambda: now[0])
+    return now
+
+
+def test_a_locator_near_the_end_of_a_highlight_pushes_the_restore_back(racked, clock):
+    call(racked, "highlight_bottles", {"bottles": ["u1"], "seconds": 600})
+    clock[0] += 590
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 120})
+    first, second = racked.later
+    assert first[2] is True, "the old restore would end the locator after 10 s"
+    assert second[0] == 120 and second[2] is False
+
+
+def test_a_locator_well_inside_a_highlight_leaves_the_restore_alone(racked, clock):
+    call(racked, "highlight_bottles", {"bottles": ["u1"], "seconds": 600})
+    clock[0] += 60
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 120})
+    assert [t[2] for t in racked.later] == [False]
+
+
+def test_a_locator_held_indefinitely_is_not_cut_short_by_a_restore(racked, clock):
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 0})
+    assert [t[2] for t in racked.later] == [True]
+
+
+def test_the_deferred_restore_still_puts_the_overview_back(racked, clock):
+    call(racked, "highlight_bottles", {"bottles": ["u1"], "seconds": 600})
+    clock[0] += 590
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 120})
+    racked.bus.events.clear()
+    racked.later[-1][1](None)
+    assert {e["location"] for e in events(racked, "cellartracker_rack_paint")} == {
+        "Cellar",
+        "Fridge",
+    }

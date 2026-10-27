@@ -818,6 +818,9 @@
     // Lights one bottle's bin on its rack. With a button, says how it went:
     // claiming "Lit" when nothing was lit sends someone to a dark rack.
     function locate(wine, button) {
+        // The latest action wins: a list update still waiting to be sent
+        // would repaint the rack and put this bin out straight away.
+        clearTimeout(rackTimer);
         const done = callService('locate_bottle', {
             location: String(wine.Location).trim(),
             bin: String(wine.Bin).trim(),

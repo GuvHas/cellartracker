@@ -22,8 +22,9 @@ scan of the cellar.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import voluptuous as vol
 from homeassistant.core import (
@@ -152,10 +153,51 @@ def _service_bottle(bottle: Mapping[str, Any], year: int) -> dict[str, Any]:
     }
 
 
+class _PendingRestore(NamedTuple):
+    cancel: Callable[[], None]
+    # time.monotonic() at which the overview is due back.
+    due: float
+    coordinator: WineCellarData
+
+
 def _cancel_restore(hass: HomeAssistant) -> None:
-    cancel: Callable[[], None] | None = hass.data.pop(_RESTORE_TIMER, None)
-    if cancel is not None:
-        cancel()
+    pending: _PendingRestore | None = hass.data.pop(_RESTORE_TIMER, None)
+    if pending is not None:
+        pending.cancel()
+
+
+def _schedule_restore(hass: HomeAssistant, coordinator: WineCellarData, seconds: int) -> None:
+    """Put the overview back in `seconds`, replacing any restore already due."""
+    _cancel_restore(hass)
+
+    # @callback: without it Home Assistant runs a plain function on an
+    # executor thread, and firing an event from there is not allowed.
+    @callback
+    def restore(_now: object) -> None:
+        hass.data.pop(_RESTORE_TIMER, None)
+        if (live := _loaded_coordinators(hass)) and live[0] is coordinator:
+            _paint_overview(hass, coordinator)
+
+    hass.data[_RESTORE_TIMER] = _PendingRestore(
+        async_call_later(hass, seconds, restore), time.monotonic() + seconds, coordinator
+    )
+
+
+def _keep_restore_off_a_locator(hass: HomeAssistant, hold: int) -> None:
+    """Hold back a pending restore until a new locator has had its time.
+
+    The restore repaints with clear_all, which ends a locator. Without this, a
+    bottle opened a few seconds before a highlight expires would be lit for
+    those few seconds instead of its hold.
+    """
+    pending: _PendingRestore | None = hass.data.get(_RESTORE_TIMER)
+    if pending is None:
+        return
+    if hold == 0:
+        # Held until something else changes the rack; the next sync does.
+        _cancel_restore(hass)
+    elif pending.due - time.monotonic() < hold:
+        _schedule_restore(hass, pending.coordinator, hold)
 
 
 def _paint_overview(hass: HomeAssistant, coordinator: WineCellarData) -> None:
@@ -215,9 +257,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_key="not_on_a_rack",
                 translation_placeholders={"location": location, "bin": bin_name},
             )
+        hold: int = call.data[ATTR_SECONDS]
+        _keep_restore_off_a_locator(hass, hold)
         hass.bus.async_fire(
-            EVENT_RACK_LOCATE,
-            {"location": location, "bin": bin_name, "seconds": call.data[ATTR_SECONDS]},
+            EVENT_RACK_LOCATE, {"location": location, "bin": bin_name, "seconds": hold}
         )
 
     async def handle_highlight_bottles(call: ServiceCall) -> None:
@@ -242,15 +285,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
         seconds: int = call.data[ATTR_SECONDS]
         if seconds:
-            # @callback: without it Home Assistant runs a plain function on an
-            # executor thread, and firing an event from there is not allowed.
-            @callback
-            def restore(_now: object) -> None:
-                hass.data.pop(_RESTORE_TIMER, None)
-                if (live := _loaded_coordinators(hass)) and live[0] is coordinator:
-                    _paint_overview(hass, coordinator)
-
-            hass.data[_RESTORE_TIMER] = async_call_later(hass, seconds, restore)
+            _schedule_restore(hass, coordinator, seconds)
 
     async def handle_show_overview(call: ServiceCall) -> None:
         coordinator = _require_loaded(hass)[0]
