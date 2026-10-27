@@ -75,6 +75,7 @@ def test_nothing_configured_is_no_racks():
         ("A: 27x2", "26 rows"),
         ("A: 16x16", "256 bins"),
         ("A: 2x2\na: 3x3", "listed twice"),
+        ("Wine Rack: 2x2\nwine  rack: 3x3", "listed twice"),
         ("A: 2x2 without Z9", "outside"),
         ("A: 2x2 without banana", "not a bin"),
     ],
@@ -177,6 +178,20 @@ def test_each_rack_gets_its_grid_and_off_rack_count():
     # A7 is in the U's opening: dark, and counted.
     assert one["grid"] == "." * 168 + "A"
     assert one["off_rack"] == 1
+
+
+def test_a_rack_line_finds_its_bottles_whatever_the_case_and_spacing():
+    """The rack line is typed by hand; CellarTracker's Location is not.
+    Reported 2026-10-27: a rack named one way, its bottles filed another, and
+    the grid stayed dark with nothing counted off the rack either."""
+    _, exact = poll({CONF_RACKS: RACKS})
+    _, loose = poll({CONF_RACKS: RACKS.replace("Wine Rack 2", "wine  RACK 2")})
+    assert loose["racks"]["wine  RACK 2"] == exact["racks"]["Wine Rack 2"]
+
+
+def test_a_differently_worded_rack_still_finds_nothing():
+    _, data = poll({CONF_RACKS: RACKS.replace("Wine Rack 2", "Wine Rack Two")})
+    assert data["racks"]["Wine Rack Two"] == {"grid": "." * 49, "off_rack": 0}
 
 
 def test_no_racks_means_an_empty_mapping():

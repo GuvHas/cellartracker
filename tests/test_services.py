@@ -416,6 +416,14 @@ def test_locate_passes_the_hold_through(racked):
     assert events(racked, "cellartracker_rack_locate")[0]["seconds"] == 0
 
 
+def test_locate_names_the_rack_as_configured(racked):
+    """The page sends the bottle's own Location. Each rack's automation
+    compares the event against the rack's configured name, so a Location that
+    differs only in case or spacing must arrive as that name."""
+    call(racked, "locate_bottle", {"location": "cellar", "bin": "A1"})
+    assert events(racked, "cellartracker_rack_locate")[0]["location"] == "Cellar"
+
+
 @pytest.mark.parametrize(
     "data", [{"location": "Garage", "bin": "A1"}, {"location": "Cellar", "bin": "  "}]
 )

@@ -724,12 +724,13 @@ rack controls*, with these inputs:
 | Input | Rack 1 | Rack 2 |
 |---|---|---|
 | Rack grid sensor | *Wine Rack 1 grid* | *Wine Rack 2 grid* |
-| ESPHome node names | `winerack1aled`, `winerack1bled` | `winerack2led` |
+| ESPHome node names | `winerack1aled, winerack1bled` | `winerack2led` |
 | Last synchronised sensor (automation only) | CellarTracker's *Last synchronised* | the same |
 | One light from each board (automation only) | *Wine Rack 1A Row A*, *Wine Rack 1B Row H* | *Wine Rack 2 Row A* |
 
 The pickers only offer CellarTracker's own sensors, so there is no entity ID to type. Node names
-are the `device_name` in each board's YAML; a dash in one is fine.
+are the `device_name` in each board's YAML, typed into the one box and separated by commas; a dash
+in one is fine. Home Assistant refuses to save with *Missing input nodes* while that box is empty.
 
 To pick up a later fix, use **⋮ → Re-import blueprint** on each. The grid sensors are worth adding
 to `recorder: exclude:` — they change only when the cellar does, but each state is up to 169
@@ -1021,8 +1022,10 @@ Deliberately not there — see [Bottle-level data](#bottle-level-data). Use
 ### A wine rack stays dark, or lights the wrong bins
 
 Check the rack's **grid** sensor first. If it is all dots (`.`, empty) while the rack holds
-bottles, the rack's line under **Configure → LED racks** does not name the CellarTracker
-`Location` exactly as your bottles are filed, so none of them are counted for it. If the grid looks right but the rack does not, the problem is
+bottles and **bottles off the rack** is 0, the rack's line under **Configure → LED racks** does not
+name the CellarTracker `Location` your bottles are filed under, so none of them are counted for it.
+Case and spacing do not matter (`wine rack 2` is `Wine Rack 2`), but the words do: open one of the
+rack's bottles in the dashboard and copy its Location. If the grid looks right but the rack does not, the problem is
 between Home Assistant and the node: the node names in the rack's automation must match each
 board's `device_name`, and the ESPHome node must be adopted so its actions exist. A
 grid that lands on the wrong rack means the two locations are swapped in the options.

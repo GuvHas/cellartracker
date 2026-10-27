@@ -27,13 +27,13 @@ blueprint:
     nodes:
       name: ESPHome node names
       description: >-
-        The ESPHome name of every board on this rack, one per entry, as in the
-        board's YAML (device_name): winerack1aled and winerack1bled for the
-        example rack 1, winerack2led for rack 2. A locator goes to every
-        board, so the one holding the bin lights it and the others go dark.
+        The ESPHome name of every board on this rack, as in the board's YAML
+        (device_name), separated by commas: "winerack1aled, winerack1bled"
+        for the example rack 1, "winerack2led" for rack 2. A locator goes to
+        every board, so the one holding the bin lights it and the others go
+        dark.
       selector:
         text:
-          multiple: true
 
 mode: single
 
@@ -82,9 +82,12 @@ variables:
   nodes: !input nodes
   # ESPHome registers a node's actions as esphome.<name>_<action>, with any
   # dash in the name turned into an underscore.
+  # The names are typed into one box, separated by commas or spaces. A list
+  # is accepted too, as automations made before the box was one still hold.
   node_names: >-
-    {{ nodes | map('trim') | map('lower') | map('replace', '-', '_')
-       | reject('eq', '') | list }}
+    {% set typed = nodes if nodes is string else (nodes | join(',')) %}
+    {{ (typed | replace(',', ' ')).split() | map('lower')
+       | map('replace', '-', '_') | list }}
 
 sequence:
   - choose:

@@ -128,9 +128,9 @@ def parse_racks(text: str | None) -> list[Rack]:
                 f"Line {number}: {rows}x{cols} is {rows * cols} bins, and a "
                 f"sensor state holds at most {MAX_CELLS}"
             )
-        if location.casefold() in seen:
+        if location_key(location) in seen:
             raise ValueError(f"Line {number}: '{location}' is listed twice")
-        seen.add(location.casefold())
+        seen.add(location_key(location))
         try:
             missing = _parse_without(match["without"] or "", rows, cols)
         except ValueError as err:
@@ -188,8 +188,18 @@ def bottle_rank(bottle: dict[str, Any], year: int) -> int:
     return READY
 
 
+def location_key(value: object) -> str:
+    """A location as compared: "wine rack 2" and "Wine  Rack 2 " are one rack.
+
+    The rack line is typed by hand in the options form while the bottles'
+    Location comes from CellarTracker, so case and spacing are allowed to
+    differ. Anything more and the rack names a different place.
+    """
+    return " ".join(str(value or "").split()).casefold()
+
+
 def _at(bottle: dict[str, Any], rack: Rack) -> bool:
-    return str(bottle.get("Location") or "").strip() == rack.location
+    return location_key(bottle.get("Location")) == location_key(rack.location)
 
 
 def rack_grid(bottles: list[dict[str, Any]], rack: Rack, year: int) -> str:
