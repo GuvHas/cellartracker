@@ -3,7 +3,6 @@
 import logging
 from pathlib import Path
 
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
@@ -11,7 +10,11 @@ from homeassistant.helpers.typing import ConfigType
 from .cellar_data import CellarTrackerConfigEntry, WineCellarData, async_remove_cache
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
 from .services import async_setup_services
-from .views import CellarTrackerInventoryView, CellarTrackerSettingsView
+from .views import (
+    CellarTrackerDashboardView,
+    CellarTrackerInventoryView,
+    CellarTrackerSettingsView,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,11 +64,9 @@ async def _async_register_dashboard(hass: HomeAssistant) -> None:
         )
         return
 
-    await hass.http.async_register_static_paths(
-        # cache_headers=False: an integration update must not leave browsers
-        # serving the previous page from cache.
-        [StaticPathConfig(DASHBOARD_URL, str(DASHBOARD_FILE), False)]
-    )
+    # A view rather than a static path, for its Cache-Control: an integration
+    # update must not leave browsers serving the previous page from cache.
+    hass.http.register_view(CellarTrackerDashboardView(DASHBOARD_FILE))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry) -> bool:
