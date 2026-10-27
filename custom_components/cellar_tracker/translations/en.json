@@ -37,11 +37,13 @@
         "data": {
           "scan_interval": "Seconds between refreshes",
           "currency": "Currency",
-          "racks": "LED racks"
+          "racks": "LED racks",
+          "racks_idle_off": "Turn the racks off after (seconds)"
         },
         "description": "Changing the currency relabels the cellar value; it does not convert it. Home Assistant records the value as a long-term statistic in its current unit, so after a change you may need to clear that sensor's statistics before it records again.",
         "data_description": {
-          "racks": "Only for wine racks with LED strips. One rack per line: the CellarTracker location, a colon, then rows x columns, and optionally the bins the rack does not have. For example 'Wine Rack 1: 13x13 without A5-H9' or 'Wine Rack 2: 7x7'. Each rack gets a grid sensor for its LED controller."
+          "racks": "Only for wine racks with LED strips. One rack per line: the CellarTracker location, a colon, then rows x columns, and optionally the bins the rack does not have. For example 'Wine Rack 1: 13x13 without A5-H9' or 'Wine Rack 2: 7x7'. Each rack gets a grid sensor for its LED controller.",
+          "racks_idle_off": "Only for LED racks. When set, the racks are dark until the dashboard or a door/motion automation asks for something, and go dark again this many seconds after the latest request. 0 keeps the overview lit all the time."
         }
       }
     },
@@ -107,7 +109,7 @@
         },
         "seconds": {
           "name": "Hold for",
-          "description": "How long to keep the bin lit before the overview comes back. 0 keeps it until something else changes the rack."
+          "description": "How long to keep the bin lit before the overview comes back. 0 keeps it until something else changes the rack. Ignored when the racks are set to turn off by themselves: the bin stays lit until they do."
         }
       }
     },
@@ -121,13 +123,19 @@
         },
         "seconds": {
           "name": "Hold for",
-          "description": "How long to keep the highlight before the overview comes back. 0 keeps it until the next sync or overview."
+          "description": "How long to keep the highlight before the overview comes back. 0 keeps it until the overview is asked for. Ignored when the racks are set to turn off by themselves."
         }
       }
     },
     "show_overview": {
       "name": "Show the overview on the racks",
-      "description": "Puts every LED rack back to the full cellar overview, ending a highlight or a located bin."
+      "description": "Puts every LED rack back to the full cellar overview, ending a highlight or a located bin.",
+      "fields": {
+        "only_if_dark": {
+          "name": "Only if the racks are dark",
+          "description": "For a door or motion sensor: show the overview only when nothing is lit, and otherwise keep what is showing lit a while longer."
+        }
+      }
     }
   },
   "exceptions": {

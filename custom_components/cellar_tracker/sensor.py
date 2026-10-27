@@ -14,11 +14,13 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .cellar_data import CellarData, CellarTrackerConfigEntry, RackState, WineCellarData
 from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN, normalize_currency
+from .rack_lights import SIGNAL_RACK_LIGHTS, showing
 from .racks import Rack
 
 # One typed place for what five constructors used to spell out. The key is
@@ -320,11 +322,30 @@ class RackGridSensor(_RackSensor):
         super().__init__(coordinator, device_info, entry_id, rack)
         # Static, so an automation can check it is talking to the rack it
         # thinks it is without parsing the options.
-        self._attr_extra_state_attributes = {
+        self._shape = {
             "location": rack.location,
             "rows": rack.rows,
             "columns": rack.cols,
         }
+
+    async def async_added_to_hass(self) -> None:
+        """Say so whenever the racks are asked to show something else."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_RACK_LIGHTS, self.async_write_ha_state)
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """The rack's shape, and what the racks were last asked to show.
+
+        ``showing`` is what the paint automation checks before a background
+        repaint, so a sync neither lights a rack that went dark nor wipes a
+        highlight someone is looking at.
+        """
+        if self.hass is None:
+            return dict(self._shape)
+        return {**self._shape, "showing": showing(self.hass, self.coordinator.racks_idle_off)}
 
     @property
     def native_value(self) -> str | None:

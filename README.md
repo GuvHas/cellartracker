@@ -355,7 +355,8 @@ link to the wine on CellarTracker.
 and the drawer has a **Show on rack** button to light it again. A chip or a search lights only
 the bottles in the list, in their drinking-window colours: tap *Ready to drink* and the racks show
 exactly what you can open tonight. Back on *All wines* with an empty search, the overview returns;
-a highlight also gives way to the overview by itself after ten minutes. The **Light racks**
+a highlight also gives way to the overview by itself after ten minutes, or the racks go dark if
+they are [set to turn off by themselves](#driving-the-led-racks). The **Light racks**
 switch, the light-bulb button beside the search box, turns this off on that device, and appears only once LED racks are set up.
 See [Lighting the rack](#lighting-the-rack).
 
@@ -483,11 +484,27 @@ by its CellarTracker location, and that rack's *paint a wine rack* automation do
 | Action | Does | Event |
 |---|---|---|
 | `cellar_tracker.locate_bottle` | `location`, `bin`, optional `seconds` (default 120): lights that bin on its own | `cellartracker_rack_locate` |
-| `cellar_tracker.highlight_bottles` | `bottles` (a list of `unique_bottle_id`), optional `seconds` (default 600, `0` until the next sync): lights only those bottles' bins, on every rack | `cellartracker_rack_paint` |
-| `cellar_tracker.show_overview` | puts every rack back to the full overview | `cellartracker_rack_paint` |
+| `cellar_tracker.highlight_bottles` | `bottles` (a list of `unique_bottle_id`), optional `seconds` (default 600, `0` until the overview is asked for): lights only those bottles' bins, on every rack | `cellartracker_rack_paint` |
+| `cellar_tracker.show_overview` | puts every rack back to the full overview; with `only_if_dark: true`, only when nothing is lit (for a door or motion sensor) | `cellartracker_rack_paint` |
 
 `locate_bottle` refuses a location that is not one of the LED racks, rather than firing an event
 nothing will answer. A highlight darkens a rack none of the chosen bottles are on.
+
+**Racks that go dark by themselves.** Set **Turn the racks off after (seconds)** in the
+integration's options, for example `120`, and the racks are dark until something asks for them:
+
+- Every request starts the countdown again, so the racks stay lit while you use the dashboard and
+  go dark that long after the last thing you did. The `seconds` of `locate_bottle` and
+  `highlight_bottles` are ignored: a located bin stays lit until the racks go dark.
+- A sync, a changed grid or a board coming back never relights a dark rack. They also leave a
+  highlight alone, with or without this option.
+- `show_overview` with `only_if_dark: true` lights the overview when the racks are dark. When
+  something is already showing, it keeps that lit a while longer instead. The
+  *light the racks when someone comes in* blueprint calls it for a door contact or motion sensor.
+- The grid sensors' `showing` attribute says what the racks were last asked for: `overview`,
+  `highlight` or `off`.
+
+`0`, the default, keeps the overview lit all the time, as before.
 
 ### The `cellartracker_inventory_changed` event
 
@@ -720,12 +737,13 @@ the longest state Home Assistant keeps.
 
 ### Connecting Home Assistant to the racks
 
-Two blueprints do the rest. Import both with these buttons, or under **Settings → Automations &
+Two blueprints do the rest, and a third is optional. Import them with these buttons, or under **Settings → Automations &
 Scenes → Blueprints → Import blueprint** with the file's GitHub URL:
 
 | Blueprint | Import |
 |---|---|
 | **CellarTracker: paint a wine rack** (automation) | [![Import the paint blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FGuvHas%2Fcellartracker%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcellar_tracker%2Fwine_rack_paint.yaml) |
+| **CellarTracker: light the racks when someone comes in** (automation, optional) | [![Import the wake blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FGuvHas%2Fcellartracker%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcellar_tracker%2Fwine_rack_wake.yaml) |
 | **CellarTracker: wine rack controls** (script) | [![Import the controls blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FGuvHas%2Fcellartracker%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fcellar_tracker%2Fwine_rack_controls.yaml) |
 
 Then, **for each rack**, create one automation from *paint a wine rack* and one script from *wine
@@ -741,6 +759,11 @@ rack controls*, with these inputs:
 The pickers only offer CellarTracker's own sensors, so there is no entity ID to type. Node names
 are the `device_name` in each board's YAML, typed into the one box and separated by commas; a dash
 in one is fine. Home Assistant refuses to save with *Missing input nodes* while that box is empty.
+
+For racks that light up when you walk in and go dark when you leave, set **Turn the racks off
+after** in the integration's options (see [Driving the LED racks](#driving-the-led-racks)), then
+create **one** automation from *light the racks when someone comes in* and pick your door contacts
+or motion sensors. It covers every rack.
 
 To pick up a later fix, use **⋮ → Re-import blueprint** on each. The grid sensors are worth adding
 to `recorder: exclude:` — they change only when the cellar does, but each state is up to 169

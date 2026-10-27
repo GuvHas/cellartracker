@@ -533,3 +533,135 @@ def test_the_deferred_restore_still_puts_the_overview_back(racked, clock):
         "Cellar",
         "Fridge",
     }
+
+
+# --------------------------------------------------------------------------
+# Racks that go dark when left alone
+#
+# Asked for 2026-10-27: every LED off two minutes after the latest selection,
+# and a door or motion sensor that lights the overview only if nothing else
+# is showing.
+# --------------------------------------------------------------------------
+@pytest.fixture
+def sleepy() -> ViewHass:
+    return make_hass(a=FakeCoordinator(bottles=BOTTLES, year=2026, racks=RACKS, idle_off=120))
+
+
+def pending(hass):
+    return [timer for timer in hass.later if not timer[2]]
+
+
+def showing_now(hass):
+    from cellar_tracker.rack_lights import showing
+
+    return showing(hass, hass.data[DOMAIN]["a"].racks_idle_off)
+
+
+def test_sleepy_racks_start_dark_and_awake_ones_on_the_overview(sleepy, racked):
+    assert showing_now(sleepy) == "off"
+    assert showing_now(racked) == "overview"
+
+
+def test_a_highlight_goes_dark_after_the_idle_time_not_back_to_the_overview(sleepy):
+    call(sleepy, "highlight_bottles", {"bottles": ["u1"]})
+    assert showing_now(sleepy) == "highlight"
+    ((delay, go_dark, _),) = pending(sleepy)
+    assert delay == 120, "the idle time, not the highlight's own 600 s"
+    sleepy.bus.events.clear()
+    go_dark(None)
+    painted = events(sleepy, "cellartracker_rack_paint")
+    assert {e["location"]: e["grid"] for e in painted} == {"Cellar": "....", "Fridge": "."}
+    assert all(e["highlight"] is False for e in painted)
+    assert showing_now(sleepy) == "off"
+
+
+def test_every_request_starts_the_countdown_again(sleepy):
+    call(sleepy, "highlight_bottles", {"bottles": ["u1"]})
+    call(sleepy, "locate_bottle", {"location": "Cellar", "bin": "A1"})
+    call(sleepy, "show_overview")
+    assert [t[2] for t in sleepy.later] == [True, True, False]
+    assert pending(sleepy)[0][0] == 120
+
+
+def test_a_located_bin_stays_lit_until_the_racks_go_dark(sleepy):
+    """The board's own hold would bring the previous picture back first."""
+    call(sleepy, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 30})
+    assert events(sleepy, "cellartracker_rack_locate")[0]["seconds"] == 0
+    assert pending(sleepy)[0][0] == 120
+
+
+def test_the_overview_on_request_also_goes_dark_later(sleepy):
+    call(sleepy, "show_overview")
+    assert showing_now(sleepy) == "overview"
+    assert pending(sleepy)[0][0] == 120
+
+
+def test_someone_walking_in_lights_the_overview_when_the_racks_are_dark(sleepy):
+    call(sleepy, "show_overview", {"only_if_dark": True})
+    painted = events(sleepy, "cellartracker_rack_paint")
+    assert next(e for e in painted if e["location"] == "Cellar")["grid"] == "P..A"
+    assert showing_now(sleepy) == "overview"
+    assert pending(sleepy)[0][0] == 120
+
+
+def test_someone_walking_in_keeps_a_selection_and_keeps_it_lit(sleepy):
+    call(sleepy, "highlight_bottles", {"bottles": ["u1"]})
+    sleepy.bus.events.clear()
+    call(sleepy, "show_overview", {"only_if_dark": True})
+    assert sleepy.bus.events == [], "the highlight was replaced"
+    assert showing_now(sleepy) == "highlight"
+    assert [t[2] for t in sleepy.later] == [True, False]
+
+
+def test_someone_walking_in_keeps_a_located_bin(sleepy):
+    """Locating a bottle on a dark rack leaves it 'off' around the bin, but
+    the countdown says something is lit."""
+    call(sleepy, "locate_bottle", {"location": "Cellar", "bin": "A1"})
+    sleepy.bus.events.clear()
+    call(sleepy, "show_overview", {"only_if_dark": True})
+    assert sleepy.bus.events == []
+
+
+def test_walking_in_again_after_the_racks_went_dark_lights_them(sleepy):
+    call(sleepy, "show_overview", {"only_if_dark": True})
+    pending(sleepy)[0][1](None)
+    sleepy.bus.events.clear()
+    call(sleepy, "show_overview", {"only_if_dark": True})
+    assert {e["location"] for e in events(sleepy, "cellartracker_rack_paint")} == {
+        "Cellar",
+        "Fridge",
+    }
+
+
+def test_only_if_dark_does_nothing_to_racks_that_never_go_dark(racked):
+    call(racked, "show_overview", {"only_if_dark": True})
+    assert racked.bus.events == []
+    assert racked.later == []
+
+
+def test_awake_racks_keep_their_old_timings(racked):
+    """0 is the default, and nothing about it changes."""
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    assert pending(racked)[0][0] == 600
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1"})
+    assert events(racked, "cellartracker_rack_locate")[0]["seconds"] == 120
+
+
+def test_sleepy_racks_are_put_out_when_home_assistant_starts(sleepy):
+    """A rack lit when Home Assistant went down would otherwise stay lit."""
+    from cellar_tracker.services import async_put_racks_out
+
+    coordinator = sleepy.data[DOMAIN]["a"]
+    sleepy.bus.events.clear()
+    async_put_racks_out(sleepy, coordinator)
+    assert {e["location"]: e["grid"] for e in events(sleepy, "cellartracker_rack_paint")} == {
+        "Cellar": "....",
+        "Fridge": ".",
+    }
+
+
+def test_awake_racks_are_left_alone_at_start(racked):
+    from cellar_tracker.services import async_put_racks_out
+
+    async_put_racks_out(racked, racked.data[DOMAIN]["a"])
+    assert racked.bus.events == []

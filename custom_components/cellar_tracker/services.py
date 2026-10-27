@@ -46,6 +46,7 @@ from .const import (
     EVENT_RACK_LOCATE,
     EVENT_RACK_PAINT,
 )
+from .rack_lights import set_showing, showing
 from .racks import location_key, rack_grid
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ ATTR_BIN = "bin"
 ATTR_LOCATION = "location"
 ATTR_BOTTLES = "bottles"
 ATTR_SECONDS = "seconds"
+ATTR_ONLY_IF_DARK = "only_if_dark"
 
 # Where the pending "put the overview back" timer of a highlight lives, so a
 # new highlight or an explicit overview replaces it rather than racing it.
@@ -100,7 +102,9 @@ HIGHLIGHT_BOTTLES_SCHEMA = vol.Schema(
     }
 )
 
-SHOW_OVERVIEW_SCHEMA = vol.Schema({})
+# only_if_dark is for a door contact or a motion sensor: light the cellar for
+# whoever walked in, but never over something the dashboard is showing.
+SHOW_OVERVIEW_SCHEMA = vol.Schema({vol.Optional(ATTR_ONLY_IF_DARK, default=False): cv.boolean})
 
 
 def _loaded_coordinators(hass: HomeAssistant) -> list[WineCellarData]:
@@ -175,12 +179,26 @@ def _schedule_restore(hass: HomeAssistant, coordinator: WineCellarData, seconds:
     @callback
     def restore(_now: object) -> None:
         hass.data.pop(_RESTORE_TIMER, None)
-        if (live := _loaded_coordinators(hass)) and live[0] is coordinator:
+        if not ((live := _loaded_coordinators(hass)) and live[0] is coordinator):
+            return
+        if coordinator.racks_idle_off:
+            _paint_off(hass, coordinator)
+        else:
             _paint_overview(hass, coordinator)
 
     hass.data[_RESTORE_TIMER] = _PendingRestore(
         async_call_later(hass, seconds, restore), time.monotonic() + seconds, coordinator
     )
+
+
+def _keep_lit(hass: HomeAssistant, coordinator: WineCellarData) -> None:
+    """With the racks set to go dark, start their countdown again from now.
+
+    Every request does this, so the racks stay lit while someone is using the
+    dashboard and go dark a set time after the last thing they did.
+    """
+    if coordinator.racks_idle_off:
+        _schedule_restore(hass, coordinator, coordinator.racks_idle_off)
 
 
 def _keep_restore_off_a_locator(hass: HomeAssistant, hold: int) -> None:
@@ -211,6 +229,33 @@ def _paint_overview(hass: HomeAssistant, coordinator: WineCellarData) -> None:
                 EVENT_RACK_PAINT,
                 {"location": rack.location, "grid": state["grid"], "highlight": False},
             )
+    set_showing(hass, "overview")
+
+
+def _paint_off(hass: HomeAssistant, coordinator: WineCellarData) -> None:
+    """Put every rack out.
+
+    As an all-empty grid through the same paint event, so the automations
+    already in place need nothing new: they clear the board, which also ends a
+    locator, and then paint nothing.
+    """
+    for rack in coordinator.racks:
+        hass.bus.async_fire(
+            EVENT_RACK_PAINT,
+            {"location": rack.location, "grid": "." * rack.cells, "highlight": False},
+        )
+    set_showing(hass, "off")
+
+
+def async_put_racks_out(hass: HomeAssistant, coordinator: WineCellarData) -> None:
+    """Start dark, for racks set to go dark by themselves.
+
+    Home Assistant restarting does not reboot the boards, so without this a
+    rack lit when it went down would stay lit with nothing left to put it out.
+    """
+    if coordinator.racks_idle_off and coordinator.racks:
+        _cancel_restore(hass)
+        _paint_off(hass, coordinator)
 
 
 def async_setup_services(hass: HomeAssistant) -> None:
@@ -269,7 +314,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_placeholders={"location": asked, "bin": bin_name},
             )
         hold: int = call.data[ATTR_SECONDS]
-        _keep_restore_off_a_locator(hass, hold)
+        if coordinator.racks_idle_off:
+            # The board holds the bin until the racks go dark, which puts it
+            # out with everything else; a hold of its own would bring the
+            # previous picture back first.
+            hold = 0
+            _keep_lit(hass, coordinator)
+        else:
+            _keep_restore_off_a_locator(hass, hold)
         hass.bus.async_fire(
             EVENT_RACK_LOCATE, {"location": location, "bin": bin_name, "seconds": hold}
         )
@@ -294,14 +346,27 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     "highlight": True,
                 },
             )
+        set_showing(hass, "highlight")
         seconds: int = call.data[ATTR_SECONDS]
-        if seconds:
+        if coordinator.racks_idle_off:
+            _keep_lit(hass, coordinator)
+        elif seconds:
             _schedule_restore(hass, coordinator, seconds)
 
     async def handle_show_overview(call: ServiceCall) -> None:
         coordinator = _require_loaded(hass)[0]
+        if call.data[ATTR_ONLY_IF_DARK]:
+            lit = (
+                showing(hass, coordinator.racks_idle_off) != "off"
+                or hass.data.get(_RESTORE_TIMER) is not None
+            )
+            if lit:
+                # Someone is still there: keep what is showing a while longer.
+                _keep_lit(hass, coordinator)
+                return
         _cancel_restore(hass)
         _paint_overview(hass, coordinator)
+        _keep_lit(hass, coordinator)
 
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, handle_refresh, schema=REFRESH_SCHEMA)
     hass.services.async_register(

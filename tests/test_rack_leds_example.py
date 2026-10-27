@@ -44,6 +44,7 @@ NODE2_FILE = EXAMPLES / "esphome" / "winerack2led.yaml"
 BLUEPRINTS = REPO_ROOT / "blueprints"
 PAINT_FILE = BLUEPRINTS / "automation" / "cellar_tracker" / "wine_rack_paint.yaml"
 CONTROLS_FILE = BLUEPRINTS / "script" / "cellar_tracker" / "wine_rack_controls.yaml"
+WAKE_FILE = BLUEPRINTS / "automation" / "cellar_tracker" / "wine_rack_wake.yaml"
 README_FILE = REPO_ROOT / "README.md"
 
 YEAR = 2026
@@ -104,7 +105,8 @@ NODE1 = NODE1A
 RACK1_HALVES = (NODE1A, NODE1B)
 PAINT = _load(PAINT_FILE)
 CONTROLS = _load(CONTROLS_FILE)
-BLUEPRINT_FILES = (PAINT_FILE, CONTROLS_FILE)
+WAKE = _load(WAKE_FILE)
+BLUEPRINT_FILES = (PAINT_FILE, CONTROLS_FILE, WAKE_FILE)
 NODES = {node["substitutions"]["device_name"]: node for node in (NODE1A, NODE1B, NODE2)}
 
 # The rack lines the README tells you to type into the options, read the way
@@ -946,6 +948,62 @@ def test_a_highlight_from_the_dashboard_cancels_a_locator_first():
         c for c in PAINT["actions"][0]["choose"] if c["conditions"][0]["id"] == "dashboard"
     )
     assert [_action(c) for c in _calls(dashboard)] == ["clear_all", "light_rack"]
+
+
+# --------------------------------------------------------------------------
+# Racks that go dark when left alone
+# --------------------------------------------------------------------------
+def _repaint_guard() -> str:
+    default = PAINT["actions"][0]["default"]
+    return default[0]["value_template"]
+
+
+def test_a_background_repaint_only_ever_paints_over_the_overview():
+    """A sync, a grid change or a board coming back must not light a rack that
+    went dark, nor wipe a highlight someone is looking at."""
+    jinja2 = pytest.importorskip("jinja2")
+    template = jinja2.Environment().from_string(_repaint_guard())
+    for showing, repaint in (
+        ("overview", True),
+        ("off", False),
+        ("highlight", False),
+        (None, True),
+    ):
+        rendered = template.render(state_attr=lambda entity, name, s=showing: s, grid_sensor="x")
+        assert rendered.strip() == str(repaint), showing
+
+
+def test_the_showing_attribute_changing_is_not_a_reason_to_repaint():
+    """It changes with every dashboard request; only the grid and the sync
+    themselves are."""
+    by_id = {t["id"]: t for t in PAINT["triggers"] if t["trigger"] == "state"}
+    assert "to" in by_id["grid"] and by_id["grid"]["to"] is None
+    assert "to" in by_id["synced"] and by_id["synced"]["to"] is None
+
+
+def test_the_showing_values_the_blueprint_checks_are_the_integrations():
+    from typing import get_args
+
+    from cellar_tracker.rack_lights import Showing
+
+    (listed,) = re.findall(r"not in \[([^\]]*)\]", _repaint_guard())
+    quoted = set(re.findall(r"'(\w+)'", listed))
+    assert quoted == set(get_args(Showing)) - {"overview"}
+
+
+def test_walking_in_asks_for_the_overview_only_if_the_racks_are_dark():
+    (action,) = WAKE["actions"]
+    assert action["action"] == "cellar_tracker.show_overview"
+    assert action["data"] == {"only_if_dark": True}
+    (trigger,) = WAKE["triggers"]
+    assert trigger["to"] == "on"
+    selector = WAKE["blueprint"]["input"]["sensors"]["selector"]["entity"]
+    assert selector["multiple"] is True
+
+
+def test_the_wake_blueprint_needs_no_node_names():
+    """One for the whole cellar: the paint automations do the lighting."""
+    assert set(WAKE["blueprint"]["input"]) == {"sensors"}
 
 
 # --------------------------------------------------------------------------
