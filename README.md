@@ -72,12 +72,17 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
   **event**, `cellartracker_inventory_changed`. See [Actions and events](#actions-and-events).
 - Diagnostics you can attach to a bug report: credentials, account name and rack names are kept
   out of it.
+- **Optional LED racks.** Describe your physical wine racks in the options and each one gets a
+  grid sensor an ESPHome LED node can paint, so every bin lights in its drinking-window colour.
+  The ESPHome configurations, the Home Assistant package, the hardware build and a printable
+  controller enclosure are in [`examples/`](examples/). See [Lighting the rack](#lighting-the-rack).
 
 ---
 
 ## What gets created
 
-Adding the integration creates **one device per account** with **five entities**. It does not
+Adding the integration creates **one device per account** with **five entities**, plus two more
+for each rack you list under [LED racks](#lighting-the-rack). It does not
 create an entity per bottle — see [Bottle-level data](#bottle-level-data) for why, and for how to
 reach that data.
 
@@ -88,6 +93,12 @@ reach that data.
 | Ready to drink | `37` | `bottles` | — | `measurement` |
 | Past drinking window | `4` | `bottles` | — | `measurement` |
 | Last synchronised | `2026-08-28 09:30:00` | — | `timestamp` | diagnostic |
+| *&lt;rack&gt;* grid | `..RRA.N…` | — | — | — |
+| *&lt;rack&gt;* bottles off the rack | `0` | `bottles` | — | `measurement` |
+
+The two rack sensors exist only for racks configured under **LED racks**, so a cellar without LEDs
+gets exactly the first five. The grid sensor also carries the rack's `location`, `rows` and
+`columns` as attributes.
 
 Upgrading from 0.0.17 or earlier: the diagnostic entity that reported `Connected` now reports
 when the cellar last synchronised. It keeps its entity ID, so nothing has to be repointed. Its old
@@ -103,7 +114,12 @@ sensor.<account>_total_value
 sensor.<account>_ready_to_drink
 sensor.<account>_past_drinking_window
 sensor.<account>_last_synchronised
+sensor.<account>_<rack>_grid                  # one pair per configured LED rack
+sensor.<account>_<rack>_bottles_off_the_rack
 ```
+
+For a rack whose CellarTracker location is `Wine Rack 1`, the grid is
+`sensor.<account>_wine_rack_1_grid`.
 
 That third ID is what a **fresh install** gets. An install that predates 0.0.18 keeps
 `sensor.<account>_status`, because Home Assistant assigns an entity ID once, at first
@@ -205,11 +221,16 @@ Then continue to [Configuration](#configuration).
    └── custom_components/
        └── cellar_tracker/
            ├── __init__.py
+           ├── analytics.py
            ├── cellar_data.py
            ├── config_flow.py
            ├── const.py
+           ├── diagnostics.py
            ├── manifest.json
+           ├── racks.py
            ├── sensor.py
+           ├── services.py
+           ├── services.yaml
            ├── strings.json
            ├── views.py
            ├── translations/
@@ -247,7 +268,10 @@ All configuration is through the UI. There is nothing to put in `configuration.y
 ### Changing settings later
 
 **Settings → Devices & Services → CellarTracker → Configure** lets you change the refresh
-interval and currency. The integration reloads automatically.
+interval and currency, and list the **LED racks** described in
+[Lighting the rack](#lighting-the-rack). Leave that field empty if you have no LED strips. A line
+the integration cannot read is rejected with a message naming it, rather than saved and ignored.
+The integration reloads automatically.
 
 **Changing your password** is handled by re-authentication rather than by an editable form: once
 CellarTracker starts rejecting the stored password, the integration flags it and Home Assistant
@@ -632,8 +656,9 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 |---|---|
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
 | `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
-| `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7, its own ESP32, same design at a smaller size |
-| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that pushes the integration's rack grids to the nodes, plus the locator scripts |
+| `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7 on its own E8-WiFi Plus, same design at a smaller size |
+| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that pushes the integration's rack grids to the nodes, plus three scripts: `wine_rack_locate`, `wine_rack_show_overview` and `wine_rack_clear` |
+| `examples/enclosure/` | A parametric OpenSCAD wall enclosure for one E8-WiFi Plus board, printed in PETG — base with standoffs, cable glands and wall flanges, lid on four M3 heat-set inserts |
 
 Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
 slot, so bin `A2` is row A, column 2. Rack 1's rows **A**–**H** hold bins 1–4 and 10–13 with an
@@ -654,6 +679,23 @@ LED node paints, and **`<rack> bottles off the rack`**, bottles filed at that ra
 will ever show. Both update with every sync. A cellar without LEDs leaves the field empty and
 gets neither.
 
+Bins are a row letter and a column number; `a-2`, `A 2` and `A02` all read as `A2`. `without`
+takes single bins or rectangles (`A5-H9` is the U's opening), and a rack can be at most 255 bins,
+the longest state Home Assistant keeps.
+
+To install the package, enable packages in `configuration.yaml`:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+then save `wine_rack_leds.yaml` as `<config>/packages/wine_rack_leds.yaml`, change the entity IDs
+in it to your account's (its header lists what to set), and restart. Its contents are ordinary
+automations and scripts, so pasting them into `automations.yaml` and `scripts.yaml` works too. The
+grid sensors are worth adding to `recorder: exclude:` — they change only when the cellar does,
+but each state is up to 169 characters.
+
 ### What it shows
 
 Every lit bin carries the same drinking-window state the dashboard paints, so the racks and
@@ -673,8 +715,13 @@ drink-this-year, then ready, then aging, then a bottle with no window at all.
 
 There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
 particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_locate`
-script, and walk to the rack. The overview comes back when the hold expires, and a poll that lands
-while you are looking does not steal the answer from you.
+script with the rack and bin, and walk to the rack. It holds for 120 seconds by default (`0` holds
+until something else changes the rack), and takes an optional `[r, g, b]` colour. The overview
+comes back when the hold expires, and a poll that lands while you are looking does not steal the
+answer from you.
+
+`wine_rack_show_overview` cancels a running locator and repaints every rack straight away;
+`wine_rack_clear` turns all the LEDs off. The racks come back on their own at the next sync.
 
 ### Why the strips run horizontally
 
@@ -709,7 +756,10 @@ Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per b
 call and in an ordinary sensor state. The integration builds those strings during each sync, in
 [`racks.py`](custom_components/cellar_tracker/racks.py), with the same rule
 [`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
-and the package pushes them when the grid sensor changes rather than on a timer.
+and the package pushes them rather than polling on a timer: when a grid sensor changes, after
+every sync (so a rack turned off with `wine_rack_clear` lights again even if no bottle moved), and
+when a node comes back from unavailable, so a power cut does not leave a rack dark until the next
+sync.
 
 Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins the U does not have
 are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
@@ -821,6 +871,13 @@ decisions still open. The rest of this section is the short version.
   eight buffered outputs, seven usable once GPIO12 is left alone, so rack 1 is two boards — seven
   rows and six. That also keeps every node inside the ESP32's eight RMT channels, so all three run
   the native `esp32_rmt_led_strip` driver on ESP-IDF.
+- **Two settings were found on real hardware.** The strip takes its colours in **RGB** order, not
+  the GRB most WS281x parts use, so the configurations set `channel_colors: RGB` (with GRB, green
+  lights red). And on the classic ESP32 each strand needs `rmt_symbols: 64`; with the default,
+  only two of seven strands start.
+- **An enclosure for the boards.** [`examples/enclosure/`](examples/enclosure/) is a parametric
+  OpenSCAD case for one E8-WiFi Plus, 171 × 111 × 50.6 mm, with cut-outs placed from the measured
+  board. Its README covers printing and the parameters to change.
 
 ---
 
@@ -906,6 +963,19 @@ has no valuation for contributes nothing rather than breaking the total.
 
 Deliberately not there — see [Bottle-level data](#bottle-level-data). Use
 `/api/cellartracker/inventory`.
+
+### A wine rack stays dark, or lights the wrong bins
+
+Check the rack's **grid** sensor first. If it is all dots (`.`, empty) while the rack holds
+bottles, the rack's line under **Configure → LED racks** does not name the CellarTracker
+`Location` exactly as your bottles are filed, so none of them are counted for it. If the grid looks right but the rack does not, the problem is
+between Home Assistant and the node: the package's entity IDs must match your account's (see the
+header of `wine_rack_leds.yaml`), and the ESPHome node must be adopted so its actions exist. A
+grid that lands on the wrong rack means the two locations are swapped in the options.
+
+If **bottles off the rack** is above zero, some bottles are filed at that rack in a bin it does not
+have — a gap in the U, a bin outside the grid, or a bin name that is not a row letter and a column.
+They are still counted everywhere else; re-bin them in CellarTracker and they light.
 
 ### Enabling debug logging
 
