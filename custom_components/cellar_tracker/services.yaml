@@ -12,3 +12,43 @@ get_wine_by_bin:
       example: "Cellar"
       selector:
         text:
+
+locate_bottle:
+  fields:
+    location:
+      required: true
+      example: "Wine Rack 1"
+      selector:
+        text:
+    bin:
+      required: true
+      example: "A2"
+      selector:
+        text:
+    seconds:
+      required: false
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: s
+          mode: box
+
+highlight_bottles:
+  fields:
+    bottles:
+      required: true
+      selector:
+        object:
+    seconds:
+      required: false
+      default: 600
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+
+show_overview:

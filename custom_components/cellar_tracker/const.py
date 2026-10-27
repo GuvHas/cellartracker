@@ -38,6 +38,19 @@ COMPACT_FIELDS = (
 # is fixed by the integration's public contract; it does not derive from DOMAIN.
 EVENT_INVENTORY_CHANGED = "cellartracker_inventory_changed"
 
+# Asks whatever drives a rack's LEDs to paint or to point at a bin. The
+# integration knows the racks and the bottles but not the boards, so it says
+# what to show and the rack's automation (blueprints/automation/cellar_tracker/
+# wine_rack_paint.yaml) decides how. Every event names its rack by Location.
+EVENT_RACK_PAINT = "cellartracker_rack_paint"
+EVENT_RACK_LOCATE = "cellartracker_rack_locate"
+
+# How long a highlight from the dashboard stays before the overview comes back,
+# and how long a located bin stays lit. The second matches the node's own
+# default and the controls script's.
+DEFAULT_HIGHLIGHT_SECONDS = 600
+DEFAULT_LOCATE_SECONDS = 120
+
 # What an event carries per bottle: enough to say which bottle and where it
 # was, and nothing that belongs to the owner alone. The event bus is not a
 # place for tasting notes or what was paid.

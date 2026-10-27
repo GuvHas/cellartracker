@@ -122,7 +122,10 @@ def test_setup_registers_them_exactly_once():
     asyncio.run(async_setup(hass, {}))
     assert sorted(service for _, service in hass.services.registered) == [
         "get_wine_by_bin",
+        "highlight_bottles",
+        "locate_bottle",
         "refresh",
+        "show_overview",
     ]
 
 
@@ -380,3 +383,102 @@ def test_a_blank_location_is_echoed_as_none(hass, blank):
 
 def test_a_real_location_is_still_a_filter(hass):
     assert lookup(hass, bin="A1", location="Fridge")["count"] == 1
+
+
+# --------------------------------------------------------------------------
+# Putting the dashboard on the LED racks
+#
+# The integration knows the racks and the bottles, not the boards. These
+# services fire events naming a rack by Location; the rack's own blueprint
+# automation lights it.
+# --------------------------------------------------------------------------
+RACKS = "Cellar: 2x2\nFridge: 1x1"
+
+
+@pytest.fixture
+def racked() -> ViewHass:
+    return make_hass(a=FakeCoordinator(bottles=BOTTLES, year=2026, racks=RACKS))
+
+
+def events(hass, event_type):
+    return [data for kind, data in hass.bus.events if kind == event_type]
+
+
+def test_locate_names_the_rack_and_the_bin(racked):
+    call(racked, "locate_bottle", {"location": " Cellar ", "bin": " B2 "})
+    assert events(racked, "cellartracker_rack_locate") == [
+        {"location": "Cellar", "bin": "B2", "seconds": 120}
+    ]
+
+
+def test_locate_passes_the_hold_through(racked):
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "A1", "seconds": 0})
+    assert events(racked, "cellartracker_rack_locate")[0]["seconds"] == 0
+
+
+@pytest.mark.parametrize(
+    "data", [{"location": "Garage", "bin": "A1"}, {"location": "Cellar", "bin": "  "}]
+)
+def test_locate_refuses_a_bottle_no_rack_can_show(racked, data):
+    """Saying so beats firing an event no automation will ever answer."""
+    with pytest.raises(ServiceValidationError):
+        call(racked, "locate_bottle", data)
+    assert racked.bus.events == []
+
+
+def test_highlight_paints_only_the_chosen_bottles_on_every_rack(racked):
+    # u1 is ready (A1), u3 is aging (B2); u2 shares A1 but is not chosen.
+    call(racked, "highlight_bottles", {"bottles": ["u1", "u3"]})
+    painted = {e["location"]: e for e in events(racked, "cellartracker_rack_paint")}
+    assert painted["Cellar"] == {"location": "Cellar", "grid": "R..A", "highlight": True}
+    # Nothing chosen in the fridge, so it goes dark rather than keeping colour.
+    assert painted["Fridge"]["grid"] == "."
+
+
+def test_a_bin_shows_the_chosen_bottle_not_its_neighbour(racked):
+    """A1 holds a ready bottle and a past one; highlighting the ready one
+    must not paint the bin red because of the other."""
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    cellar = next(
+        e for e in events(racked, "cellartracker_rack_paint") if e["location"] == "Cellar"
+    )
+    assert cellar["grid"][0] == "R"
+
+
+def test_the_overview_comes_back_after_a_highlight(racked):
+    call(racked, "highlight_bottles", {"bottles": ["u1"], "seconds": 30})
+    ((delay, restore, cancelled),) = racked.later
+    assert delay == 30 and not cancelled
+    racked.bus.events.clear()
+    restore(None)
+    painted = events(racked, "cellartracker_rack_paint")
+    assert {e["location"] for e in painted} == {"Cellar", "Fridge"}
+    assert all(e["highlight"] is False for e in painted)
+    assert next(e for e in painted if e["location"] == "Cellar")["grid"] == "P..A"
+
+
+def test_a_new_highlight_replaces_the_pending_restore(racked):
+    """Otherwise the first timer would wipe the second highlight early."""
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    call(racked, "highlight_bottles", {"bottles": ["u3"]})
+    assert [t[2] for t in racked.later] == [True, False]
+
+
+def test_a_hold_of_zero_waits_for_the_next_sync(racked):
+    call(racked, "highlight_bottles", {"bottles": ["u1"], "seconds": 0})
+    assert racked.later == []
+
+
+def test_show_overview_repaints_every_rack_and_cancels_the_restore(racked):
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    racked.bus.events.clear()
+    call(racked, "show_overview")
+    assert racked.later[0][2] is True
+    painted = events(racked, "cellartracker_rack_paint")
+    assert [e["location"] for e in painted] == ["Cellar", "Fridge"]
+
+
+def test_without_led_racks_the_highlight_does_nothing(hass):
+    call(hass, "highlight_bottles", {"bottles": ["u1"]})
+    call(hass, "show_overview")
+    assert hass.bus.events == []

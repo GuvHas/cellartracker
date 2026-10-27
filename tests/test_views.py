@@ -159,3 +159,14 @@ def test_an_unusable_entry_id_still_falls_back_deterministically(entry_id, caplo
 
     assert payload == BOTTLES
     assert "more than one" in caplog.text.lower()
+
+
+def test_settings_lists_the_led_racks():
+    """The dashboard offers to light a bottle only where a rack can show it."""
+    _, settings = build({"a": FakeCoordinator(racks="Wine Rack 1: 13x13\nWine Rack 2: 7x7")})
+    assert body(get(settings))["racks"] == ["Wine Rack 1", "Wine Rack 2"]
+
+
+def test_settings_lists_no_racks_without_the_option():
+    _, settings = build({"a": FakeCoordinator()})
+    assert body(get(settings))["racks"] == []

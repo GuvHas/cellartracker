@@ -159,11 +159,19 @@ if (clipboard !== 'missing' && !navigator.clipboard) {
 
 // The page fetches at load. Answer with the fixture so the render path runs;
 // an empty fixture answers 401, which is the existing tests' scenario.
-globalThis.fetch = (url) => {
+// Action calls are recorded, not answered from the fixture: what the page asks
+// Home Assistant to do is the thing under test.
+const posted = [];
+globalThis.fetch = (url, options) => {
     const path = String(url);
+    if (options && options.method === 'POST') {
+        posted.push({ url: path, body: JSON.parse(options.body), headers: options.headers });
+        const ok = fixture.serviceOk !== false;
+        return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => [] });
+    }
     if (!fixture.wines) return Promise.resolve({ ok: false, status: 401, json: async () => ({}) });
     const body = path.indexOf('settings') !== -1
-        ? { currency: 'SEK', currency_symbol: 'kr' }
+        ? { currency: 'SEK', currency_symbol: 'kr', racks: fixture.racks || [] }
         : fixture.wines;
     return Promise.resolve({ ok: true, status: 200, json: async () => body });
 };
@@ -177,10 +185,26 @@ let failures = 0;
 """
 
 
-def run_js(checks: str, *, wines=None, search="", clipboard="async", exec_command=True) -> str:
+def run_js(
+    checks: str,
+    *,
+    wines=None,
+    search="",
+    clipboard="async",
+    exec_command=True,
+    racks=None,
+    service_ok=True,
+) -> str:
     """Load the page script, then run `checks`. Non-zero exit means a failure."""
     fixture = json.dumps(
-        {"wines": wines, "search": search, "clipboard": clipboard, "execCommand": exec_command}
+        {
+            "wines": wines,
+            "search": search,
+            "clipboard": clipboard,
+            "execCommand": exec_command,
+            "racks": racks,
+            "serviceOk": service_ok,
+        }
     )
     source = "\n".join(
         [

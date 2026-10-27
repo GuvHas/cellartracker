@@ -141,6 +141,10 @@
         color: var(--text-secondary);
     }
     #sortbar label { flex: 0 0 auto; }
+    /* Shown only once the settings say there are LED racks. A chip in look,
+       because like the chips it is a state you switch, not a one-off action. */
+    #light-racks { min-height: 36px; }
+    #light-racks[hidden] { display: none; }
     #sort {
         flex: 1 1 auto;
         height: 36px;
@@ -343,6 +347,10 @@
             <option value="Location">Location</option>
         </select>
         <button type="button" id="direction" aria-label="Reverse sort order">▲</button>
+        <button type="button" id="light-racks" class="chip" aria-pressed="true" hidden
+                title="Show the list on the wine racks: tap a bottle to light its bin">
+            Light racks
+        </button>
     </div>
 </div>
 
@@ -459,6 +467,31 @@
 
     function isBlank(value) {
         return value == null || value === '';
+    }
+
+    // Whether an LED rack can show this bottle: its location is one of the
+    // racks the integration was told about, and it has a bin to light.
+    function isOnRack(wine, racks) {
+        if (!wine || isBlank(wine.Bin) || String(wine.Bin).trim() === '') return false;
+        const location = isBlank(wine.Location) ? '' : String(wine.Location).trim();
+        return (racks || []).indexOf(location) !== -1;
+    }
+
+    // What the racks should show for the list on screen. The whole cellar
+    // with no search is the overview; anything narrower lights only the
+    // bottles in it, by unique_bottle_id, so the integration never has to
+    // repeat this page's filter and search to understand the request.
+    function rackRequest(wines, racks, options) {
+        if (!racks || racks.length === 0) return null;
+        const filter = (options && options.filter) || 'all';
+        const term = String((options && options.term) || '').trim();
+        if (filter === 'all' && term === '') {
+            return { service: 'show_overview', data: {} };
+        }
+        const bottles = selectWines(wines, options)
+            .filter((wine) => isOnRack(wine, racks) && !isBlank(wine.unique_bottle_id))
+            .map((wine) => String(wine.unique_bottle_id));
+        return { service: 'highlight_bottles', data: { bottles } };
     }
 
     // normaliseWine collapses an unrecorded year to 0, and 0 is smaller than
@@ -617,12 +650,34 @@
         throw new Error('Could not load data (HTTP ' + response.status + ').');
     }
 
+    // Runs one of the integration's actions with the same session the reads
+    // use. Resolves to whether Home Assistant accepted it.
+    function callService(service, data) {
+        const headers = Object.assign(
+            { 'Content-Type': 'application/json' }, fetchOpts.headers || {}
+        );
+        return fetch('/api/services/cellar_tracker/' + service, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers,
+            body: JSON.stringify(data || {}),
+        }).then((response) => response.ok, () => false);
+    }
+
     // What the user has chosen. Held apart from the data so a refresh replaces
     // the cellar without disturbing the view of it.
     const view = { filter: 'all', term: '', sort: 'Wine', direction: 'asc' };
     let allWines = [];
     let currencySymbol = '$';
     let currentYear = new Date().getFullYear();
+    // The LED racks' locations, from the settings. Empty means no LEDs, and
+    // then the page never calls a rack action at all.
+    let ledRacks = [];
+    const LIGHT_RACKS_KEY = 'cellartracker_light_racks';
+    let lightRacks = true;
+    try {
+        lightRacks = localStorage.getItem(LIGHT_RACKS_KEY) !== 'off';
+    } catch (e) { /* storage unavailable: keep the default */ }
 
     const STATE_LABEL = {
         ready: 'Ready', past: 'Past window', aging: 'Needs aging', unknown: 'No window',
@@ -697,6 +752,15 @@
             });
             actions.appendChild(copy);
         }
+        if (isOnRack(wine, ledRacks)) {
+            const light = element('button', 'action', 'Show on rack');
+            light.type = 'button';
+            light.addEventListener('click', (event) => {
+                event.stopPropagation();
+                locate(wine, light);
+            });
+            actions.appendChild(light);
+        }
         if (wine.iWine) {
             const open = element('a', 'action', 'Open in CellarTracker');
             open.href = 'https://www.cellartracker.com/wine.asp?iWine='
@@ -751,6 +815,33 @@
         });
     }
 
+    // Lights one bottle's bin on its rack. With a button, says how it went:
+    // claiming "Lit" when nothing was lit sends someone to a dark rack.
+    function locate(wine, button) {
+        const done = callService('locate_bottle', {
+            location: String(wine.Location).trim(),
+            bin: String(wine.Bin).trim(),
+        });
+        if (!button) return done;
+        return done.then((ok) => {
+            button.textContent = ok ? 'Lit on the rack' : 'Could not light it';
+            setTimeout(() => { button.textContent = 'Show on rack'; }, ok ? 1500 : 2500);
+        });
+    }
+
+    // Filters and searches move fast; the racks follow once the typing stops.
+    let rackTimer = null;
+    function syncRacks() {
+        if (!lightRacks || ledRacks.length === 0) return;
+        clearTimeout(rackTimer);
+        rackTimer = setTimeout(() => {
+            const request = rackRequest(allWines, ledRacks, {
+                filter: view.filter, term: view.term, year: currentYear,
+            });
+            if (request) callService(request.service, request.data);
+        }, 600);
+    }
+
     function buildBottle(wine) {
         const card = element('div', 'bottle');
         card.setAttribute('data-open', 'false');
@@ -782,6 +873,8 @@
             } else {
                 drawer = buildDrawer(wine);
                 card.appendChild(drawer);
+                // Opening a bottle is asking where it is.
+                if (lightRacks && isOnRack(wine, ledRacks)) locate(wine);
             }
             card.setAttribute('data-open', open ? 'false' : 'true');
             summary.setAttribute('aria-expanded', open ? 'false' : 'true');
@@ -835,16 +928,39 @@
             search.addEventListener('input', () => {
                 view.term = search.value;
                 render();
+                syncRacks();
             });
         }
 
         document.querySelectorAll('#chips .chip').forEach((chip) => {
-            chip.addEventListener('click', () => setFilter(chip.getAttribute('data-filter')));
+            chip.addEventListener('click', () => {
+                setFilter(chip.getAttribute('data-filter'));
+                syncRacks();
+            });
         });
 
         const sort = document.getElementById('sort');
         if (sort) {
             sort.addEventListener('change', () => { view.sort = sort.value; render(); });
+        }
+
+        const toggle = document.getElementById('light-racks');
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', lightRacks ? 'true' : 'false');
+            toggle.addEventListener('click', () => {
+                lightRacks = !lightRacks;
+                toggle.setAttribute('aria-pressed', lightRacks ? 'true' : 'false');
+                try {
+                    localStorage.setItem(LIGHT_RACKS_KEY, lightRacks ? 'on' : 'off');
+                } catch (e) { /* storage unavailable: the choice lasts this visit */ }
+                if (lightRacks) {
+                    syncRacks();
+                } else {
+                    // Switching it off hands the racks back to the overview.
+                    clearTimeout(rackTimer);
+                    callService('show_overview', {});
+                }
+            });
         }
 
         const direction = document.getElementById('direction');
@@ -873,6 +989,9 @@
     ])
         .then(([data, settings]) => {
             currencySymbol = settings.currency_symbol || settings.currency || '$';
+            ledRacks = Array.isArray(settings.racks) ? settings.racks.map(String) : [];
+            const toggle = document.getElementById('light-racks');
+            if (toggle) toggle.hidden = ledRacks.length === 0;
             loadWines(data);
         })
         .catch((err) => {
