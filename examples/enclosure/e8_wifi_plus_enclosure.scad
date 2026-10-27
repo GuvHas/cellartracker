@@ -41,7 +41,8 @@
 //    * 0.2 mm layers, 4 perimeters (gives a solid 3 mm wall at 0.45 mm width),
 //      25-40 % gyrid infill. No supports needed: the side holes are
 //      teardrop-shaped so they bridge cleanly.
-//    * Heat-set inserts: M3 x 4-5 mm long, 4.0-4.2 mm OD knurled brass.
+//    * Heat-set inserts: sized for ruthex RX-M3x5.7 (4.6 mm OD, 5.7 mm long,
+//      4.0 mm hole, 1.6 mm min wall). Other M3 inserts: set the bore below.
 //      Press at ~230 C. If you would rather self-tap, set
 //      `insert_hole_d = 2.6` and use M3 (or 3.5 mm PT-type) self-tappers.
 //
@@ -93,8 +94,9 @@ top_clear = 3.0;            // air between tallest component and the lid lip
 /* [Board standoffs] */
 standoff_d     = 8.0;
 standoff_h     = 7.0;       // floor top to PCB underside (>= board_under_h + 2)
-insert_hole_d  = 4.2;       // heat-set insert bore (4.0-4.5). 2.6 for self-tapping
-insert_depth   = 5.0;       // insert bore depth (4-5)
+insert_hole_d  = 4.0;       // heat-set insert bore (ruthex M3x5.7: 4.0).
+                            //   2.6 for self-tapping screws
+insert_depth   = 6.5;       // insert length + ~0.8 for displaced plastic
 screw_relief_d = 2.8;       // extra bore below the insert for the screw tip
 screw_relief_h = 1.5;
 

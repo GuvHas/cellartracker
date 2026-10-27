@@ -52,7 +52,7 @@ in, which the 11 mm front gap takes easily.
 
 | Item | Qty |
 |---|---|
-| M3 heat-set insert, 4.0–4.2 mm OD, 4–5 mm long | 8 |
+| ruthex RX-M3x5.7 heat-set insert (4.0 mm hole) | 8 |
 | M3 × 6 screw, board to standoffs | 4 |
 | M3 × 8 screw, lid | 4 |
 | M12 × 1.5 cable gland (3–6.5 mm cable) | up to 8, one per output in use |
