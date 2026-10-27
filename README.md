@@ -701,7 +701,8 @@ Wine Rack 2: 7x7
 
 Each rack then gets two sensors on the CellarTracker device: **`<rack> grid`**, the string its
 LED node paints, and **`<rack> bottles off the rack`**, bottles filed at that rack in a bin no LED
-will ever show. Both update with every sync. A cellar without LEDs leaves the field empty and
+will ever show, with a `bottles` attribute listing each one's wine, vintage and bin. Both update
+with every sync. A cellar without LEDs leaves the field empty and
 gets neither.
 
 Bins are a row letter and a column number; `a-2`, `A 2` and `A02` all read as `A2`. `without`
@@ -1032,7 +1033,9 @@ grid that lands on the wrong rack means the two locations are swapped in the opt
 
 If **bottles off the rack** is above zero, some bottles are filed at that rack in a bin it does not
 have — a gap in the U, a bin outside the grid, or a bin name that is not a row letter and a column.
-They are still counted everywhere else; re-bin them in CellarTracker and they light.
+Open the sensor and expand **Attributes**: `bottles` lists each one's wine, vintage and bin, in rack
+order (the first 25; `not_listed` says how many more). They are still counted everywhere else;
+re-bin them in CellarTracker and they light.
 
 ### Enabling debug logging
 

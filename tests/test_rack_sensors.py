@@ -178,6 +178,8 @@ def test_each_rack_gets_its_grid_and_off_rack_count():
     # A7 is in the U's opening: dark, and counted.
     assert one["grid"] == "." * 168 + "A"
     assert one["off_rack"] == 1
+    assert one["off_rack_bottles"] == [{"wine": "Chablis", "vintage": None, "bin": "A7"}]
+    assert two["off_rack_bottles"] == []
 
 
 def test_a_rack_line_finds_its_bottles_whatever_the_case_and_spacing():
@@ -191,7 +193,11 @@ def test_a_rack_line_finds_its_bottles_whatever_the_case_and_spacing():
 
 def test_a_differently_worded_rack_still_finds_nothing():
     _, data = poll({CONF_RACKS: RACKS.replace("Wine Rack 2", "Wine Rack Two")})
-    assert data["racks"]["Wine Rack Two"] == {"grid": "." * 49, "off_rack": 0}
+    assert data["racks"]["Wine Rack Two"] == {
+        "grid": "." * 49,
+        "off_rack": 0,
+        "off_rack_bottles": [],
+    }
 
 
 def test_no_racks_means_an_empty_mapping():
@@ -258,6 +264,58 @@ def test_the_rack_name_reaches_the_translated_entity_name():
 def test_the_grid_says_which_rack_it_describes():
     grid, _ = build([Rack("Wine Rack 2", 7, 7)], DATA)
     assert grid.extra_state_attributes == {"location": "Wine Rack 2", "rows": 7, "columns": 7}
+
+
+def test_off_the_rack_says_which_bottles():
+    """Asked for 2026-10-27: a count alone leaves the cellar to be searched."""
+    off_bottles = [
+        {"wine": "Chablis", "vintage": 2021, "bin": "A7"},
+        {"wine": "Mosel", "vintage": None, "bin": ""},
+    ]
+    data = {
+        **DATA,
+        "racks": {"Wine Rack 2": {**DATA["racks"]["Wine Rack 2"], "off_rack_bottles": off_bottles}},
+    }
+    _, off = build([Rack("Wine Rack 2", 7, 7)], data)
+    assert off.extra_state_attributes == {"bottles": off_bottles}
+
+
+def test_a_long_off_the_rack_list_is_cut_and_says_by_how_much():
+    many = [{"wine": f"W{i:03}", "vintage": None, "bin": "Z9"} for i in range(30)]
+    data = {
+        **DATA,
+        "racks": {"Wine Rack 2": {**DATA["racks"]["Wine Rack 2"], "off_rack_bottles": many}},
+    }
+    _, off = build([Rack("Wine Rack 2", 7, 7)], data)
+    assert off.extra_state_attributes == {"bottles": many[:25], "not_listed": 5}
+
+
+def test_the_off_the_rack_list_stays_out_of_the_recorder():
+    _, off = build([Rack("Wine Rack 2", 7, 7)], DATA)
+    assert "bottles" in off._unrecorded_attributes
+    assert off.extra_state_attributes == {"bottles": []}
+
+
+def test_off_the_rack_bottles_are_sorted_by_bin():
+    """In rack order, A7 before A14, then the bins that are not bins."""
+    export = EXPORT + (
+        "6\tAlbarino\t10\tWine Rack 1\tA14\t\t\n"
+        "7\tBadly\t10\tWine Rack 1\tshelf\t\t\n"
+        "8\tCorvina\t10\tWine Rack 1\tA6\t\t\n"
+    )
+    hass = FakeHass()
+    hass.session = FakeSession(text=export)
+    coordinator = WineCellarData(
+        hass, ConfigEntry(data={"username": "a", "password": "b"}, options={CONF_RACKS: RACKS})
+    )
+    coordinator._current_year = lambda: 2026
+    data = asyncio.run(coordinator._async_update_data())
+    assert [b["bin"] for b in data["racks"]["Wine Rack 1"]["off_rack_bottles"]] == [
+        "A6",
+        "A7",
+        "A14",
+        "shelf",
+    ]
 
 
 def test_unknown_until_a_poll_has_seen_the_rack():

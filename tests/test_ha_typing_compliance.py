@@ -54,7 +54,7 @@ class _Coordinator:
         "bottles": [],
         "ready_to_drink": 1,
         "past_drink_window": 0,
-        "racks": {"Wine Rack 2": {"grid": "." * 49, "off_rack": 0}},
+        "racks": {"Wine Rack 2": {"grid": "." * 49, "off_rack": 0, "off_rack_bottles": []}},
     }
 
 

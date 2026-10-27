@@ -37,6 +37,7 @@ from homeassistant.util import dt as dt_util
 
 from .analytics import (
     LocationIndex,
+    consume_year,
     drink_window_breakdown,
     index_by_location_bin,
     inventory_delta,
@@ -56,7 +57,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
     normalize_currency,
 )
-from .racks import Rack, bottles_off_rack, parse_racks, rack_grid
+from .racks import ROW_LETTERS, Rack, off_rack_bottles, parse_bin, parse_racks, rack_grid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,11 +117,22 @@ async def async_remove_cache(hass: HomeAssistant, entry_id: str) -> None:
     ).async_remove()
 
 
+class OffRackBottle(TypedDict):
+    """Enough of a bottle the rack cannot show to find it in CellarTracker."""
+
+    wine: str
+    vintage: int | None
+    bin: str
+
+
 class RackState(TypedDict):
     """What one rack shows: its grid, and the bottles it cannot show."""
 
     grid: str
     off_rack: int
+    # Sorted by bin. The same bottles off_rack counts, so a fix can start
+    # from the attribute instead of a search through the cellar.
+    off_rack_bottles: list[OffRackBottle]
 
 
 class CellarData(TypedDict):
@@ -662,13 +674,30 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         Here rather than in a template: the bottles are already in memory, and
         this is the thread that is allowed to spend time on them.
         """
-        return {
-            rack.location: {
+        states: dict[str, RackState] = {}
+        for rack in self._racks:
+            off = [
+                OffRackBottle(
+                    wine=str(bottle.get("Wine") or ""),
+                    vintage=consume_year(bottle.get("Vintage")),
+                    bin=str(bottle.get("Bin") or "").strip(),
+                )
+                for bottle in off_rack_bottles(bottles, rack)
+            ]
+            # Rack order - A2 before A10 - then the unreadable bins.
+            off.sort(
+                key=lambda bottle: (
+                    parse_bin(bottle["bin"]) or (len(ROW_LETTERS), 0),
+                    bottle["bin"],
+                    bottle["wine"],
+                )
+            )
+            states[rack.location] = {
                 "grid": rack_grid(bottles, rack, year),
-                "off_rack": bottles_off_rack(bottles, rack),
+                "off_rack": len(off),
+                "off_rack_bottles": off,
             }
-            for rack in self._racks
-        }
+        return states
 
     async def _fetch_payload(self) -> str:
         """Fetch the raw inventory export for this entry's account."""
