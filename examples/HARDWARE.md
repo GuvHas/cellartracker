@@ -217,7 +217,7 @@ shelf, top row first, so the ports run in order down the rack instead of crossin
 
 ### Port → bin row, rack 1
 
-Two boards, one config each. They take the same Home Assistant calls — the package sends
+Two boards, one config each. They take the same Home Assistant calls — the blueprints send
 every rack-1 call to both — and each draws only its own rows.
 
 | Board 1A — `winerack1aled.yaml` | | | Board 1B — `winerack1bled.yaml` | | |
@@ -354,7 +354,7 @@ The holder takes normal, mini or low-profile mini blades; the board ships with *
 Build **rack 2 first**, complete, before cutting anything for rack 1.
 
 Seven strands proves the whole chain — the supply, the ferrules, the fuse ratings, the
-left-to-right indexing, the Home Assistant package, the colour mapping — on a third of the
+left-to-right indexing, the Home Assistant blueprints, the colour mapping — on a third of the
 soldering. The one thing it cannot prove is a jumper: make one row of rack 1 next, and check
 bins 4 and 10 either side of it before doing the other seven. One reel of strip and one
 controller gets you there, and anything learned applies thirteen times over on rack 1.
@@ -366,7 +366,7 @@ controller gets you there, and anything learned applies thirteen times over on r
 2. Flash and bench-test the controller over USB-C before wiring anything to 12 V.
 3. Cut, solder and heatshrink seven strands. Test each one on the bench.
 4. Mount, route, ferrule, fuse at 2 A.
-5. Add the racks in the integration's options, install the Home Assistant package, and check a bin you know against the dashboard.
+5. Add the racks in the integration's options, create the two blueprints for each rack, and check a bin you know against the dashboard.
 6. Then rack 1.
 
 ---
@@ -394,7 +394,7 @@ Halving the palette's values halves everything above the standing current.
 
 | | Why it matters |
 |---|---|
-| **Which CellarTracker `Location` is the 7 × 7 rack?** | The integration's *LED racks* option names `Wine Rack 1` as the 13-strand U and `Wine Rack 2` as the 7 × 7, and [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) sends each grid to its node. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix in the options, best caught before soldering |
+| **Which CellarTracker `Location` is the 7 × 7 rack?** | The integration's *LED racks* option names `Wine Rack 1` as the 13-strand U and `Wine Rack 2` as the 7 × 7, and each rack's paint automation sends that grid to the nodes named in it. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix in the options, best caught before soldering |
 | **Does rack 2's board sit at the top or the bottom of the riser?** | Decides whether the port → row table above runs A→G or G→A. One-line change either way |
 | **Which GPIO, if any, the relay needs beyond 23** | The secondary-power input's wiring is not in the published spec |
 | **Bin width** | 95 mm and 60/m are what the configs use. Check a few bins agree before cutting — the mapping tolerates up to half an LED of error per piece, not a different number |

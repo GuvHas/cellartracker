@@ -1,0 +1,139 @@
+blueprint:
+  name: "CellarTracker: wine rack controls"
+  description: >-
+    Find a bottle on one wine rack, show the rack's cellar overview again, or
+    turn its LEDs off.
+
+
+    Create one script from this blueprint per rack, next to that rack's
+    "paint a wine rack" automation. To find a bottle, copy its bin from the
+    CellarTracker dashboard's bottle drawer and run the script with "Light one
+    bin": that bin lights on its own, the rest of the rack goes dark, and the
+    overview comes back when the hold runs out.
+  domain: script
+  author: GuvHas
+  homeassistant:
+    min_version: "2024.11.0"
+  source_url: https://github.com/GuvHas/cellartracker/blob/main/blueprints/script/cellar_tracker/wine_rack_controls.yaml
+  input:
+    grid_sensor:
+      name: Rack grid sensor
+      description: The CellarTracker "<rack> grid" sensor for this rack.
+      selector:
+        entity:
+          filter:
+            - integration: cellar_tracker
+              domain: sensor
+    nodes:
+      name: ESPHome node names
+      description: >-
+        The ESPHome name of every board on this rack, one per entry, as in the
+        board's YAML (device_name): winerack1aled and winerack1bled for the
+        example rack 1, winerack2led for rack 2. A locator goes to every
+        board, so the one holding the bin lights it and the others go dark.
+      selector:
+        text:
+          multiple: true
+
+mode: single
+
+fields:
+  command:
+    name: What to do
+    required: true
+    default: locate
+    selector:
+      select:
+        options:
+          - label: Light one bin
+            value: locate
+          - label: Show the cellar overview
+            value: overview
+          - label: Turn the LEDs off
+            value: "off"
+  bin:
+    name: Bin
+    description: 'For "Light one bin": the bin, as a row letter and a column, such as A2.'
+    example: A2
+    selector:
+      text:
+  seconds:
+    name: Hold for
+    description: >-
+      For "Light one bin": how long to hold it before the overview comes back.
+      0 holds it until something else changes the rack.
+    default: 120
+    selector:
+      number:
+        min: 0
+        max: 3600
+        unit_of_measurement: s
+        mode: box
+  colour:
+    name: Colour
+    description: >-
+      For "Light one bin": the locator colour. Leave it unset for the board's
+      own, which is chosen not to be mistaken for any of the status colours.
+    selector:
+      color_rgb:
+
+variables:
+  grid_sensor: !input grid_sensor
+  nodes: !input nodes
+  # ESPHome registers a node's actions as esphome.<name>_<action>, with any
+  # dash in the name turned into an underscore.
+  node_names: >-
+    {{ nodes | map('trim') | map('lower') | map('replace', '-', '_')
+       | reject('eq', '') | list }}
+
+sequence:
+  - choose:
+      - conditions: "{{ (command | default('locate')) == 'locate' }}"
+        sequence:
+          - variables:
+              # [0, 0, 0] tells the board to use its own locator colour.
+              rgb: "{{ colour if colour is defined and colour else [0, 0, 0] }}"
+              payload:
+                bin_id: "{{ bin | default('') | trim }}"
+                r: "{{ rgb[0] | int(0) }}"
+                g: "{{ rgb[1] | int(0) }}"
+                b: "{{ rgb[2] | int(0) }}"
+                seconds: "{{ seconds | default(120) | int(120) }}"
+          - repeat:
+              for_each: "{{ node_names }}"
+              sequence:
+                - action: "esphome.{{ repeat.item }}_light_bin"
+                  continue_on_error: true
+                  data: "{{ payload }}"
+
+      - conditions: "{{ command == 'off' }}"
+        sequence:
+          # The overview comes back on the next sync, or run "Show the cellar
+          # overview".
+          - repeat:
+              for_each: "{{ node_names }}"
+              sequence:
+                - action: "esphome.{{ repeat.item }}_clear_all"
+                  continue_on_error: true
+                  data: {}
+
+    # Show the cellar overview. light_rack alone leaves a running locator on
+    # top, which is right for a background repaint but not for "show me the
+    # overview". clear_all is the only action that cancels it, so put the
+    # rack out first.
+    default:
+      - repeat:
+          for_each: "{{ node_names }}"
+          sequence:
+            - action: "esphome.{{ repeat.item }}_clear_all"
+              continue_on_error: true
+              data: {}
+      - condition: template
+        value_template: "{{ states(grid_sensor) not in ['unknown', 'unavailable', ''] }}"
+      - repeat:
+          for_each: "{{ node_names }}"
+          sequence:
+            - action: "esphome.{{ repeat.item }}_light_rack"
+              continue_on_error: true
+              data:
+                grid: "{{ states(grid_sensor) }}"

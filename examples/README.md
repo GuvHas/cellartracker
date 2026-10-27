@@ -8,11 +8,11 @@ loaded by Home Assistant on its own — copy what you want.
 | [`HARDWARE.md`](HARDWARE.md) | **Start here if you are building it** — parts list, wiring, the controller's pin map, build order |
 | [`esphome/winerack1aled.yaml`](esphome/winerack1aled.yaml), [`esphome/winerack1bled.yaml`](esphome/winerack1bled.yaml) | The U-shaped rack — 129 bins, one WS2815 strand per bin row, mounted horizontally at the back. Two E8-WiFi Plus boards: rows A–G and rows H–M |
 | [`esphome/winerack2led.yaml`](esphome/winerack2led.yaml) | The same design for the second rack, a full 7 × 7 on its own E8-WiFi Plus |
-| [`home_assistant/wine_rack_leds.yaml`](home_assistant/wine_rack_leds.yaml) | The Home Assistant package that pushes the integration's rack grids to all three nodes, plus the locator scripts. The racks themselves are set in the integration's options — the file's header says how |
+| [`blueprints/`](../blueprints/) | Not in this folder, but part of the set: two Home Assistant blueprints, one automation that pushes each rack's grid to its nodes and one script for the locator. [Connecting Home Assistant to the racks](../README.md#connecting-home-assistant-to-the-racks) has the import buttons. The racks themselves are set in the integration's options |
 | [`enclosure/e8_wifi_plus_enclosure.scad`](enclosure/) | Parametric OpenSCAD wall enclosure for one E8-WiFi Plus, printed in PETG |
 
 These are halves of one thing: the nodes own the pixels and know nothing about wine, the
-integration owns the wine and knows nothing about pixels, and the package only carries one to the
+integration owns the wine and knows nothing about pixels, and the blueprints only carry one to the
 other. Each file's header says what you have to set before it will work; [Lighting the rack](../README.md#lighting-the-rack) in the main README covers
 what it does and what to know before building the hardware.
 

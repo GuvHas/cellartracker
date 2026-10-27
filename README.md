@@ -74,7 +74,7 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
   out of it.
 - **Optional LED racks.** Describe your physical wine racks in the options and each one gets a
   grid sensor an ESPHome LED node can paint, so every bin lights in its drinking-window colour.
-  The ESPHome configurations, the Home Assistant package, the hardware build and a printable
+  Two Home Assistant blueprints drive the LEDs, and the ESPHome configurations, the hardware build and a printable
   controller enclosure are in [`examples/`](examples/). See [Lighting the rack](#lighting-the-rack).
 
 ---
@@ -657,7 +657,8 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
 | `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7 on its own E8-WiFi Plus, same design at a smaller size |
-| `examples/home_assistant/wine_rack_leds.yaml` | The Home Assistant package that pushes the integration's rack grids to the nodes, plus three scripts: `wine_rack_locate`, `wine_rack_show_overview` and `wine_rack_clear` |
+| `blueprints/automation/cellar_tracker/wine_rack_paint.yaml` | Automation blueprint: keeps one rack's LEDs showing its grid sensor |
+| `blueprints/script/cellar_tracker/wine_rack_controls.yaml` | Script blueprint: light one bin to find a bottle, show the overview again, or turn the rack off |
 | `examples/enclosure/` | A parametric OpenSCAD wall enclosure for one E8-WiFi Plus board, printed in PETG — base with standoffs, cable glands and wall flanges, lid on four M3 heat-set inserts |
 
 Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
@@ -683,18 +684,36 @@ Bins are a row letter and a column number; `a-2`, `A 2` and `A02` all read as `A
 takes single bins or rectangles (`A5-H9` is the U's opening), and a rack can be at most 255 bins,
 the longest state Home Assistant keeps.
 
-To install the package, enable packages in `configuration.yaml`:
+### Connecting Home Assistant to the racks
 
-```yaml
-homeassistant:
-  packages: !include_dir_named packages
-```
+Two blueprints do the rest. Import both with these buttons, or under **Settings → Automations &
+Scenes → Blueprints → Import blueprint** with the file's GitHub URL:
 
-then save `wine_rack_leds.yaml` as `<config>/packages/wine_rack_leds.yaml`, change the entity IDs
-in it to your account's (its header lists what to set), and restart. Its contents are ordinary
-automations and scripts, so pasting them into `automations.yaml` and `scripts.yaml` works too. The
-grid sensors are worth adding to `recorder: exclude:` — they change only when the cellar does,
-but each state is up to 169 characters.
+| Blueprint | Import |
+|---|---|
+| **CellarTracker: paint a wine rack** (automation) | [![Import the paint blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FGuvHas%2Fcellartracker%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcellar_tracker%2Fwine_rack_paint.yaml) |
+| **CellarTracker: wine rack controls** (script) | [![Import the controls blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FGuvHas%2Fcellartracker%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fcellar_tracker%2Fwine_rack_controls.yaml) |
+
+Then, **for each rack**, create one automation from *paint a wine rack* and one script from *wine
+rack controls*, with these inputs:
+
+| Input | Rack 1 | Rack 2 |
+|---|---|---|
+| Rack grid sensor | *Wine Rack 1 grid* | *Wine Rack 2 grid* |
+| ESPHome node names | `winerack1aled`, `winerack1bled` | `winerack2led` |
+| Last synchronised sensor (automation only) | CellarTracker's *Last synchronised* | the same |
+| One light from each board (automation only) | *Wine Rack 1A Row A*, *Wine Rack 1B Row H* | *Wine Rack 2 Row A* |
+
+The pickers only offer CellarTracker's own sensors, so there is no entity ID to type. Node names
+are the `device_name` in each board's YAML; a dash in one is fine.
+
+To pick up a later fix, use **⋮ → Re-import blueprint** on each. The grid sensors are worth adding
+to `recorder: exclude:` — they change only when the cellar does, but each state is up to 169
+characters.
+
+**Coming from the old `wine_rack_leds.yaml` package?** Delete `<config>/packages/wine_rack_leds.yaml`
+before creating the automations, or both will paint every rack. Anything that called
+`script.wine_rack_locate` now calls your rack's controls script with `command: locate`.
 
 ### What it shows
 
@@ -714,14 +733,23 @@ A bin usually holds several bottles. It shows the one that most wants dealing wi
 drink-this-year, then ready, then aging, then a bottle with no window at all.
 
 There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
-particular bottle. Copy a bin from the dashboard's bottle drawer, run the `wine_rack_locate`
-script with the rack and bin, and walk to the rack. It holds for 120 seconds by default (`0` holds
-until something else changes the rack), and takes an optional `[r, g, b]` colour. The overview
-comes back when the hold expires, and a poll that lands while you are looking does not steal the
-answer from you.
+particular bottle. Copy a bin from the dashboard's bottle drawer, run that rack's controls script
+with **Light one bin**, and walk to the rack. It holds for 120 seconds by default (`0` holds
+until something else changes the rack), and takes an optional colour. The overview comes back
+when the hold expires, and a poll that lands while you are looking does not steal the answer from
+you. From an automation or a dashboard button:
 
-`wine_rack_show_overview` cancels a running locator and repaints every rack straight away;
-`wine_rack_clear` turns all the LEDs off. The racks come back on their own at the next sync.
+```yaml
+action: script.wine_rack_1      # whatever you named the rack's controls script
+data:
+  command: locate
+  bin: A2
+  seconds: 120
+```
+
+**Show the cellar overview** cancels a running locator and repaints the rack straight away;
+**Turn the LEDs off** puts it out. A rack that was turned off comes back on its own at the next
+sync.
 
 ### Why the strips run horizontally
 
@@ -747,7 +775,7 @@ Each node exposes four actions and knows nothing about wine:
 | `esphome.winerack1aled_clear_all` | nothing |
 
 Rack 1's other board, `winerack1bled`, takes exactly the same actions with the same data. Both
-halves keep the whole 13 × 13 envelope and draw only their own rows, so the package sends every
+halves keep the whole 13 × 13 envelope and draw only their own rows, so the blueprints send every
 rack-1 call to both and never has to know where the seam is — and a locator aimed at a bin on
 one half blanks the other.
 
@@ -756,8 +784,9 @@ Rack 2 is the same, with 49 characters and rows `A`-`G`. A state character per b
 call and in an ordinary sensor state. The integration builds those strings during each sync, in
 [`racks.py`](custom_components/cellar_tracker/racks.py), with the same rule
 [`_drink_window_counts`](custom_components/cellar_tracker/cellar_data.py) and the dashboard use,
-and the package pushes them rather than polling on a timer: when a grid sensor changes, after
-every sync (so a rack turned off with `wine_rack_clear` lights again even if no bottle moved), and
+and the paint automation pushes them rather than polling on a timer: when a grid sensor changes,
+after every sync (so a rack that was turned off lights again even if no bottle moved), at startup,
+and
 when a node comes back from unavailable, so a power cut does not leave a rack dark until the next
 sync.
 
@@ -857,7 +886,7 @@ an unavailable entity leaves the rack dark.
 the reasoning behind it, the wiring and termination spec, the controller pin map, and the
 decisions still open. The rest of this section is the short version.
 
-- **No token is needed.** The grids are sensors of the integration, so the package only calls
+- **No token is needed.** The grids are sensors of the integration, so the blueprints only call
   the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
   long-lived access token; if you set one up for that, you can revoke it.)
 - **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
@@ -969,8 +998,8 @@ Deliberately not there — see [Bottle-level data](#bottle-level-data). Use
 Check the rack's **grid** sensor first. If it is all dots (`.`, empty) while the rack holds
 bottles, the rack's line under **Configure → LED racks** does not name the CellarTracker
 `Location` exactly as your bottles are filed, so none of them are counted for it. If the grid looks right but the rack does not, the problem is
-between Home Assistant and the node: the package's entity IDs must match your account's (see the
-header of `wine_rack_leds.yaml`), and the ESPHome node must be adopted so its actions exist. A
+between Home Assistant and the node: the node names in the rack's automation must match each
+board's `device_name`, and the ESPHome node must be adopted so its actions exist. A
 grid that lands on the wrong rack means the two locations are swapped in the options.
 
 If **bottles off the rack** is above zero, some bottles are filed at that rack in a bin it does not
