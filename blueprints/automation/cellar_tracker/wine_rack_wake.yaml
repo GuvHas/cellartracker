@@ -1,0 +1,44 @@
+blueprint:
+  name: "CellarTracker: light the racks when someone comes in"
+  description: >-
+    Shows the cellar overview on every LED rack when a door opens or motion is
+    seen. Each new opening or movement keeps it lit a while longer.
+
+
+    Only when the racks are dark: if the dashboard is showing a filter, a
+    search or a bottle, that stays as it is, and is simply kept lit longer.
+
+
+    Needs "Turn the racks off after" set in the integration's options
+    (Settings > Devices & Services > CellarTracker > Configure), so the racks
+    go dark again once nobody is there. One automation is enough for all the
+    racks; each rack's "paint a wine rack" automation does the lighting.
+  domain: automation
+  author: GuvHas
+  homeassistant:
+    min_version: "2024.11.0"
+  source_url: https://github.com/GuvHas/cellartracker/blob/main/blueprints/automation/cellar_tracker/wine_rack_wake.yaml
+  input:
+    sensors:
+      name: Door or motion sensors
+      description: >-
+        Any door contacts or motion sensors in the cellar. Each one turning on
+        lights the racks.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: binary_sensor
+
+mode: queued
+max: 5
+
+triggers:
+  - trigger: state
+    entity_id: !input sensors
+    to: "on"
+
+actions:
+  - action: cellar_tracker.show_overview
+    data:
+      only_if_dark: true

@@ -16,7 +16,7 @@ import pytest
 
 from cellar_tracker.cellar_data import WineCellarData
 from cellar_tracker.config_flow import CellarTrackerOptionsFlowHandler
-from cellar_tracker.const import CONF_RACKS, DOMAIN
+from cellar_tracker.const import CONF_RACKS, CONF_RACKS_IDLE_OFF, DOMAIN
 from cellar_tracker.racks import Rack, format_racks, parse_bin, parse_racks
 from cellar_tracker.sensor import RackGridSensor, RackOffRackSensor, async_setup_entry
 from conftest import ConfigEntry, FakeHass, FakeSession, ViewHass
@@ -219,6 +219,7 @@ def test_racks_that_no_longer_parse_do_not_break_the_poll(caplog):
 class _Coordinator:
     currency = "USD"
     last_success = None
+    racks_idle_off = 0
 
     def __init__(self, racks, data):
         self.racks = racks
@@ -316,6 +317,55 @@ def test_off_the_rack_bottles_are_sorted_by_bin():
         "A14",
         "shelf",
     ]
+
+
+def test_the_grid_says_what_the_racks_are_showing():
+    """The paint automation reads it before a background repaint."""
+    from cellar_tracker.rack_lights import set_showing
+
+    grid, _ = build([Rack("Wine Rack 2", 7, 7)], DATA)
+    grid.hass = ViewHass({})
+    asyncio.run(grid.async_added_to_hass())
+    assert grid.extra_state_attributes["showing"] == "overview"
+
+    set_showing(grid.hass, "off")
+    assert grid.state_writes == 1, "the change was not written"
+    assert grid.extra_state_attributes["showing"] == "off"
+
+    set_showing(grid.hass, "off")
+    assert grid.state_writes == 1, "an unchanged state was written again"
+
+    for remove in grid.removers:
+        remove()
+    set_showing(grid.hass, "highlight")
+    assert grid.state_writes == 1, "still listening after removal"
+
+
+def test_sleepy_racks_say_they_start_dark():
+    grid, _ = build([Rack("Wine Rack 2", 7, 7)], DATA)
+    grid.coordinator.racks_idle_off = 120
+    grid.hass = ViewHass({})
+    assert grid.extra_state_attributes["showing"] == "off"
+
+
+def test_the_idle_time_is_an_option_and_defaults_to_never():
+    import voluptuous as vol
+
+    schema = asyncio.run(options_flow().async_step_init(None))["data_schema"]
+    (key,) = [k for k in schema.schema if k == CONF_RACKS_IDLE_OFF]
+    assert key.default() == 0
+    assert schema({CONF_RACKS_IDLE_OFF: "120"})[CONF_RACKS_IDLE_OFF] == 120
+    for wrong in (-1, 3601):
+        with pytest.raises(vol.Invalid):
+            schema({CONF_RACKS_IDLE_OFF: wrong})
+
+
+def test_the_saved_idle_time_is_offered_again():
+    schema = asyncio.run(options_flow({CONF_RACKS_IDLE_OFF: 120}).async_step_init(None))[
+        "data_schema"
+    ]
+    (key,) = [k for k in schema.schema if k == CONF_RACKS_IDLE_OFF]
+    assert key.default() == 120
 
 
 def test_unknown_until_a_poll_has_seen_the_rack():

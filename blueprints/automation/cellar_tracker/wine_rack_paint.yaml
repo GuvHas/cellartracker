@@ -9,6 +9,9 @@ blueprint:
 
     It also lights the rack from the CellarTracker dashboard: tapping a bottle
     lights its bin, and a filter or a search lights only the matching bins.
+    With "Turn the racks off after" set in the integration's options, the
+    rack goes dark that long after the last request and stays dark until the
+    next one.
 
 
     Create one automation from this blueprint per rack. The rack itself is
@@ -87,14 +90,19 @@ variables:
        | map('replace', '-', '_') | list }}
 
 triggers:
+  # to: null - the state, not its attributes: the grid sensor's "showing"
+  # attribute changes with every dashboard request, and is not a reason to
+  # repaint.
   - trigger: state
     entity_id: !input grid_sensor
+    to: null
     id: grid
   # Every sync, too, even when the grid has not changed: an unchanged grid
   # fires no state change, and without this a rack that was turned off would
   # stay dark until a bottle moved.
   - trigger: state
     entity_id: !input sync_sensor
+    to: null
     id: synced
   # A board forgets everything it was showing when it reboots, and its
   # entities go unavailable and back while it does.
@@ -162,6 +170,12 @@ actions:
                     grid: "{{ trigger.event.data.grid }}"
 
     default:
+      # Only over the overview. A rack that went dark after being left alone
+      # stays dark, and a highlight someone is looking at is not wiped by a
+      # sync. "showing" is missing on versions before it existed: repaint.
+      - condition: template
+        value_template: >-
+          {{ state_attr(grid_sensor, 'showing') not in ['off', 'highlight'] }}
       - if:
           - condition: trigger
             id: reconnected

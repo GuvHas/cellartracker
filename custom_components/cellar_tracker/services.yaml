@@ -52,3 +52,9 @@ highlight_bottles:
           mode: box
 
 show_overview:
+  fields:
+    only_if_dark:
+      required: false
+      default: false
+      selector:
+        boolean:

@@ -19,10 +19,13 @@ from .cellar_data import async_fetch_inventory_payload
 from .const import (
     CONF_CURRENCY,
     CONF_RACKS,
+    CONF_RACKS_IDLE_OFF,
     CURRENCY_OPTIONS,
     DEFAULT_CURRENCY,
+    DEFAULT_RACKS_IDLE_OFF,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_RACKS_IDLE_OFF,
     MIN_SCAN_INTERVAL,
     normalize_currency,
 )
@@ -195,6 +198,12 @@ class CellarTrackerOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_RACKS, description={"suggested_value": current_racks}
                 ): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional(
+                    CONF_RACKS_IDLE_OFF,
+                    default=self.config_entry.options.get(
+                        CONF_RACKS_IDLE_OFF, DEFAULT_RACKS_IDLE_OFF
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_RACKS_IDLE_OFF)),
             }
         )
 

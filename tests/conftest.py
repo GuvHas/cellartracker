@@ -365,6 +365,34 @@ def _async_call_later(hass, delay, action):
 
 
 _module("homeassistant.helpers.event", async_call_later=_async_call_later)
+
+
+def _async_dispatcher_connect(hass, signal, target):
+    """Stub of helpers.dispatcher.async_dispatcher_connect, kept in hass.data."""
+    targets = hass.data.setdefault("_dispatcher", {}).setdefault(signal, [])
+    targets.append(target)
+    return lambda: targets.remove(target)
+
+
+def _async_dispatcher_send(hass, signal, *args):
+    for target in list(hass.data.get("_dispatcher", {}).get(signal, [])):
+        target(*args)
+
+
+_module(
+    "homeassistant.helpers.dispatcher",
+    async_dispatcher_connect=_async_dispatcher_connect,
+    async_dispatcher_send=_async_dispatcher_send,
+)
+
+
+def _async_at_started(hass, at_start):
+    """Stub of helpers.start.async_at_started: these hass doubles have started."""
+    at_start(hass)
+    return lambda: None
+
+
+_module("homeassistant.helpers.start", async_at_started=_async_at_started)
 _module("homeassistant.util")
 _module("homeassistant.util.dt", utcnow=lambda: _datetime.now(UTC))
 
@@ -432,6 +460,22 @@ _module(
     HomeAssistantView=object,
     StaticPathConfig=StaticPathConfig,
 )
+
+
+def _cv_boolean(value):
+    """The real one's spellings: a script may write `true`, "yes" or "on"."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on", "enable"):
+        return True
+    if text in ("0", "false", "no", "off", "disable"):
+        return False
+    import voluptuous
+
+    raise voluptuous.Invalid(f"invalid boolean value {value}")
+
+
 sys.modules["homeassistant.helpers"].config_validation = _module(
     "homeassistant.helpers.config_validation",
     config_entry_only_config_schema=_config_entry_only_config_schema,
@@ -440,6 +484,7 @@ sys.modules["homeassistant.helpers"].config_validation = _module(
     ensure_list=lambda value: (
         [] if value is None else value if isinstance(value, list) else [value]
     ),
+    boolean=_cv_boolean,
 )
 
 
@@ -452,6 +497,8 @@ class SensorEntity:
     private attributes and passing whatever they find.
     """
 
+    # Home Assistant's Entity: set when the entity is added, None before.
+    hass = None
     _attr_device_class = None
     _attr_entity_category = None
     _attr_extra_state_attributes = None
@@ -474,6 +521,19 @@ class SensorEntity:
     @property
     def extra_state_attributes(self):
         return self._attr_extra_state_attributes
+
+    # The slice of the entity lifecycle the rack sensors use: removers are
+    # kept so a test can check a subscription is undone, and writes counted.
+    state_writes = 0
+
+    async def async_added_to_hass(self):
+        return None
+
+    def async_on_remove(self, remover):
+        self.__dict__.setdefault("removers", []).append(remover)
+
+    def async_write_ha_state(self):
+        self.state_writes += 1
 
     @property
     def icon(self):
@@ -553,13 +613,14 @@ class FakeCoordinator:
     production.
     """
 
-    def __init__(self, *, currency="USD", bottles=None, data=True, year=2026, racks=""):
+    def __init__(self, *, currency="USD", bottles=None, data=True, year=2026, racks="", idle_off=0):
         from cellar_tracker.analytics import index_by_location_bin
         from cellar_tracker.racks import parse_racks, rack_grid
 
         self.currency = currency
         self.year = year
         self.racks = parse_racks(racks)
+        self.racks_idle_off = idle_off
         self.refresh_requests = 0
         if not data:
             self.data = None

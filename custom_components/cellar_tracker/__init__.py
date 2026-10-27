@@ -3,13 +3,14 @@
 import logging
 from pathlib import Path
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 
 from .cellar_data import CellarTrackerConfigEntry, WineCellarData, async_remove_cache
 from .const import DASHBOARD_FILENAME, DASHBOARD_URL, DOMAIN, PLATFORMS
-from .services import async_setup_services
+from .services import async_put_racks_out, async_setup_services
 from .views import (
     CellarTrackerDashboardView,
     CellarTrackerInventoryView,
@@ -82,6 +83,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellarTrackerConfigEntry
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(update_listener))
+
+    # Once Home Assistant has started, so the rack automations are loaded to
+    # hear it; at once if it already has, after an options change.
+    @callback
+    def put_racks_out(_hass: HomeAssistant) -> None:
+        if entry.runtime_data is coordinator:
+            async_put_racks_out(hass, coordinator)
+
+    entry.async_on_unload(async_at_started(hass, put_racks_out))
 
     return True
 

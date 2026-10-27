@@ -48,7 +48,9 @@ from .const import (
     COMPACT_FIELDS,
     CONF_CURRENCY,
     CONF_RACKS,
+    CONF_RACKS_IDLE_OFF,
     DEFAULT_CURRENCY,
+    DEFAULT_RACKS_IDLE_OFF,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     EVENT_BOTTLE_FIELDS,
@@ -343,6 +345,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             )
         )
         self._racks = _configured_racks(entry)
+        self._racks_idle_off = int(entry.options.get(CONF_RACKS_IDLE_OFF, DEFAULT_RACKS_IDLE_OFF))
 
         # Kept so a rate-limit backoff knows what to restore, and so it never
         # polls sooner than the user asked for.
@@ -429,6 +432,11 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
     def racks(self) -> list[Rack]:
         """The racks configured in the options, in the order they were listed."""
         return self._racks
+
+    @property
+    def racks_idle_off(self) -> int:
+        """Seconds after the latest request before the racks go dark; 0 never."""
+        return self._racks_idle_off
 
     @property
     def inventory_body(self) -> bytes:

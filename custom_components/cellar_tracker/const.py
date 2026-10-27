@@ -63,6 +63,11 @@ MAX_EVENT_BOTTLES = 50
 CONF_CURRENCY = "currency"
 # Free text, one rack per line - see racks.py for the format.
 CONF_RACKS = "racks"
+# Seconds after the latest request before every LED rack goes dark. 0 keeps the
+# overview lit all the time, which is how the racks behaved before.
+CONF_RACKS_IDLE_OFF = "racks_idle_off"
+DEFAULT_RACKS_IDLE_OFF = 0
+MAX_RACKS_IDLE_OFF = 3600
 DEFAULT_CURRENCY = "USD"
 DEFAULT_SCAN_INTERVAL = 21600
 MIN_SCAN_INTERVAL = 900

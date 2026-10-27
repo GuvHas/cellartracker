@@ -48,6 +48,7 @@ class _Coordinator:
     """Stands in for WineCellarData without touching the network."""
 
     racks = ()
+    racks_idle_off = 0
 
     def __init__(self, data=None):
         self.data = data
