@@ -683,3 +683,16 @@ def test_turning_the_option_off_lights_racks_that_went_dark(sleepy):
         "Cellar",
         "Fridge",
     }
+
+
+def test_a_reload_puts_the_overview_back_over_a_highlight(racked):
+    """The highlight's restore timer belonged to the coordinator that went."""
+    from cellar_tracker.services import async_put_racks_out
+
+    call(racked, "highlight_bottles", {"bottles": ["u1"]})
+    assert showing_now(racked) == "highlight"
+    racked.bus.events.clear()
+    async_put_racks_out(racked, racked.data[DOMAIN]["a"])
+    assert showing_now(racked) == "overview"
+    assert events(racked, "cellartracker_rack_paint")
+    assert pending(racked) == []
