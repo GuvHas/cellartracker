@@ -41,7 +41,7 @@
 #   .  empty          - no bottle, or no bin there at all
 #
 # The integration builds those strings as its "Wine Rack 1 grid" sensor, and
-# examples/home_assistant/wine_rack_leds.yaml calls the actions on both halves.
+# the blueprints in blueprints/ call the actions on both halves.
 #
 # -----------------------------------------------------------------------------
 # Before you flash this

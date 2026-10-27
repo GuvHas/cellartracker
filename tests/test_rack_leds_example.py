@@ -3,8 +3,9 @@
 ``examples/`` ships two wine racks lit from this integration: a U-shaped rack
 of 129 bins in a 13 x 13 envelope, and a plain 7 x 7 beside it. The U is two
 ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G, one for rows H-M - and
-the 7 x 7 is a third. Each owns pixels and knows nothing about wine; one Home
-Assistant package hands each node the integration's per-rack grid sensor.
+the 7 x 7 is a third. Each owns pixels and knows nothing about wine; two Home
+Assistant blueprints, used once per rack, hand each node the integration's
+per-rack grid sensor and drive its locator.
 
 That grid, built in ``racks.py``, is a third implementation of the
 drinking-window rule, after ``cellar_data.py`` and ``cellar.html``, so the
@@ -27,6 +28,7 @@ from __future__ import annotations
 import math
 import pathlib
 import re
+from urllib.parse import quote
 
 import yaml
 
@@ -38,7 +40,10 @@ EXAMPLES = REPO_ROOT / "examples"
 NODE1A_FILE = EXAMPLES / "esphome" / "winerack1aled.yaml"
 NODE1B_FILE = EXAMPLES / "esphome" / "winerack1bled.yaml"
 NODE2_FILE = EXAMPLES / "esphome" / "winerack2led.yaml"
-PACKAGE_FILE = EXAMPLES / "home_assistant" / "wine_rack_leds.yaml"
+BLUEPRINTS = REPO_ROOT / "blueprints"
+PAINT_FILE = BLUEPRINTS / "automation" / "cellar_tracker" / "wine_rack_paint.yaml"
+CONTROLS_FILE = BLUEPRINTS / "script" / "cellar_tracker" / "wine_rack_controls.yaml"
+README_FILE = REPO_ROOT / "README.md"
 
 YEAR = 2026
 RACK1_LOCATION = "Wine Rack 1"
@@ -96,13 +101,15 @@ NODE2 = _load(NODE2_FILE)
 #: test_the_two_halves_of_rack_one_are_one_rack holds 1B to it.
 NODE1 = NODE1A
 RACK1_HALVES = (NODE1A, NODE1B)
-PACKAGE = _load(PACKAGE_FILE)
+PAINT = _load(PAINT_FILE)
+CONTROLS = _load(CONTROLS_FILE)
+BLUEPRINT_FILES = (PAINT_FILE, CONTROLS_FILE)
 NODES = {node["substitutions"]["device_name"]: node for node in (NODE1A, NODE1B, NODE2)}
 
-# The rack lines the package's header tells you to type into the options, read
-# the way the options flow reads them. Tested here so the instructions and the
-# nodes cannot drift apart.
-RACK_LINES = re.findall(r"^#\s+(Wine Rack \d+: .+)$", PACKAGE_FILE.read_text(), re.MULTILINE)
+# The rack lines the README tells you to type into the options, read the way
+# the options flow reads them. Tested here so the instructions and the nodes
+# cannot drift apart.
+RACK_LINES = re.findall(r"^(Wine Rack \d+: .+)$", README_FILE.read_text(), re.MULTILINE)
 RACK1, RACK2 = parse_racks("\n".join(RACK_LINES))
 
 
@@ -656,7 +663,7 @@ def _node_actions(node: dict) -> dict[str, set[str]]:
 
 
 def _calls(node: object) -> list[dict]:
-    """Every ESPHome action call in the package, wherever it is nested."""
+    """Every ESPHome action call in a blueprint, wherever it is nested."""
     found = []
     if isinstance(node, dict):
         target = node.get("action")
@@ -670,58 +677,121 @@ def _calls(node: object) -> list[dict]:
     return found
 
 
-def _split(call: str) -> tuple[str, str]:
-    for device in NODES:
-        if call.startswith(f"esphome.{device}_"):
-            return device, call[len(f"esphome.{device}_") :]
-    raise AssertionError(f"{call} does not name any node")
+#: A rack's boards are an input, so every call is templated over them.
+_NODE_CALL = re.compile(r"esphome\.\{\{ repeat\.item \}\}_(\w+)")
 
 
-def test_the_package_calls_every_node():
+def _action(call: dict) -> str:
+    """The node action a call invokes, whichever board it goes to."""
+    m = _NODE_CALL.fullmatch(call["action"])
+    assert m, f"{call['action']} does not go through the rack's list of boards"
+    return m.group(1)
+
+
+def _blueprint_calls() -> list[dict]:
+    return _calls(PAINT) + _calls(CONTROLS)
+
+
+def test_the_blueprints_call_the_nodes():
     """The rest of this section proves nothing if it finds no calls."""
-    devices = {_split(c["action"])[0] for c in _calls(PACKAGE)}
-    assert devices == set(NODES)
+    names = {_action(c) for c in _blueprint_calls()}
+    assert names == {"light_rack", "light_bin", "clear_all"}
 
 
-def test_every_rack_one_call_goes_to_both_halves():
-    """Each half draws only its own rows, so a call that reached one half
-    would leave the other showing a stale picture - or, for the locator, a
-    lit overview beside the one bin you asked for. Every call must be
-    paired, in order, with the same data."""
-    names = {node["substitutions"]["device_name"] for node in RACK1_HALVES}
-    calls = [c for c in _calls(PACKAGE) if _split(c["action"])[0] in names]
-    assert calls, "the package never calls rack 1"
-    assert len(calls) % 2 == 0
-    for first, second in zip(calls[::2], calls[1::2], strict=True):
-        assert _split(first["action"])[0] == "winerack1aled"
-        assert _split(second["action"])[0] == "winerack1bled"
-        assert _split(first["action"])[1] == _split(second["action"])[1]
-        assert first.get("data") == second.get("data")
+def test_every_call_goes_to_every_board_on_the_rack():
+    """Rack 1's halves each draw only their own rows, so a call that reached
+    one half would leave the other showing a stale picture - or, for the
+    locator, a lit overview beside the one bin you asked for. Every call sits
+    in a loop over the rack's whole list of boards."""
+
+    def check(node: object, in_loop: bool) -> None:
+        if isinstance(node, dict):
+            if "repeat" in node:
+                assert node["repeat"]["for_each"] == "{{ node_names }}"
+                check(node["repeat"]["sequence"], True)
+                return
+            if isinstance(node.get("action"), str) and node["action"].startswith("esphome."):
+                assert in_loop, node["action"]
+            for value in node.values():
+                check(value, in_loop)
+        elif isinstance(node, list):
+            for item in node:
+                check(item, in_loop)
+
+    check(PAINT["actions"], False)
+    check(CONTROLS["sequence"], False)
 
 
-def test_the_package_only_calls_actions_the_nodes_declare():
-    for call in _calls(PACKAGE):
-        device, name = _split(call["action"])
-        assert name in _node_actions(NODES[device]), f"{call['action']} is not an action"
+def test_the_blueprints_only_call_actions_the_nodes_declare():
+    for call in _blueprint_calls():
+        for device, node in NODES.items():
+            assert _action(call) in _node_actions(node), f"{device} has no {_action(call)}"
 
 
-def test_every_field_the_package_sends_is_a_variable_the_node_takes():
+def test_every_field_the_blueprints_send_is_a_variable_the_node_takes():
     """Home Assistant requires every declared variable, and no others."""
-    for call in _calls(PACKAGE):
-        device, name = _split(call["action"])
+    for call in _blueprint_calls():
         data = call.get("data")
         # A call that hands over a whole templated payload is checked where the
         # payload is built, not here.
         if isinstance(data, str):
             continue
-        assert set(data or {}) == _node_actions(NODES[device])[name], call["action"]
+        for node in NODES.values():
+            assert set(data or {}) == _node_actions(node)[_action(call)], call["action"]
 
 
-def test_the_locate_script_sends_exactly_the_variables_light_bin_takes():
-    """It builds its payload once and hands the same dict to either rack."""
-    payload = PACKAGE["script"]["wine_rack_locate"]["sequence"][0]["variables"]["payload"]
+def test_the_locator_sends_exactly_the_variables_light_bin_takes():
+    """It builds its payload once and hands the same dict to every board."""
+    locate = CONTROLS["sequence"][0]["choose"][0]["sequence"]
+    payload = locate[0]["variables"]["payload"]
     for node in NODES.values():
         assert set(payload) == _node_actions(node)["light_bin"]
+
+
+def test_the_blueprints_name_the_example_boards():
+    """The node-name inputs tell you what to type; it must be what the
+    example nodes are actually called, or the actions do not exist."""
+    for blueprint in (PAINT, CONTROLS):
+        text = blueprint["blueprint"]["input"]["nodes"]["description"]
+        assert set(re.findall(r"winerack\w+", text)) == set(NODES)
+
+
+def test_every_input_a_blueprint_declares_is_used_and_vice_versa():
+    """An unused input is a question the user answers for nothing; an
+    !input with no declaration fails to import."""
+    for path in BLUEPRINT_FILES:
+        text = path.read_text()
+        declared = set(_load(path)["blueprint"]["input"])
+        used = set(re.findall(r"!input (\w+)", text))
+        assert declared == used, path.name
+
+
+def test_the_blueprints_read_the_integrations_own_sensors():
+    """The grid picker offers CellarTracker's sensors, not every sensor."""
+    for blueprint in (PAINT, CONTROLS):
+        selector = blueprint["blueprint"]["input"]["grid_sensor"]["selector"]["entity"]
+        assert selector["filter"][0]["integration"] == "cellar_tracker"
+
+
+def test_the_blueprints_point_at_where_they_live():
+    """source_url is how Home Assistant re-imports a blueprint to update it."""
+    for path in BLUEPRINT_FILES:
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        url = _load(path)["blueprint"]["source_url"]
+        assert url == f"https://github.com/GuvHas/cellartracker/blob/main/{rel}"
+
+
+def test_the_readme_imports_each_blueprint():
+    """Each import button points at the file it claims to."""
+    readme = README_FILE.read_text()
+    for path in BLUEPRINT_FILES:
+        url = f"https://github.com/GuvHas/cellartracker/blob/main/{path.relative_to(REPO_ROOT)}"
+        assert f"blueprint_import/?blueprint_url={quote(url, safe='')}" in readme
+
+
+def test_no_package_is_left_to_drift_from_the_blueprints():
+    """One copy of the push logic. The old package is gone, not kept beside."""
+    assert not (EXAMPLES / "home_assistant" / "wine_rack_leds.yaml").exists()
 
 
 def test_every_state_the_integration_emits_is_a_state_the_nodes_draw():
@@ -738,7 +808,7 @@ def test_every_state_the_integration_emits_is_a_state_the_nodes_draw():
         assert emitted == drawn, "the integration and a node disagree about the states"
 
 
-def test_the_nodes_know_the_racks_the_package_is_describing():
+def test_the_nodes_know_the_racks_the_readme_is_describing():
     """Both sides carry each rack's shape; disagreeing means a shifted picture."""
     for rack, node, location, shape in (
         (RACK1, NODE1A, RACK1_LOCATION, RACK1_SHAPE),
@@ -753,23 +823,11 @@ def test_the_nodes_know_the_racks_the_package_is_describing():
         assert {cell for cell in envelope if rack.has(cell)} == shape
 
 
-def test_the_package_pushes_the_integrations_grid_sensors():
-    """The entity the push automation watches is the one the integration makes.
-
-    A has-entity-name sensor on the account's device is
-    sensor.<account>_<rack name>_grid; the package uses the placeholder
-    account "cellartracker", as the header says.
-    """
-    text = PACKAGE_FILE.read_text()
-    for rack in (RACK1, RACK2):
-        slug = re.sub(r"[^a-z0-9]+", "_", rack.location.lower()).strip("_")
-        assert f"sensor.cellartracker_{slug}_grid" in text
-
-
-def test_the_package_needs_no_token_any_more():
+def test_the_blueprints_need_no_token():
     """The whole point of moving the grid into the integration."""
-    assert "rest" not in PACKAGE
-    assert "!secret" not in PACKAGE_FILE.read_text()
+    for path in BLUEPRINT_FILES:
+        assert "!secret" not in path.read_text()
+        assert "rest" not in _load(path)
 
 
 def test_the_two_racks_share_one_palette():
@@ -845,18 +903,23 @@ def test_the_lambdas_paste_the_map_rather_than_retyping_it():
 
 
 def test_every_sync_repaints_even_when_the_grid_has_not_changed():
-    """An unchanged grid fires no state change, so a rack put out by
-    wine_rack_clear would otherwise stay dark until a bottle moved."""
-    pushes = [a for a in PACKAGE["automation"] if a["id"].endswith("_push_grid")]
-    assert len(pushes) == 2
-    for automation in pushes:
-        watched = {str(t.get("entity_id")) for t in automation["triggers"]}
-        assert "sensor.cellartracker_last_synchronised" in watched, automation["id"]
+    """An unchanged grid fires no state change, so a rack that was turned off
+    would otherwise stay dark until a bottle moved."""
+    watched = {str(t.get("entity_id")) for t in PAINT["triggers"]}
+    assert {"grid_sensor", "sync_sensor", "board_lights"} <= watched
 
 
 def test_show_overview_cancels_a_locator_before_painting():
     """light_rack leaves a running locator on top; only clear_all cancels it."""
-    calls = _calls(PACKAGE["script"]["wine_rack_show_overview"])
-    for device in NODES:
-        names = [_split(c["action"])[1] for c in calls if _split(c["action"])[0] == device]
-        assert names == ["clear_all", "light_rack"], device
+    overview = CONTROLS["sequence"][0]["default"]
+    assert [_action(c) for c in _calls(overview)] == ["clear_all", "light_rack"]
+
+
+def test_each_command_does_what_its_label_says():
+    options = CONTROLS["fields"]["command"]["selector"]["select"]["options"]
+    assert {o["value"] for o in options} == {"locate", "overview", "off"}
+    locate, off = CONTROLS["sequence"][0]["choose"]
+    assert "'locate'" in locate["conditions"]
+    assert [_action(c) for c in _calls(locate)] == ["light_bin"]
+    assert "'off'" in off["conditions"]
+    assert [_action(c) for c in _calls(off)] == ["clear_all"]

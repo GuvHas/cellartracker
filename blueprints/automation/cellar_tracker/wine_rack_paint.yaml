@@ -1,0 +1,119 @@
+blueprint:
+  name: "CellarTracker: paint a wine rack"
+  description: >-
+    Keeps one wine rack's LEDs showing the cellar. It sends the rack's grid
+    sensor to the rack's ESPHome LED boards whenever the grid changes, after
+    every CellarTracker sync, after Home Assistant starts, and when a board
+    comes back from a reboot or power cut.
+
+
+    Create one automation from this blueprint per rack. The rack itself is
+    set up in the integration first: Settings > Devices & Services >
+    CellarTracker > Configure > LED racks. That is what creates the
+    "<rack> grid" sensor picked below.
+
+
+    The boards are the ESPHome configurations in the repository's
+    examples/esphome folder, or anything else that declares the same
+    light_rack action.
+  domain: automation
+  author: GuvHas
+  homeassistant:
+    min_version: "2024.11.0"
+  source_url: https://github.com/GuvHas/cellartracker/blob/main/blueprints/automation/cellar_tracker/wine_rack_paint.yaml
+  input:
+    grid_sensor:
+      name: Rack grid sensor
+      description: The CellarTracker "<rack> grid" sensor for this rack.
+      selector:
+        entity:
+          filter:
+            - integration: cellar_tracker
+              domain: sensor
+    sync_sensor:
+      name: Last synchronised sensor
+      description: >-
+        CellarTracker's "Last synchronised" sensor. The rack is repainted after
+        every sync, so a rack turned off with the controls script comes back
+        even when no bottle has moved.
+      selector:
+        entity:
+          filter:
+            - integration: cellar_tracker
+              domain: sensor
+              device_class: timestamp
+    nodes:
+      name: ESPHome node names
+      description: >-
+        The ESPHome name of every board on this rack, one per entry, as in the
+        board's YAML (device_name). For the example racks that is
+        winerack1aled and winerack1bled for rack 1, and winerack2led for
+        rack 2. Every board gets the whole grid and paints only its own rows.
+      selector:
+        text:
+          multiple: true
+    board_lights:
+      name: One light from each board
+      description: >-
+        Any light entity from each of the boards above, such as its row A
+        light. A board's entities go unavailable while it reboots; when they
+        come back, the rack is repainted.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: esphome
+              domain: light
+
+mode: restart
+
+variables:
+  grid_sensor: !input grid_sensor
+  nodes: !input nodes
+  # ESPHome registers a node's actions as esphome.<name>_<action>, with any
+  # dash in the name turned into an underscore.
+  node_names: >-
+    {{ nodes | map('trim') | map('lower') | map('replace', '-', '_')
+       | reject('eq', '') | list }}
+
+triggers:
+  - trigger: state
+    entity_id: !input grid_sensor
+    id: grid
+  # Every sync, too, even when the grid has not changed: an unchanged grid
+  # fires no state change, and without this a rack that was turned off would
+  # stay dark until a bottle moved.
+  - trigger: state
+    entity_id: !input sync_sensor
+    id: synced
+  # A board forgets everything it was showing when it reboots, and its
+  # entities go unavailable and back while it does.
+  - trigger: state
+    entity_id: !input board_lights
+    from: unavailable
+    id: reconnected
+  - trigger: homeassistant
+    event: start
+    id: reconnected
+
+conditions:
+  - condition: template
+    value_template: "{{ states(grid_sensor) not in ['unknown', 'unavailable', ''] }}"
+
+actions:
+  - if:
+      - condition: trigger
+        id: reconnected
+    then:
+      # Give the board's API a moment to accept actions after it reconnects.
+      - delay: "00:00:05"
+  # The same grid goes to every board on the rack, one after the other. The
+  # boards keep a running locator on top of it, so a repaint that lands while
+  # you are looking for a bottle does not steal the answer.
+  - repeat:
+      for_each: "{{ node_names }}"
+      sequence:
+        - action: "esphome.{{ repeat.item }}_light_rack"
+          continue_on_error: true
+          data:
+            grid: "{{ states(grid_sensor) }}"
