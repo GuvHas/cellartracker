@@ -665,3 +665,21 @@ def test_awake_racks_are_left_alone_at_start(racked):
 
     async_put_racks_out(racked, racked.data[DOMAIN]["a"])
     assert racked.bus.events == []
+
+
+def test_turning_the_option_off_lights_racks_that_went_dark(sleepy):
+    """Left "off", the paint automation would refuse every repaint for good."""
+    from cellar_tracker.services import async_put_racks_out
+
+    coordinator = sleepy.data[DOMAIN]["a"]
+    async_put_racks_out(sleepy, coordinator)
+    assert showing_now(sleepy) == "off"
+
+    coordinator.racks_idle_off = 0
+    sleepy.bus.events.clear()
+    async_put_racks_out(sleepy, coordinator)
+    assert showing_now(sleepy) == "overview"
+    assert {e["location"] for e in events(sleepy, "cellartracker_rack_paint")} == {
+        "Cellar",
+        "Fridge",
+    }

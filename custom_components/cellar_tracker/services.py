@@ -252,10 +252,16 @@ def async_put_racks_out(hass: HomeAssistant, coordinator: WineCellarData) -> Non
 
     Home Assistant restarting does not reboot the boards, so without this a
     rack lit when it went down would stay lit with nothing left to put it out.
+    Turning the option back off relights racks that went dark, or the paint
+    automation would keep them dark for good.
     """
-    if coordinator.racks_idle_off and coordinator.racks:
+    if coordinator.racks_idle_off:
+        if coordinator.racks:
+            _cancel_restore(hass)
+            _paint_off(hass, coordinator)
+    elif showing(hass, 0) == "off":
         _cancel_restore(hass)
-        _paint_off(hass, coordinator)
+        _paint_overview(hass, coordinator)
 
 
 def async_setup_services(hass: HomeAssistant) -> None:
