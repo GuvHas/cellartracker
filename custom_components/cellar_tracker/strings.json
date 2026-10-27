@@ -135,7 +135,7 @@
       "message": "CellarTracker is not set up or has not finished loading yet."
     },
     "not_on_a_rack": {
-      "message": "There is no LED rack for bin '{bin}' in '{location}'. Add the location under the integration's LED racks option."
+      "message": "There is no LED rack for bin {bin} in {location}. Add the location under the integration's LED racks option."
     }
   }
 }
