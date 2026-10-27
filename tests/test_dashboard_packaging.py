@@ -56,21 +56,43 @@ def test_no_page_survives_outside_the_installed_directory():
 # --------------------------------------------------------------------------
 # Serving: no copy step, so the integration must serve the page itself
 # --------------------------------------------------------------------------
+def _dashboard_views(hass):
+    return [view for view in hass.http.views if view.url == DASHBOARD_URL]
+
+
 def test_setup_serves_the_bundled_page():
     hass = ViewHass()
     assert setup(hass) is True
 
-    served = {config.url_path: config for config in hass.http.static_paths}
-    assert DASHBOARD_URL in served, "the dashboard page is not served"
-    assert served[DASHBOARD_URL].path == str(DASHBOARD_FILE)
+    (view,) = _dashboard_views(hass)
+    response = asyncio.run(view.get(None))
+    assert pathlib.Path(response._path) == DASHBOARD_FILE
 
 
-def test_the_served_page_is_not_cached():
-    """An upgrade must not leave browsers rendering the previous page."""
+def test_the_page_needs_no_login_to_load():
+    """It loads in an iframe, which cannot send the bearer token. The API it
+    then calls is what requires one."""
     hass = ViewHass()
     setup(hass)
 
-    assert hass.http.static_paths[0].cache_headers is False
+    (view,) = _dashboard_views(hass)
+    assert view.requires_auth is False
+
+
+def test_the_served_page_is_checked_for_a_newer_copy_on_every_load():
+    """An upgrade must not leave browsers rendering the previous page.
+
+    Reported 2026-10-27: after 0.0.22 a desktop kept the page from before it,
+    without the Light racks switch, through a hard reload - Home Assistant's
+    static paths send no Cache-Control, so the browser cached by heuristic.
+    """
+    hass = ViewHass()
+    setup(hass)
+
+    (view,) = _dashboard_views(hass)
+    response = asyncio.run(view.get(None))
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert hass.http.static_paths == [], "a static path would bring the caching back"
 
 
 def test_the_url_does_not_depend_on_the_local_mount():
@@ -84,7 +106,7 @@ def test_the_page_is_served_once_per_home_assistant_start():
     hass = ViewHass()
     setup(hass)
 
-    assert [config.url_path for config in hass.http.static_paths] == [DASHBOARD_URL]
+    assert len(_dashboard_views(hass)) == 1
 
 
 # --------------------------------------------------------------------------
@@ -95,7 +117,7 @@ def test_a_missing_page_does_not_fail_setup(monkeypatch, caplog):
     hass = ViewHass()
 
     assert setup(hass) is True
-    assert hass.http.static_paths == []
+    assert _dashboard_views(hass) == []
     assert "is missing" in caplog.text
 
 

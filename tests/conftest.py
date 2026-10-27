@@ -594,10 +594,12 @@ class FakeHttp:
 
     def __init__(self):
         self.registered = []
+        self.views = []
         self.static_paths = []
 
     def register_view(self, view):
         self.registered.append(type(view).__name__)
+        self.views.append(view)
 
     async def async_register_static_paths(self, configs):
         self.static_paths.extend(configs)

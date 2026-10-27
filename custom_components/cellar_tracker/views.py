@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiohttp import web
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.http import HomeAssistantView
 
-from .const import CURRENCY_SYMBOLS, DEFAULT_CURRENCY, DOMAIN
+from .const import CURRENCY_SYMBOLS, DASHBOARD_URL, DEFAULT_CURRENCY, DOMAIN
 
 if TYPE_CHECKING:
     from .cellar_data import CellarTrackerConfigEntry, WineCellarData
@@ -132,3 +133,31 @@ class CellarTrackerSettingsView(_CellarTrackerView):
         # only where a rack can show it.
         racks = [] if coordinator is None else [rack.location for rack in coordinator.racks]
         return web.json_response({**_currency_payload(currency), "racks": racks})
+
+
+class CellarTrackerDashboardView(HomeAssistantView):
+    """The dashboard page, which the browser must check for a newer copy.
+
+    Home Assistant's static paths send either a month-long Cache-Control or
+    none at all. With none, browsers cache by heuristic - a tenth of the file's
+    age - so after an update a desktop kept showing the page from before it,
+    hard reload or not: the page sits in an iframe, and reloading Home
+    Assistant does not reload that. ``no-cache`` keeps the copy but asks every
+    time, and the ETag makes asking cheap.
+
+    No auth, like the static path it replaces: an iframe cannot send the
+    bearer token, and the page holds no data until it calls the API, which
+    does require it.
+    """
+
+    url = DASHBOARD_URL
+    name = "cellartracker:dashboard"
+    requires_auth = False
+
+    def __init__(self, path: Path) -> None:
+        """Serve the page at `path`."""
+        self._path = path
+
+    async def get(self, request: web.Request) -> web.FileResponse:
+        """Serve the page, revalidated on every load."""
+        return web.FileResponse(self._path, headers={"Cache-Control": "no-cache"})

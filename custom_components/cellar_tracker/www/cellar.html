@@ -134,6 +134,10 @@
 
     #sortbar {
         display: flex;
+        /* With the Light racks switch the row no longer fits a narrow phone,
+           or one with larger text: the switch moves to a line of its own
+           rather than pushing the page sideways. */
+        flex-wrap: wrap;
         align-items: center;
         gap: 8px;
         margin-top: 8px;
@@ -146,7 +150,11 @@
     #light-racks { min-height: 36px; }
     #light-racks[hidden] { display: none; }
     #sort {
-        flex: 1 1 auto;
+        /* A select is otherwise as wide as its longest option and refuses to
+           shrink, so the row overflowed instead of wrapping. 7.5em still
+           reads "Drink by"; below that the switch wraps instead. */
+        flex: 1 1 7.5em;
+        min-width: 7.5em;
         height: 36px;
         font: inherit;
         font-size: 0.8125rem;

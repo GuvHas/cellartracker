@@ -82,6 +82,7 @@ def test_views_are_registered_once_for_the_component():
     hass = LifecycleHass()
     asyncio.run(async_setup(hass, {}))
     assert sorted(hass.http.registered) == [
+        "CellarTrackerDashboardView",
         "CellarTrackerInventoryView",
         "CellarTrackerSettingsView",
     ]
@@ -91,7 +92,7 @@ def test_a_second_entry_does_not_re_register_views(hass):
     asyncio.run(async_setup(hass, {}))
     setup(hass, ConfigEntry(entry_id="a"))
     setup(hass, ConfigEntry(entry_id="b"))
-    assert len(hass.http.registered) == 2, "views registered more than once"
+    assert len(hass.http.registered) == 3, "views registered more than once"
 
 
 def test_reloading_the_last_entry_does_not_re_register_views(hass):
@@ -100,7 +101,7 @@ def test_reloading_the_last_entry_does_not_re_register_views(hass):
     setup(hass, entry)
     unload(hass, entry)
     setup(hass, entry)
-    assert len(hass.http.registered) == 2, "views re-registered after a reload"
+    assert len(hass.http.registered) == 3, "views re-registered after a reload"
 
 
 # --------------------------------------------------------------------------
