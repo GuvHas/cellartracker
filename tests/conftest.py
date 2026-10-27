@@ -347,6 +347,24 @@ _module(
 )
 # The real ConfigType is dict[str, Any]; async_setup takes one.
 _module("homeassistant.helpers.typing", ConfigType=dict)
+
+
+def _async_call_later(hass, delay, action):
+    """Stub of helpers.event.async_call_later.
+
+    Nothing runs by itself: the call is recorded on ``hass.later`` as
+    ``[delay, action, cancelled]``, and a test fires it when it wants to.
+    """
+    timer = [delay, action, False]
+    hass.later.append(timer)
+
+    def cancel():
+        timer[2] = True
+
+    return cancel
+
+
+_module("homeassistant.helpers.event", async_call_later=_async_call_later)
 _module("homeassistant.util")
 _module("homeassistant.util.dt", utcnow=lambda: _datetime.now(UTC))
 
@@ -418,6 +436,10 @@ sys.modules["homeassistant.helpers"].config_validation = _module(
     "homeassistant.helpers.config_validation",
     config_entry_only_config_schema=_config_entry_only_config_schema,
     string=_cv_string,
+    # The real one: None is [], a list stays a list, anything else is wrapped.
+    ensure_list=lambda value: (
+        [] if value is None else value if isinstance(value, list) else [value]
+    ),
 )
 
 
@@ -531,11 +553,13 @@ class FakeCoordinator:
     production.
     """
 
-    def __init__(self, *, currency="USD", bottles=None, data=True, year=2026):
+    def __init__(self, *, currency="USD", bottles=None, data=True, year=2026, racks=""):
         from cellar_tracker.analytics import index_by_location_bin
+        from cellar_tracker.racks import parse_racks, rack_grid
 
         self.currency = currency
         self.year = year
+        self.racks = parse_racks(racks)
         self.refresh_requests = 0
         if not data:
             self.data = None
@@ -547,6 +571,10 @@ class FakeCoordinator:
                 "total_value": 0.0,
                 "bottles": bottles,
                 "location_index": index_by_location_bin(bottles),
+                "racks": {
+                    rack.location: {"grid": rack_grid(bottles, rack, year), "off_rack": 0}
+                    for rack in self.racks
+                },
             }
             self.inventory_body = _json.dumps(bottles).encode("utf-8")
 
@@ -602,6 +630,8 @@ class ViewHass:
             entries.append(entry)
         self.config_entries = _ViewEntries(entries)
         self.services = FakeServices(self)
+        self.bus = FakeBus()
+        self.later = []
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)

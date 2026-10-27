@@ -7,6 +7,10 @@ blueprint:
     comes back from a reboot or power cut.
 
 
+    It also lights the rack from the CellarTracker dashboard: tapping a bottle
+    lights its bin, and a filter or a search lights only the matching bins.
+
+
     Create one automation from this blueprint per rack. The rack itself is
     set up in the integration first: Settings > Devices & Services >
     CellarTracker > Configure > LED racks. That is what creates the
@@ -70,6 +74,10 @@ mode: restart
 variables:
   grid_sensor: !input grid_sensor
   nodes: !input nodes
+  # Which rack this automation drives, as the integration names it. The
+  # dashboard's events name a rack the same way, and each rack's automation
+  # answers only its own.
+  rack_location: "{{ state_attr(grid_sensor, 'location') }}"
   # ESPHome registers a node's actions as esphome.<name>_<action>, with any
   # dash in the name turned into an underscore.
   node_names: >-
@@ -95,25 +103,76 @@ triggers:
   - trigger: homeassistant
     event: start
     id: reconnected
+  # From the dashboard, through the integration's locate_bottle,
+  # highlight_bottles and show_overview actions.
+  - trigger: event
+    event_type: cellartracker_rack_locate
+    id: locate
+  - trigger: event
+    event_type: cellartracker_rack_paint
+    id: dashboard
 
 conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.platform != 'event' or trigger.event.data.location == rack_location }}
   - condition: template
     value_template: "{{ states(grid_sensor) not in ['unknown', 'unavailable', ''] }}"
 
 actions:
-  - if:
-      - condition: trigger
-        id: reconnected
-    then:
-      # Give the board's API a moment to accept actions after it reconnects.
-      - delay: "00:00:05"
-  # The same grid goes to every board on the rack, one after the other. The
-  # boards keep a running locator on top of it, so a repaint that lands while
-  # you are looking for a bottle does not steal the answer.
-  - repeat:
-      for_each: "{{ node_names }}"
-      sequence:
-        - action: "esphome.{{ repeat.item }}_light_rack"
-          continue_on_error: true
-          data:
-            grid: "{{ states(grid_sensor) }}"
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: locate
+        sequence:
+          # Every board gets it: the one holding the bin lights it, the others
+          # go dark. [0, 0, 0] is the board's own locator colour.
+          - repeat:
+              for_each: "{{ node_names }}"
+              sequence:
+                - action: "esphome.{{ repeat.item }}_light_bin"
+                  continue_on_error: true
+                  data:
+                    bin_id: "{{ trigger.event.data.bin }}"
+                    r: 0
+                    g: 0
+                    b: 0
+                    seconds: "{{ trigger.event.data.seconds | int(120) }}"
+
+      - conditions:
+          - condition: trigger
+            id: dashboard
+        sequence:
+          # A highlight or an overview asked for on purpose replaces a running
+          # locator, which only clear_all cancels.
+          - repeat:
+              for_each: "{{ node_names }}"
+              sequence:
+                - action: "esphome.{{ repeat.item }}_clear_all"
+                  continue_on_error: true
+                  data: {}
+          - repeat:
+              for_each: "{{ node_names }}"
+              sequence:
+                - action: "esphome.{{ repeat.item }}_light_rack"
+                  continue_on_error: true
+                  data:
+                    grid: "{{ trigger.event.data.grid }}"
+
+    default:
+      - if:
+          - condition: trigger
+            id: reconnected
+        then:
+          # Give the board's API a moment to accept actions after it reconnects.
+          - delay: "00:00:05"
+      # The same grid goes to every board on the rack, one after the other. The
+      # boards keep a running locator on top of it, so a repaint that lands
+      # while you are looking for a bottle does not steal the answer.
+      - repeat:
+          for_each: "{{ node_names }}"
+          sequence:
+            - action: "esphome.{{ repeat.item }}_light_rack"
+              continue_on_error: true
+              data:
+                grid: "{{ states(grid_sensor) }}"

@@ -128,4 +128,7 @@ class CellarTrackerSettingsView(_CellarTrackerView):
         """Handle GET request for settings."""
         coordinator = self._coordinator(request)
         currency = DEFAULT_CURRENCY if coordinator is None else coordinator.currency
-        return web.json_response(_currency_payload(currency))
+        # The LED racks' locations, so the dashboard offers to light a bottle
+        # only where a rack can show it.
+        racks = [] if coordinator is None else [rack.location for rack in coordinator.racks]
+        return web.json_response({**_currency_payload(currency), "racks": racks})

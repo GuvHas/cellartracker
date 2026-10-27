@@ -68,8 +68,9 @@ and error semantics; its own `requests`-based transport sets no timeout and is n
   reading unavailable. See [Resilience](#resilience).
 - **Backs off politely.** HTTP 429 and 5xx slow the poll down exponentially, with jitter, and the
   configured schedule returns by itself once CellarTracker answers.
-- **Two actions** — `cellar_tracker.refresh` and `cellar_tracker.get_wine_by_bin` — and an
-  **event**, `cellartracker_inventory_changed`. See [Actions and events](#actions-and-events).
+- **Actions** — `cellar_tracker.refresh`, `cellar_tracker.get_wine_by_bin` and three that drive
+  the LED racks — and an **event**, `cellartracker_inventory_changed`. See
+  [Actions and events](#actions-and-events).
 - Diagnostics you can attach to a bug report: credentials, account name and rack names are kept
   out of it.
 - **Optional LED racks.** Describe your physical wine racks in the options and each one gets a
@@ -344,6 +345,14 @@ and a bar showing where this year sits inside its drinking window:
 Tapping a bottle opens a drawer with its barcode, full window, value, a **Copy bin** button and a
 link to the wine on CellarTracker.
 
+**With LED racks**, the page drives them. Tapping a bottle on a rack lights its bin on its own,
+and the drawer has a **Show on rack** button to light it again. A chip or a search lights only
+the bottles in the list, in their drinking-window colours: tap *Ready to drink* and the racks show
+exactly what you can open tonight. Back on *All wines* with an empty search, the overview returns;
+a highlight also gives way to the overview by itself after ten minutes. The **Light racks**
+switch beside the sort turns this off on that device, and appears only once LED racks are set up.
+See [Lighting the rack](#lighting-the-rack).
+
 The page follows your Home Assistant light/dark theme, and every control is sized for a thumb.
 
 The card needs no account parameter — one account is supported per installation, so the
@@ -458,6 +467,21 @@ closing years of a window are not `peak`. The one exception is a **one-year wind
 (`BeginConsume` equal to `EndConsume`): its only year is both, and it is `peak` in that year. For a window of 2020–2030 that is 2024 to 2026. It is never true for
 a window with only one end, since there is no span to divide, and it is always a subset of
 `ready`. A bottle is `peak` only while its `drink_status` is `ready`.
+
+### Driving the LED racks
+
+Three actions put the cellar on the [LED racks](#lighting-the-rack); the dashboard calls them, and
+so can an automation or a button. None of them talks to a board: each fires an event naming a rack
+by its CellarTracker location, and that rack's *paint a wine rack* automation does the lighting.
+
+| Action | Does | Event |
+|---|---|---|
+| `cellar_tracker.locate_bottle` | `location`, `bin`, optional `seconds` (default 120): lights that bin on its own | `cellartracker_rack_locate` |
+| `cellar_tracker.highlight_bottles` | `bottles` (a list of `unique_bottle_id`), optional `seconds` (default 600, `0` until the next sync): lights only those bottles' bins, on every rack | `cellartracker_rack_paint` |
+| `cellar_tracker.show_overview` | puts every rack back to the full overview | `cellartracker_rack_paint` |
+
+`locate_bottle` refuses a location that is not one of the LED racks, rather than firing an event
+nothing will answer. A highlight darkens a rack none of the chosen bottles are on.
 
 ### The `cellartracker_inventory_changed` event
 
@@ -733,8 +757,9 @@ A bin usually holds several bottles. It shows the one that most wants dealing wi
 drink-this-year, then ready, then aging, then a bottle with no window at all.
 
 There is also a **locator** — one bin lit on its own with the rest of the rack dark, for finding a
-particular bottle. Copy a bin from the dashboard's bottle drawer, run that rack's controls script
-with **Light one bin**, and walk to the rack. It holds for 120 seconds by default (`0` holds
+particular bottle. Tap the bottle on the dashboard and its bin lights; the
+[dashboard](#the-dashboard) can also light just the bottles a chip or search picks out. Without
+the dashboard, run that rack's controls script with **Light one bin**. It holds for 120 seconds by default (`0` holds
 until something else changes the rack), and takes an optional colour. The overview comes back
 when the hold expires, and a poll that lands while you are looking does not steal the answer from
 you. From an automation or a dashboard button:

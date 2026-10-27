@@ -923,3 +923,25 @@ def test_each_command_does_what_its_label_says():
     assert [_action(c) for c in _calls(locate)] == ["light_bin"]
     assert "'off'" in off["conditions"]
     assert [_action(c) for c in _calls(off)] == ["clear_all"]
+
+
+def test_the_paint_automation_answers_the_dashboards_events():
+    """The integration fires these by name; a renamed trigger would leave the
+    dashboard's taps and filters lighting nothing, silently."""
+    from cellar_tracker.const import EVENT_RACK_LOCATE, EVENT_RACK_PAINT
+
+    listened = {t["event_type"] for t in PAINT["triggers"] if t["trigger"] == "event"}
+    assert listened == {EVENT_RACK_LOCATE, EVENT_RACK_PAINT}
+
+
+def test_each_rack_answers_only_events_for_its_own_location():
+    conditions = " ".join(str(c.get("value_template")) for c in PAINT["conditions"])
+    assert "trigger.event.data.location == rack_location" in conditions
+    assert PAINT["variables"]["rack_location"] == "{{ state_attr(grid_sensor, 'location') }}"
+
+
+def test_a_highlight_from_the_dashboard_cancels_a_locator_first():
+    dashboard = next(
+        c for c in PAINT["actions"][0]["choose"] if c["conditions"][0]["id"] == "dashboard"
+    )
+    assert [_action(c) for c in _calls(dashboard)] == ["clear_all", "light_rack"]

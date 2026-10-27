@@ -92,11 +92,50 @@
           "description": "Only look in this location. Leave empty to search every location."
         }
       }
+    },
+    "locate_bottle": {
+      "name": "Locate a bottle on its rack",
+      "description": "Asks the LED rack the bottle is on to light its bin on its own. The rack's 'paint a wine rack' automation does the lighting.",
+      "fields": {
+        "location": {
+          "name": "Location",
+          "description": "The bottle's CellarTracker location. It must be one of the LED racks in the options."
+        },
+        "bin": {
+          "name": "Bin",
+          "description": "The bin to light, as a row letter and a column, such as A2."
+        },
+        "seconds": {
+          "name": "Hold for",
+          "description": "How long to keep the bin lit before the overview comes back. 0 keeps it until something else changes the rack."
+        }
+      }
+    },
+    "highlight_bottles": {
+      "name": "Highlight bottles on the racks",
+      "description": "Lights only the bins holding these bottles, in their drinking-window colours, on every LED rack. The overview comes back afterwards.",
+      "fields": {
+        "bottles": {
+          "name": "Bottles",
+          "description": "The unique_bottle_id of each bottle to show."
+        },
+        "seconds": {
+          "name": "Hold for",
+          "description": "How long to keep the highlight before the overview comes back. 0 keeps it until the next sync or overview."
+        }
+      }
+    },
+    "show_overview": {
+      "name": "Show the overview on the racks",
+      "description": "Puts every LED rack back to the full cellar overview, ending a highlight or a located bin."
     }
   },
   "exceptions": {
     "not_loaded": {
       "message": "CellarTracker is not set up or has not finished loading yet."
+    },
+    "not_on_a_rack": {
+      "message": "There is no LED rack for bin {bin} in {location}. Add the location under the integration's LED racks option."
     }
   }
 }
