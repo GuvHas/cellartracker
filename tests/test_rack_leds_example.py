@@ -30,6 +30,7 @@ import pathlib
 import re
 from urllib.parse import quote
 
+import pytest
 import yaml
 
 from cellar_tracker.cellar_data import _drink_window_counts
@@ -945,3 +946,44 @@ def test_a_highlight_from_the_dashboard_cancels_a_locator_first():
         c for c in PAINT["actions"][0]["choose"] if c["conditions"][0]["id"] == "dashboard"
     )
     assert [_action(c) for c in _calls(dashboard)] == ["clear_all", "light_rack"]
+
+
+# --------------------------------------------------------------------------
+# The node names box
+# --------------------------------------------------------------------------
+def _node_names(blueprint: dict, nodes: object) -> list[str]:
+    """Render the blueprint's own node_names template, as Home Assistant would."""
+    jinja2 = pytest.importorskip("jinja2")
+    template = blueprint["variables"]["node_names"]
+    rendered = jinja2.Environment().from_string(template).render(nodes=nodes)
+    return yaml.safe_load(rendered)
+
+
+def test_the_node_names_are_one_box():
+    """A multi-entry text field keeps an entry only once you press Enter, and
+    Home Assistant then refuses the whole form with "Missing input nodes".
+    Reported 2026-10-27. One box, separated by commas, has no such step."""
+    for blueprint in (PAINT, CONTROLS):
+        assert blueprint["blueprint"]["input"]["nodes"]["selector"] == {"text": None}
+
+
+def test_node_names_are_read_however_they_are_typed():
+    for blueprint in (PAINT, CONTROLS):
+        for typed in (
+            "winerack1aled, winerack1bled",
+            "winerack1aled,winerack1bled",
+            " WineRack1aLED  winerack1bled ",
+            "winerack1aled,\nwinerack1bled,",
+        ):
+            assert _node_names(blueprint, typed) == ["winerack1aled", "winerack1bled"], typed
+        # ESPHome turns a dash in a node's name into an underscore in its actions.
+        assert _node_names(blueprint, "rack-a, rack-b") == ["rack_a", "rack_b"]
+
+
+def test_automations_saved_with_a_list_of_names_keep_working():
+    """Made before the box was one, they hold a list."""
+    for blueprint in (PAINT, CONTROLS):
+        assert _node_names(blueprint, ["winerack1aled", " winerack1b-led"]) == [
+            "winerack1aled",
+            "winerack1b_led",
+        ]

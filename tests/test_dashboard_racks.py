@@ -164,6 +164,10 @@ def test_a_bottle_is_on_a_rack_only_with_a_racked_location_and_a_bin():
         check("isOnRack(allWines[0], ledRacks)", "a racked bottle was not recognised")
         + check("isOnRack(allWines[2], ledRacks)", "surrounding spaces hid the rack")
         + check("!isOnRack(allWines[1], ledRacks)", "the fridge is not a rack")
+        + check(
+            "isOnRack({Location: 'wine  RACK 1', Bin: 'A1'}, ledRacks)",
+            "case or spacing hid the rack",
+        )
         + check("!isOnRack(allWines[3], ledRacks)", "a bottle with no bin has nothing to light")
     )
 

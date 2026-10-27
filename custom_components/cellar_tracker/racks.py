@@ -128,9 +128,9 @@ def parse_racks(text: str | None) -> list[Rack]:
                 f"Line {number}: {rows}x{cols} is {rows * cols} bins, and a "
                 f"sensor state holds at most {MAX_CELLS}"
             )
-        if location.casefold() in seen:
+        if location_key(location) in seen:
             raise ValueError(f"Line {number}: '{location}' is listed twice")
-        seen.add(location.casefold())
+        seen.add(location_key(location))
         try:
             missing = _parse_without(match["without"] or "", rows, cols)
         except ValueError as err:
@@ -188,8 +188,18 @@ def bottle_rank(bottle: dict[str, Any], year: int) -> int:
     return READY
 
 
+def location_key(value: object) -> str:
+    """A location as compared: "wine rack 2" and "Wine  Rack 2 " are one rack.
+
+    The rack line is typed by hand in the options form while the bottles'
+    Location comes from CellarTracker, so case and spacing are allowed to
+    differ. Anything more and the rack names a different place.
+    """
+    return " ".join(str(value or "").split()).casefold()
+
+
 def _at(bottle: dict[str, Any], rack: Rack) -> bool:
-    return str(bottle.get("Location") or "").strip() == rack.location
+    return location_key(bottle.get("Location")) == location_key(rack.location)
 
 
 def rack_grid(bottles: list[dict[str, Any]], rack: Rack, year: int) -> str:
@@ -211,18 +221,23 @@ def rack_grid(bottles: list[dict[str, Any]], rack: Rack, year: int) -> str:
     return "".join(STATES[rank] for rank in cells)
 
 
-def bottles_off_rack(bottles: list[dict[str, Any]], rack: Rack) -> int:
+def off_rack_bottles(bottles: list[dict[str, Any]], rack: Rack) -> list[dict[str, Any]]:
     """Bottles filed at this rack that no bin will ever light.
 
     A bin outside the envelope, one the rack does not have - easy after a
     rebuild - or no readable bin at all. They are not lost, but nothing on
     the rack will show them, so they are counted rather than swallowed.
     """
-    count = 0
+    off = []
     for bottle in bottles:
         if not _at(bottle, rack):
             continue
         cell = parse_bin(bottle.get("Bin"))
         if cell is None or not rack.has(cell):
-            count += 1
-    return count
+            off.append(bottle)
+    return off
+
+
+def bottles_off_rack(bottles: list[dict[str, Any]], rack: Rack) -> int:
+    """How many of off_rack_bottles there are."""
+    return len(off_rack_bottles(bottles, rack))

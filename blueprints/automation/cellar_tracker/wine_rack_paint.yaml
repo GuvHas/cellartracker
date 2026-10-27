@@ -49,13 +49,12 @@ blueprint:
     nodes:
       name: ESPHome node names
       description: >-
-        The ESPHome name of every board on this rack, one per entry, as in the
-        board's YAML (device_name). For the example racks that is
-        winerack1aled and winerack1bled for rack 1, and winerack2led for
+        The ESPHome name of every board on this rack, as in the board's YAML
+        (device_name), separated by commas. For the example racks that is
+        "winerack1aled, winerack1bled" for rack 1 and "winerack2led" for
         rack 2. Every board gets the whole grid and paints only its own rows.
       selector:
         text:
-          multiple: true
     board_lights:
       name: One light from each board
       description: >-
@@ -80,9 +79,12 @@ variables:
   rack_location: "{{ state_attr(grid_sensor, 'location') }}"
   # ESPHome registers a node's actions as esphome.<name>_<action>, with any
   # dash in the name turned into an underscore.
+  # The names are typed into one box, separated by commas or spaces. A list
+  # is accepted too, as automations made before the box was one still hold.
   node_names: >-
-    {{ nodes | map('trim') | map('lower') | map('replace', '-', '_')
-       | reject('eq', '') | list }}
+    {% set typed = nodes if nodes is string else (nodes | join(',')) %}
+    {{ (typed | replace(',', ' ')).split() | map('lower')
+       | map('replace', '-', '_') | list }}
 
 triggers:
   - trigger: state

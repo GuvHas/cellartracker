@@ -471,10 +471,15 @@
 
     // Whether an LED rack can show this bottle: its location is one of the
     // racks the integration was told about, and it has a bin to light.
+    // The integration's rule: case and spacing do not make a different rack.
+    function locationKey(value) {
+        return isBlank(value) ? '' : String(value).trim().split(/\s+/).join(' ').toLowerCase();
+    }
+
     function isOnRack(wine, racks) {
         if (!wine || isBlank(wine.Bin) || String(wine.Bin).trim() === '') return false;
-        const location = isBlank(wine.Location) ? '' : String(wine.Location).trim();
-        return (racks || []).indexOf(location) !== -1;
+        const location = locationKey(wine.Location);
+        return location !== '' && (racks || []).some((rack) => locationKey(rack) === location);
     }
 
     // What the racks should show for the list on screen. The whole cellar

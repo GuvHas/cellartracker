@@ -572,7 +572,11 @@ class FakeCoordinator:
                 "bottles": bottles,
                 "location_index": index_by_location_bin(bottles),
                 "racks": {
-                    rack.location: {"grid": rack_grid(bottles, rack, year), "off_rack": 0}
+                    rack.location: {
+                        "grid": rack_grid(bottles, rack, year),
+                        "off_rack": 0,
+                        "off_rack_bottles": [],
+                    }
                     for rack in self.racks
                 },
             }

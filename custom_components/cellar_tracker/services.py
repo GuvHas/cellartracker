@@ -46,7 +46,7 @@ from .const import (
     EVENT_RACK_LOCATE,
     EVENT_RACK_PAINT,
 )
-from .racks import rack_grid
+from .racks import location_key, rack_grid
 
 if TYPE_CHECKING:
     from .cellar_data import CellarTrackerConfigEntry, WineCellarData
@@ -249,13 +249,24 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_locate_bottle(call: ServiceCall) -> None:
         coordinator = _require_loaded(hass)[0]
-        location = call.data[ATTR_LOCATION].strip()
+        asked = call.data[ATTR_LOCATION].strip()
         bin_name = call.data[ATTR_BIN].strip()
-        if not bin_name or location not in {rack.location for rack in coordinator.racks}:
+        # The bottle's own Location may differ from the rack line in case or
+        # spacing. The event names the rack as configured, because that is the
+        # name each rack's automation compares against.
+        location = next(
+            (
+                rack.location
+                for rack in coordinator.racks
+                if location_key(rack.location) == location_key(asked)
+            ),
+            None,
+        )
+        if not bin_name or location is None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="not_on_a_rack",
-                translation_placeholders={"location": location, "bin": bin_name},
+                translation_placeholders={"location": asked, "bin": bin_name},
             )
         hold: int = call.data[ATTR_SECONDS]
         _keep_restore_off_a_locator(hass, hold)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -75,6 +75,9 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
 )
 
 DESCRIPTIONS_BY_KEY = {description.key: description for description in SENSOR_DESCRIPTIONS}
+
+# Enough to work through after a rack is rebuilt; more means the rack line is wrong.
+MAX_OFF_RACK_LISTED = 25
 
 
 def _count(
@@ -338,8 +341,25 @@ class RackOffRackSensor(_RackSensor):
     """
 
     _key = "rack_off_rack"
+    # The list is for finding the bottles now, not for history: kept out of
+    # the recorder, like the grid would be if it were not the state.
+    _unrecorded_attributes = frozenset({"bottles"})
 
     @property
     def native_value(self) -> int | None:
         state = self._state()
         return None if state is None else state["off_rack"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Which bottles, so they can be found and re-binned in CellarTracker.
+
+        Capped: a rack line with the wrong shape can put a whole rack here,
+        and an entity's attributes are not the place for a cellar listing.
+        """
+        state = self._state()
+        off = [] if state is None else state.get("off_rack_bottles", [])
+        attributes: dict[str, Any] = {"bottles": off[:MAX_OFF_RACK_LISTED]}
+        if len(off) > MAX_OFF_RACK_LISTED:
+            attributes["not_listed"] = len(off) - MAX_OFF_RACK_LISTED
+        return attributes
