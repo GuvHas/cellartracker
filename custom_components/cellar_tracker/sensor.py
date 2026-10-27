@@ -343,9 +343,12 @@ class RackGridSensor(_RackSensor):
         repaint, so a sync neither lights a rack that went dark nor wipes a
         highlight someone is looking at.
         """
-        if self.hass is None:
+        # Home Assistant types hass as always set, but it is None until the
+        # entity is added.
+        hass: HomeAssistant | None = self.hass
+        if hass is None:
             return dict(self._shape)
-        return {**self._shape, "showing": showing(self.hass, self.coordinator.racks_idle_off)}
+        return {**self._shape, "showing": showing(hass, self.coordinator.racks_idle_off)}
 
     @property
     def native_value(self) -> str | None:
