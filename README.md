@@ -99,7 +99,8 @@ reach that data.
 
 The two rack sensors exist only for racks configured under **LED racks**, so a cellar without LEDs
 gets exactly the first five. The grid sensor also carries the rack's `location`, `rows` and
-`columns` as attributes.
+`columns` as attributes; *bottles off the rack* carries a `bottles` attribute listing them (wine,
+vintage and bin, at most 25, with `not_listed` counting the rest), kept out of the recorder.
 
 Upgrading from 0.0.17 or earlier: the diagnostic entity that reported `Connected` now reports
 when the cellar last synchronised. It keeps its entity ID, so nothing has to be repointed. Its old
@@ -310,6 +311,11 @@ title: My Wine Collection
 
 The page reads your live Home Assistant session from the parent frame, so it needs no token or
 credential of its own. Open it embedded in a dashboard, not as a standalone browser tab.
+
+Browsers check for a newer copy of the page every time it loads, so an update to the integration
+shows up on the next visit. Installs older than 0.0.24 could keep a cached page; if one still does
+once, open `/cellartracker/cellar.html` in a tab of its own and reload it there (it will say it is
+not authorised, which is expected), then go back to the dashboard.
 
 ### What it gives you
 
@@ -691,8 +697,8 @@ opening across the middle; rows **I**–**M** run the full width. Rack 2 is rows
 bins 1–7.
 
 The integration itself knows your racks. Under **Settings → Devices & Services → CellarTracker →
-Configure → LED racks**, list one per line — the CellarTracker location, its rows × columns, and
-any bins the rack does not have:
+Configure → LED racks** (the gear icon on the integration), list one per line — the CellarTracker
+location, its rows × columns, and any bins the rack does not have:
 
 ```text
 Wine Rack 1: 13x13 without A5-H9
@@ -702,8 +708,11 @@ Wine Rack 2: 7x7
 Each rack then gets two sensors on the CellarTracker device: **`<rack> grid`**, the string its
 LED node paints, and **`<rack> bottles off the rack`**, bottles filed at that rack in a bin no LED
 will ever show, with a `bottles` attribute listing each one's wine, vintage and bin. Both update
-with every sync. A cellar without LEDs leaves the field empty and
-gets neither.
+with every sync. A cellar without LEDs leaves the field empty and gets neither.
+
+The name before the colon must be the `Location` your bottles are filed under in CellarTracker —
+open a bottle in the dashboard to see it. Case and extra spaces do not matter (`rack 1` finds
+bottles filed under `Rack 1`), but the words do: `Wine Rack 1` will not find them.
 
 Bins are a row letter and a column number; `a-2`, `A 2` and `A02` all read as `A2`. `without`
 takes single bins or rectangles (`A5-H9` is the U's opening), and a rack can be at most 255 bins,
