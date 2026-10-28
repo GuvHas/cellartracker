@@ -206,9 +206,9 @@ void paint(FakeLight &it, int kRow) {
 // =============================================================================
 //
 // The strips run horizontally along the back of the rack, one per bin row, and
-// DIN enters at the bin-1 end of every row so that all the feeds come up one
-// riser at the side. Bin 1 is pixel 0 and the bin numbers count up along the
-// strand from there.
+// DIN enters at the bin-1 end of every row of rack 1 so that all the feeds come
+// up one riser at the side. Bin 1 is pixel 0 and the bin numbers count up along
+// the strand from there. Rack 2 is fed from the bin-7 end; see its own suite.
 
 TEST_SUITE("left-to-right indexing") {
   using namespace rack1;
@@ -642,10 +642,44 @@ TEST_SUITE("the second rack") {
     }
   }
 
-  TEST_CASE("bin 1 is pixel zero and bin 7 the far end") {
-    CHECK(rack2::led_of(0, 0) == 0);
-    CHECK(rack2::led_of(0, 6) == 34);
-    CHECK(34 + rack2::leds_of(0, 6) == rack2::kStrand);
+  TEST_CASE("it is fed from the bin-7 end, so bin 7 is pixel zero and bin 1 the far end") {
+    for (int row = 0; row < rack2::kRows; row++) {
+      CAPTURE(row);
+      CHECK(rack2::led_of(row, 6) == 0);
+      CHECK(rack2::led_of(row, 0) == 34);
+      CHECK(34 + rack2::leds_of(row, 0) == rack2::kStrand);
+    }
+  }
+
+  TEST_CASE("the pixel index falls as the bin number rises") {
+    for (int col = 1; col < rack2::kCols; col++) {
+      CAPTURE(col);
+      CHECK(rack2::led_of(0, col) < rack2::led_of(0, col - 1));
+    }
+  }
+
+  TEST_CASE("every LED on a strand belongs to exactly one bin") {
+    for (int row = 0; row < rack2::kRows; row++) {
+      int owner[rack2::kStrand];
+      for (int &o : owner) o = -1;
+      for (int col = 0; col < rack2::kCols; col++) {
+        int leds = 0;
+        const int base = rack2::first_led(col, 0, 7, 0, 0, &leds);
+        for (int i = 0; i < leds; i++) {
+          CAPTURE(row);
+          CAPTURE(col);
+          REQUIRE(base + i < rack2::kStrand);
+          CHECK(owner[base + i] == -1);
+          owner[base + i] = col;
+        }
+      }
+      for (int o : owner) CHECK(o != -1);
+    }
+  }
+
+  TEST_CASE("a column off either side of the rack is not on any row") {
+    CHECK(rack2::led_of(0, 7) == -1);
+    CHECK(rack2::led_of(0, -1) == -1);
   }
 
   TEST_CASE("no row can write past the end of its strand") {
@@ -660,17 +694,22 @@ TEST_SUITE("the second rack") {
   TEST_CASE("both racks place the same bins on the same LEDs") {
     // Different files, same bins and same strip. A bin lit six LEDs wide on
     // one rack and five on the other, in the same position, would mean the
-    // two had drifted apart.
+    // two had drifted apart. Rack 2 is fed from the other end, so its bin
+    // `col` sits where rack 1 has the bin the same distance from its feed.
     for (int col = 0; col < rack2::kCols; col++) {
       CAPTURE(col);
-      CHECK(rack2::led_of(0, col) == rack1::led_of(12, col));
-      CHECK(rack2::leds_of(0, col) == rack1::leds_of(12, col));
+      CHECK(rack2::led_of(0, col) == rack1::led_of(12, 6 - col));
+      CHECK(rack2::leds_of(0, col) == rack1::leds_of(12, 6 - col));
     }
     FakeLight it(rack2::kStrand);
     for (uint8_t &channel : rack2::cell_rgb) channel = 0;
     rack2::cell_rgb[(6 * rack2::kCols + 0) * 3 + 1] = 110;  // G1
     rack2::paint(it, 6);
-    CHECK(it.lit() == rack1::leds_of(12, 0));
+    CHECK(it.lit() == rack1::leds_of(12, 6));
+    CHECK(it.lit() == rack2::leds_of(6, 0));
+    // G1 is the far end of row G from the feed: its LEDs are the strand's last.
+    CHECK_FALSE(it[rack2::kStrand - 1].is_black());
+    CHECK(it[0].is_black());
   }
 }
 

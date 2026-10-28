@@ -813,7 +813,7 @@ sync.
 ### Why the strips run horizontally
 
 The strip's holder sits behind the bins, and anywhere but horizontal along the back of the rack
-it covers a bin's opening. So there is one strand per bin **row**, fed from the bin-1 end.
+it covers a bin's opening. So there is one strand per bin **row**, fed from one end of it.
 
 Eight of rack 1's thirteen rows are split in two by the U's opening — bins 1–4 and 10–13. Each
 of those is still one strand: the two pieces are chained by a jumper carrying 12 V, ground and
@@ -897,9 +897,11 @@ row number and three `${...}` references — thirteen copies of an integer and o
 copy of the maths. To rebuild a rack, edit `rack_table` and the matching
 `num_leds:`; `tests/test_rack_leds_example.py` fails if the two stop agreeing.
 
-**Data enters at the bin-1 end.** Pixel 0 of every row is its bin 1 and the
-bin numbers count up along the strand, across the jumper on a split row. That
-puts every feed on one riser at the side of the rack.
+**Data enters at one end of every row, set per rack by `din_column`.** Rack 1
+is fed from bin 1: pixel 0 of every row is its bin 1 and the bin numbers count
+up along the strand, across the jumper on a split row. Rack 2 is fed from bin 7
+(`din_column: "7"`): A7, B7 ... are pixel 0 and the numbers count down. Either
+way every feed of a rack comes up one riser at that side.
 
 ### Testing C++ that lives inside a YAML string
 
@@ -949,7 +951,7 @@ decisions still open. The rest of this section is the short version.
   the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
   long-lived access token; if you set one up for that, you can revoke it.)
 - **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
-  2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the bin-1
+  2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the fed
   end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
   signal share one run up the riser. Halve the lit part by halving the palette.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a

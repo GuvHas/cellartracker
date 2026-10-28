@@ -25,8 +25,9 @@ it. Where something is still undecided it is marked **OPEN** and collected at th
 | Jumpers | 8, one across the U's opening on each of rows A–H | none |
 
 One WS2815 strand per **bin row**, mounted **horizontally along the back** of the rack and fed
-from the **bin-1 end**. Horizontal is not a preference: the strip's holder covers a bin's
-opening anywhere else. All thirteen feeds come up one riser at the bin-1 side.
+from one end: rack 1 from the **bin-1 end**, rack 2 from the **bin-7 end** (`din_column` in
+each node's config). Horizontal is not a preference: the strip's holder covers a bin's
+opening anywhere else. Each rack's feeds come up one riser at its feed side.
 
 ### 95 mm bins on a 60/m strip
 
@@ -202,7 +203,7 @@ DMX or SD pins. It stays **8 usable outputs per board**, which is why rack 1 nee
 
 ### Port → bin row, rack 2
 
-The cable bundle goes up the riser at the bin-1 side of rack 2 and peels off one cable per
+The cable bundle goes up the riser at the bin-7 side of rack 2 and peels off one cable per
 shelf, top row first, so the ports run in order down the rack instead of crossing over.
 
 | Bin row | Port | GPIO |
@@ -399,4 +400,3 @@ Halving the palette's values halves everything above the standing current.
 | **Which GPIO, if any, the relay needs beyond 23** | The secondary-power input's wiring is not in the published spec |
 | **Bin width** | 95 mm and 60/m are what the configs use. Check a few bins agree before cutting — the mapping tolerates up to half an LED of error per piece, not a different number |
 | **1 A fuses instead of 2 A?** | Would make a full row or split row at full white blow its own fuse rather than tripping the supply's current limit. Rack 2's 40 px rows would still not clear, so it buys less than it did |
-| **Which side the riser goes up** | The configs feed every row from the **bin-1** end. If the bin-13 side is more convenient, each row's pieces and `bin_first_led` have to count from the other end — a one-place change, but one the tests should see before the strip is cut |
