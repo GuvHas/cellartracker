@@ -1,39 +1,43 @@
 # LED profile clip for the rack dividers
 
 [`led_profile_divider_clip.scad`](led_profile_divider_clip.scad) is a parametric PETG clip that
-snaps over a 37 mm square wooden divider set corner-up (45°) and holds a 16 × 16 mm aluminium
-corner LED profile in a slide-in channel on top. Open it in OpenSCAD, set `part`, press F6 and
-export the STL.
+snaps over a 37 mm square wooden divider set corner-up (45°). It carries a 16 × 16 mm aluminium
+corner LED profile **across** the divider, so one long profile bridges every divider in a row
+behind the bottles. The profile is tilted so the light shines forwards into the rack. Open it in
+OpenSCAD, set `part`, press F6 and export the STL.
 
 ![assembly](clip_preview.png)
 
-![cross-section](clip_section.png)
+Left: looking along the divider. Right: section through the channel, with the rack's front to the
+right.
+
+![views](clip_section.png)
 
 ## How it works
 
-- **Saddle:** a 2.5 mm band that follows the divider's two upper faces. Its hooks reach
-  `grip_depth` (2.5 mm) below the divider's side corners, so the clip clicks on when pushed
-  straight down. The upper faces act as the lead-in ramp.
-- **Channel:** a concave 90° V that the profile's two 16 mm backs nest in. Two lips hook
-  `lip_overlap` (1.2 mm) over the profile's front edges, so the profile slides in from the end
-  and cannot lift out. Two crush ribs run along the channel and add a 0.15 mm interference so
-  the profile stays put.
-- **Aim:** `aim_angle` tilts the channel about the profile's back corner. 0 points the diffuser
-  straight up, ±30 points it towards the front or back of the rack.
+- **Saddle:** a 2.5 mm band, 26 mm long, that follows the divider's two upper faces. Its hooks
+  reach `grip_depth` (2.5 mm) under the divider's side corners, so the clip clicks on when pushed
+  straight down. The divider's upper faces act as the lead-in ramp.
+- **Channel:** runs at 90° to the divider. The corner profile lies in it at `beam_angle` (45°),
+  with one back flat on the floor and the other against a vertical back wall, so the diffuser faces
+  forwards and upwards. There is 0.3 mm sliding clearance on every face. Two lips hook
+  `lip_overlap` (1.2 mm) over the profile's front edges, so it slides in from the end and cannot
+  lift out. Two crush ribs add a 0.15 mm interference so it stays put.
+- **Coordinates:** X is along the profile, Y along the divider (+Y towards the front of the rack),
+  Z is up.
 
 ## Default size
 
 | | |
 |---|---|
-| Length along the divider | 15 mm |
-| Height above the divider's top corner | about 21 mm |
-| Width across the divider | about 60 mm |
+| Along the divider | 26 mm |
+| Channel length along the profile | 30 mm |
+| Width over the hooks | about 60 mm |
 
 ## Fitting
 
 1. Print one clip and test it on the wood and on the profile before printing the rest.
-2. Push the clips down over a divider, about every 150–200 mm (two per 95 mm bin is more than
-   enough).
+2. Push a clip down over the back end of each divider in the row and line them up.
 3. Slide the profile through all the clips from one end.
 
 ## Tuning
@@ -46,13 +50,16 @@ export the STL.
 | `profile_tol` | 0.3 | the profile slides too stiffly or rattles |
 | `crush` | 0.15 | the profile slips (raise) or won't go in (lower, or 0) |
 | `lip_overlap` | 1.2 | the diffuser bulges out under the lips (lower) |
-| `aim_angle` | 0 | you want the light aimed forwards or backwards |
+| `beam_angle` | 45 | you want the light aimed differently: 0 = up, 90 = straight forward |
+| `channel_len` | 30 | you want more or less support under the profile |
 
 ## Print notes (PETG)
 
-Print as modelled, with one end face on the bed. Every layer then holds the whole cross-section,
-so the hook arms flex within a layer, which is their strong direction. No supports are needed.
-Use 0.2 mm layers and 4 perimeters; 100 % infill is cheap at this size and makes the hooks tougher.
+`part = "clip"` exports it standing on its back face. The saddle's cross-section then lies in
+every layer, so the hooks flex within a layer (their strong direction), the channel's back wall
+is on the bed, and at the default 45° beam every overhang is 45° or less, so no supports are
+needed. Other beam angles may need a little support under the front lip. Use 0.2 mm layers,
+4 perimeters and 25–40 % gyroid infill.
 
 ## Assumptions
 
