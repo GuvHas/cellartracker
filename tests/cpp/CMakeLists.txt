@@ -49,6 +49,9 @@ endforeach()
 add_custom_target(yaml_lambdas DEPENDS ${GENERATED_INCS})
 
 include(FetchContent)
+# doctest 2.4.11 declares cmake_minimum_required(VERSION 3.0), which CMake 4 -
+# what the GitHub runners now ship - refuses outright. This lets it configure.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_Declare(
   doctest
   GIT_REPOSITORY https://github.com/doctest/doctest.git
