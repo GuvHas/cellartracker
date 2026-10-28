@@ -265,7 +265,7 @@ if (part == "clip") {
         ghost_profile(130);
     }
 } else if (part == "print") {
-    pitch = cav_side + 2*wall + 6;
+    pitch = (cav_side + 2*wall)*s2 + 6;    // saddle width across the diamond + gap
     for (i = [0 : print_count - 1])
         translate([i*pitch, 0, 0]) clip();
 }
