@@ -7,11 +7,15 @@
 # two nodes means either rack can be worked on without darkening the other.
 #
 # Everything else is rack 1's design at a smaller size: one WS2815 strand per
-# bin row, mounted horizontally along the back of the rack and fed from the
-# bin-1 end, the same action surface, the same state characters, the same
-# palette. See examples/esphome/winerack1aled.yaml for the reasoning behind the
-# horizontal strips and the 12 V rail; only the numbers and the driver differ
+# bin row, mounted horizontally along the back of the rack, the same action
+# surface, the same state characters, the same palette. See
+# examples/esphome/winerack1aled.yaml for the reasoning behind the horizontal
+# strips and the 12 V rail; only the numbers and the driver differ
 # here. A full rectangle has no opening, so no row here needs a jumper.
+#
+# One thing is mirrored: rack 2's rows are fed from the BIN-7 end
+# (`din_column: "7"`), where rack 1's are fed from bin 1. A7, B7 ... G7 are
+# pixel 0 of their strands and the bin numbers count down along them.
 #
 # This node is wired for a **Lightish E8-WiFi Plus**: eight buffered 5 V TTL
 # outputs with per-port fuses, power and data on one connector each. See
@@ -80,6 +84,7 @@ substitutions:
   rack_cells: "49" # rack_rows * rack_cols
   bin_width_mm: "95" # one bin, wall to wall - the same bins as rack 1
   strip_density: "60" # LEDs per metre, cut line to cut line
+  din_column: "7" # fed from the bin-7 end: A7, B7 ... are pixel 0
   strand_leds: "40" # 7 bins: the LEDs whose centres fall inside 7 * 95 mm
 
   # --- The coordinate map --------------------------------------------------
@@ -112,9 +117,12 @@ substitutions:
   # does not have. When `count` is not null it gets how many LEDs that bin
   # owns - 5 or 6 on this rack.
   #
-  # DIN enters at the COLUMN-1 END of every row, so bin 1 is pixel 0 and the
-  # bin numbers count up along the strand. Every row's feed comes up one
-  # riser at the side of the rack instead of crossing the back.
+  # DIN enters every row of a rack at the same end, column `din_column`, so
+  # that bin is pixel 0 and the bin numbers count along the strand from it.
+  # Every row's feed comes up one riser at that side of the rack instead of
+  # crossing the back. A rack fed from its last column is counted from there:
+  # the column is mirrored first, and the rest of the arithmetic - and
+  # `rack_table` - then counts from the feed end.
   #
   # Bins are placed by where they physically are, not by a whole number of
   # LEDs each. A bin is `bin_width_mm` wide and the strip has `strip_density`
@@ -134,6 +142,7 @@ substitutions:
   bin_first_led: |-
     auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
                             int *count) -> int {
+      if (${din_column} != 1) col = ${rack_cols} - 1 - col;
       auto edge = [](int k) -> int {
         return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
       };

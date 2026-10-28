@@ -112,6 +112,7 @@ substitutions:
   rack_cells: "169" # rack_rows * rack_cols, the whole envelope
   bin_width_mm: "95" # one bin, wall to wall, measured along the back
   strip_density: "60" # LEDs per metre, cut line to cut line
+  din_column: "1" # the column DIN enters each row at: 1 or rack_cols
   full_strand: "74" # 13 bins, bins 1..13   - rows I-M
   split_strand: "46" # 2 x 4 bins, 23 + 23   - rows A-H, jumpered across the U
 
@@ -147,9 +148,12 @@ substitutions:
   # does not have. When `count` is not null it gets how many LEDs that bin
   # owns - 5 or 6 on this rack.
   #
-  # DIN enters at the COLUMN-1 END of every row, so bin 1 is pixel 0 and the
-  # bin numbers count up along the strand. Every row's feed comes up one
-  # riser at the side of the rack instead of crossing the back.
+  # DIN enters every row of a rack at the same end, column `din_column`, so
+  # that bin is pixel 0 and the bin numbers count along the strand from it.
+  # Every row's feed comes up one riser at that side of the rack instead of
+  # crossing the back. A rack fed from its last column is counted from there:
+  # the column is mirrored first, and the rest of the arithmetic - and
+  # `rack_table` - then counts from the feed end.
   #
   # Bins are placed by where they physically are, not by a whole number of
   # LEDs each. A bin is `bin_width_mm` wide and the strip has `strip_density`
@@ -169,6 +173,7 @@ substitutions:
   bin_first_led: |-
     auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
                             int *count) -> int {
+      if (${din_column} != 1) col = ${rack_cols} - 1 - col;
       auto edge = [](int k) -> int {
         return (2 * k * ${bin_width_mm} * ${strip_density} + 999) / 2000;
       };
