@@ -39,8 +39,8 @@
 # 1. Secrets. Your ESPHome secrets.yaml needs these, alongside rack 1's:
 #
 #      wifi_ssid / wifi_password / wifi_domain   shared with rack 1's nodes
-#      winerack2led_api_key:       `esphome generate-encryption-key`
-#      winerack2led_ota_password:  anything long and random
+#      winerack2led_api_key:       `esphome generate-encryption-key` (also
+#                                   encrypts OTA updates)
 #      winerack2led_ap_ssid:       the fallback hotspot's name
 #      winerack2led_ap_password:   and its password, 8 characters or more
 #
@@ -320,7 +320,9 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret winerack2led_ota_password
+    # No key here: OTA uploads are encrypted with the api: encryption key
+    # above, and plaintext uploads are refused.
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
