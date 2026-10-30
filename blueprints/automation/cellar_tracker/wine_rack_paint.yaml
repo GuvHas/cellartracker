@@ -135,6 +135,12 @@ actions:
           - condition: trigger
             id: locate
         sequence:
+          # Anyone who can fire an event can fire this one, so it is checked
+          # before it reaches a board: a bin id, as the integration sends it.
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.bin is string
+                 and trigger.event.data.bin is match('^[A-Za-z][0-9]{1,3}$') }}
           # Every board gets it: the one holding the bin lights it, the others
           # go dark. [0, 0, 0] is the board's own locator colour.
           - repeat:
@@ -147,12 +153,18 @@ actions:
                     r: 0
                     g: 0
                     b: 0
-                    seconds: "{{ trigger.event.data.seconds | int(120) }}"
+                    seconds: "{{ [[trigger.event.data.seconds | int(120), 0] | max, 3600] | min }}"
 
       - conditions:
           - condition: trigger
             id: dashboard
         sequence:
+          # One known state per bin, the same size as the rack's own grid.
+          - condition: template
+            value_template: >-
+              {{ trigger.event.data.grid is string
+                 and trigger.event.data.grid | length == states(grid_sensor) | length
+                 and trigger.event.data.grid is match('^[.NARUP]*$') }}
           # A highlight or an overview asked for on purpose replaces a running
           # locator, which only clear_all cancels.
           - repeat:

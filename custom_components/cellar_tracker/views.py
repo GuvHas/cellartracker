@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# The API answers hold the cellar - notes, prices paid, barcodes - so no cache
+# between here and the page may keep a copy, whatever a proxy or browser would
+# otherwise decide.
+PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"}
+
 
 def _currency_payload(currency: str) -> dict[str, str]:
     """Describe a currency as both its code and its display symbol."""
@@ -107,7 +112,7 @@ class CellarTrackerInventoryView(_CellarTrackerView):
         """
         coordinator = self._coordinator(request)
         if coordinator is None or not coordinator.data:
-            return web.json_response([])
+            return web.json_response([], headers=PRIVATE_HEADERS)
 
         # Anything other than the one name we recognise gets everything. A typo
         # must not quietly hand back fewer fields than the caller expected.
@@ -116,7 +121,7 @@ class CellarTrackerInventoryView(_CellarTrackerView):
         else:
             body = coordinator.inventory_body
 
-        return web.Response(body=body, content_type="application/json")
+        return web.Response(body=body, content_type="application/json", headers=PRIVATE_HEADERS)
 
 
 class CellarTrackerSettingsView(_CellarTrackerView):
@@ -132,7 +137,9 @@ class CellarTrackerSettingsView(_CellarTrackerView):
         # The LED racks' locations, so the dashboard offers to light a bottle
         # only where a rack can show it.
         racks = [] if coordinator is None else [rack.location for rack in coordinator.racks]
-        return web.json_response({**_currency_payload(currency), "racks": racks})
+        return web.json_response(
+            {**_currency_payload(currency), "racks": racks}, headers=PRIVATE_HEADERS
+        )
 
 
 class CellarTrackerDashboardView(HomeAssistantView):

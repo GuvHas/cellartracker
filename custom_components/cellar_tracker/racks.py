@@ -62,21 +62,27 @@ class Rack:
         return 0 <= row < self.rows and 0 <= col < self.cols and cell not in self.missing
 
 
+# A row letter, then digits, with spaces, tabs, dashes and underscores allowed
+# anywhere after the letter. The same grammar as parse_bin_id on the boards, so
+# a bin the grid paints is a bin the locator can light, and the other way round.
+_BIN = re.compile(r"([A-Z])[\s\-_]*((?:[0-9][\s\-_]*)+)")
+
+
 def parse_bin(value: object) -> tuple[int, int] | None:
     """Read a bin the way people write them: "D2", "d2", "D-2", "D 2", "D02".
 
-    A row letter, then the first run of digits after it. Anything else is
-    None, so a typo goes dark rather than lighting the wrong bottle.
+    Anything else is None - "A1B" and "12A" too - so a typo goes dark rather
+    than lighting the wrong bottle.
     """
-    slot = str(value or "").strip().upper()
-    if len(slot) < 2:
+    match = _BIN.fullmatch(str(value or "").strip().upper())
+    if match is None:
         return None
-    row = ROW_LETTERS.find(slot[0])
-    digits = re.search(r"[0-9]+", slot[1:])
-    if row < 0 or digits is None:
+    digits = re.sub(r"[\s\-_]", "", match.group(2))
+    # The boards stop at 999; past that it is not a bin.
+    col = int(digits)
+    if not 1 <= col <= 999:
         return None
-    col = int(digits.group())
-    return (row, col - 1) if col >= 1 else None
+    return ROW_LETTERS.find(match.group(1)), col - 1
 
 
 def _parse_without(text: str, rows: int, cols: int) -> frozenset[tuple[int, int]]:

@@ -47,7 +47,7 @@ from .const import (
     EVENT_RACK_PAINT,
 )
 from .rack_lights import set_showing, showing
-from .racks import location_key, rack_grid
+from .racks import ROW_LETTERS, location_key, parse_bin, rack_grid
 
 if TYPE_CHECKING:
     from .cellar_data import CellarTrackerConfigEntry, WineCellarData
@@ -70,11 +70,19 @@ _RESTORE_TIMER = f"{DOMAIN}_highlight_restore"
 
 REFRESH_SCHEMA = vol.Schema({})
 
+# Generous bounds on what a caller may send, so a malformed or hostile call
+# is refused at the schema rather than walked through. A bottle id is a
+# 64-character hash with an optional "_<n>"; a bin is a few characters.
+MAX_BIN_LENGTH = 32
+MAX_BOTTLE_ID_LENGTH = 100
+MAX_HIGHLIGHT_BOTTLES = 10000
+_BIN_TEXT = vol.All(cv.string, vol.Length(max=MAX_BIN_LENGTH))
+
 # cv.string rather than str: a bin written as `bin: 12` in a script arrives as
 # an int, and a bin is a label, not a number.
 GET_WINE_BY_BIN_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_BIN): cv.string,
+        vol.Required(ATTR_BIN): _BIN_TEXT,
         vol.Optional(ATTR_LOCATION): cv.string,
     }
 )
@@ -83,7 +91,7 @@ GET_WINE_BY_BIN_SCHEMA = vol.Schema(
 LOCATE_BOTTLE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_LOCATION): cv.string,
-        vol.Required(ATTR_BIN): cv.string,
+        vol.Required(ATTR_BIN): _BIN_TEXT,
         vol.Optional(ATTR_SECONDS, default=DEFAULT_LOCATE_SECONDS): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=3600)
         ),
@@ -95,7 +103,11 @@ LOCATE_BOTTLE_SCHEMA = vol.Schema(
 # had to repeat the page's logic to understand it.
 HIGHLIGHT_BOTTLES_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_BOTTLES): vol.All(cv.ensure_list, [cv.string]),
+        vol.Required(ATTR_BOTTLES): vol.All(
+            cv.ensure_list,
+            vol.Length(max=MAX_HIGHLIGHT_BOTTLES),
+            [vol.All(cv.string, vol.Length(max=MAX_BOTTLE_ID_LENGTH))],
+        ),
         vol.Optional(ATTR_SECONDS, default=DEFAULT_HIGHLIGHT_SECONDS): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=86400)
         ),
@@ -269,11 +281,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
     """Register the integration's actions."""
 
     async def handle_refresh(call: ServiceCall) -> None:
-        # request_refresh, not a bare fetch: Home Assistant's debouncer then
-        # rate-limits repeated calls, so an automation in a loop cannot hammer
-        # CellarTracker.
+        # Not a bare fetch, nor even request_refresh: Home Assistant's
+        # debouncer allows a poll every ten seconds, and ignores a backoff
+        # CellarTracker asked for. A refresh that comes too soon is skipped
+        # and logged, not raised, so an automation calling it is not stopped.
         await asyncio.gather(
-            *(coordinator.async_request_refresh() for coordinator in _require_loaded(hass))
+            *(coordinator.async_request_manual_refresh() for coordinator in _require_loaded(hass))
         )
 
     async def handle_get_wine_by_bin(call: ServiceCall) -> ServiceResponse:
@@ -314,7 +327,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
             ),
             None,
         )
-        if not bin_name or location is None:
+        rack = next((r for r in coordinator.racks if r.location == location), None)
+        cell = parse_bin(bin_name)
+        if rack is None or cell is None or not rack.has(cell):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="not_on_a_rack",
@@ -329,8 +344,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
             _keep_lit(hass, coordinator)
         else:
             _keep_restore_off_a_locator(hass, hold)
+        # The bin as the boards' parser reads it best, however it was written.
+        canonical = f"{ROW_LETTERS[cell[0]]}{cell[1] + 1}"
         hass.bus.async_fire(
-            EVENT_RACK_LOCATE, {"location": location, "bin": bin_name, "seconds": hold}
+            EVENT_RACK_LOCATE, {"location": location, "bin": canonical, "seconds": hold}
         )
 
     async def handle_highlight_bottles(call: ServiceCall) -> None:

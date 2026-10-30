@@ -7,8 +7,10 @@ any screenshot or link the user shares.
 
 The page is normally embedded via an iframe card on the same origin, so it can
 read the live session from the parent frame and needs no stored secret at all.
-A ``?token=`` is still honoured once so existing bookmarks keep working, but it
-is moved into sessionStorage and stripped from the address bar immediately.
+A ``?token=`` is no longer accepted at all: by the time the script runs, the
+request carrying it has already reached the access logs, so honouring it even
+once kept the leak alive. It is stripped from the address bar and ignored, and
+a copy an older page stored in sessionStorage is dropped.
 
 These tests run the page's real script under node with stubbed browser globals.
 """
@@ -142,13 +144,27 @@ def test_no_token_anywhere_yields_none():
 
 
 # --------------------------------------------------------------------------
-# F-12: a legacy ?token= must be honoured once, then removed from the URL
+# A ?token= in the URL is never used, and never stored
 # --------------------------------------------------------------------------
-def test_legacy_url_token_is_stripped_from_the_address_bar():
+def test_a_url_token_is_not_used():
     run_scenario(
         search="?token=SECRET",
-        checks=assert_js('token === "SECRET"', "legacy bookmark stopped working")
-        + assert_js("replaceStateCalls.length === 1", "URL was not rewritten")
+        checks=assert_js("!token", "authenticated with a token from the URL"),
+    )
+
+
+def test_a_url_token_does_not_override_the_session():
+    run_scenario(
+        search="?token=SECRET",
+        parent_token="live",
+        checks=assert_js('token === "live"', "did not use the live session"),
+    )
+
+
+def test_a_url_token_is_stripped_from_the_address_bar():
+    run_scenario(
+        search="?token=SECRET",
+        checks=assert_js("replaceStateCalls.length === 1", "URL was not rewritten")
         + assert_js(
             'replaceStateCalls[0].indexOf("SECRET") === -1',
             "token survived in the rewritten URL",
@@ -160,13 +176,10 @@ def test_legacy_url_token_is_stripped_from_the_address_bar():
     )
 
 
-def test_legacy_token_is_kept_for_the_session():
+def test_a_url_token_never_enters_storage():
     run_scenario(
         search="?token=SECRET",
-        checks=assert_js(
-            'sessionStorage.getItem("cellartracker_token") === "SECRET"',
-            "token was not preserved for reloads",
-        ),
+        checks=assert_js("Object.keys(store).length === 0", "the token was stored"),
     )
 
 
@@ -180,18 +193,21 @@ def test_stripping_preserves_other_query_parameters():
     )
 
 
-def test_a_stored_token_survives_a_reload():
+def test_a_token_stored_by_an_older_page_is_dropped_not_used():
     run_scenario(
         session={"cellartracker_token": "STORED"},
-        checks=assert_js('token === "STORED"', "stored token was not reused"),
+        checks=assert_js("!token", "a stored token was reused")
+        + assert_js('!("cellartracker_token" in store)', "the stored token was kept"),
     )
 
 
-def test_a_live_session_is_preferred_over_a_stored_token():
+def test_no_session_fails_closed_without_an_authorization_header():
     run_scenario(
-        parent_token="live",
-        session={"cellartracker_token": "STORED"},
-        checks=assert_js('token === "live"', "preferred a stored secret over the session"),
+        checks="(async () => {\n"
+        + "  await new Promise((r) => setTimeout(r, 20));\n"
+        + assert_js("!token", "invented a token from nowhere")
+        + assert_js("!fetchOpts.headers", "sent an Authorization header with no session")
+        + "})();\n",
     )
 
 

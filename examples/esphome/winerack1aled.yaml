@@ -212,6 +212,9 @@ substitutions:
       for (; *p != '\0'; p++) {
         const char ch = *p;
         if (ch >= '0' && ch <= '9') {
+          // No rack has a bin past 999, and stopping here keeps a run of
+          // digits from overflowing int, which is undefined behaviour.
+          if (number > 99) return false;
           number = number * 10 + (ch - '0');
           any_digit = true;
         } else if (ch == ' ' || ch == '\t' || ch == '-' || ch == '_') {
@@ -285,8 +288,22 @@ api:
         grid: string
       then:
         - lambda: |-
+            // Checked whole before any cell changes, so a malformed grid
+            // leaves the rack as it was. The integration always sends one
+            // state per cell, from these letters.
+            if (grid.length() != (size_t) ${rack_cells}) {
+              ESP_LOGW("winerack", "light_rack: grid has %u cells, expected %d",
+                       (unsigned) grid.length(), ${rack_cells});
+              return;
+            }
+            for (char ch : grid) {
+              if (strchr(".NARUPnarup", ch) == nullptr || ch == '\0') {
+                ESP_LOGW("winerack", "light_rack: grid holds an unknown state");
+                return;
+              }
+            }
             for (int i = 0; i < ${rack_cells}; i++) {
-              id(cell_state)[i] = i < (int) grid.length() ? (uint8_t) toupper(grid[i]) : (uint8_t) '.';
+              id(cell_state)[i] = (uint8_t) toupper((unsigned char) grid[i]);
             }
         - script.execute: render
 
@@ -304,14 +321,14 @@ api:
               ESP_LOGW("winerack", "light_row: no row given");
               return;
             }
-            const int r = toupper(row[0]) - 'A';
+            const int r = toupper((unsigned char) row[0]) - 'A';
             if (r < 0 || r >= ${rack_rows}) {
               ESP_LOGW("winerack", "light_row: '%s' is not a row between A and M", row.c_str());
               return;
             }
             for (int c = 0; c < ${rack_cols}; c++) {
               id(cell_state)[r * ${rack_cols} + c] =
-                  c < (int) states.length() ? (uint8_t) toupper(states[c]) : (uint8_t) '.';
+                  c < (int) states.length() ? (uint8_t) toupper((unsigned char) states[c]) : (uint8_t) '.';
             }
         - script.execute: render
 
@@ -537,7 +554,12 @@ script:
     parameters:
       duration: int
     then:
-      - delay: !lambda 'return duration * 1000;'
+      # Clamped before the multiply: Home Assistant caps a hold at an hour,
+      # but the action can be called directly, and a large int * 1000
+      # overflows.
+      - delay: !lambda |-
+          const int held = duration < 0 ? 0 : (duration > 3600 ? 3600 : duration);
+          return (uint32_t) held * 1000U;
       - lambda: 'id(locate_cell) = -1;'
       - script.execute: render
 

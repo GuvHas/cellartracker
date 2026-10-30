@@ -25,7 +25,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from cellar_tracker import cellar_data
 from cellar_tracker.cellar_data import WineCellarData
-from conftest import ConfigEntry, FakeHass, FakeSession
+from conftest import ConfigEntry, FakeClientResponse, FakeHass, FakeSession
 
 HEADER = "iWine\tWine\tVintage\tValuation\tLocation\tBin\tBeginConsume\tEndConsume"
 TWO_BOTTLES = "\n".join(
@@ -153,3 +153,44 @@ def test_a_timeout_is_not_reported_as_bad_credentials(monkeypatch):
 
 def test_the_timeout_is_still_configured():
     assert 0 < cellar_data.REQUEST_TIMEOUT <= 300
+
+
+# --------------------------------------------------------------------------
+# An abnormal response is bounded before it is held whole
+# --------------------------------------------------------------------------
+def test_an_oversized_export_is_refused(monkeypatch):
+    monkeypatch.setattr(cellar_data, "MAX_EXPORT_BYTES", len(TWO_BOTTLES) - 1)
+    coordinator = build(text=TWO_BOTTLES)
+    with pytest.raises(UpdateFailed, match="size limit"):
+        update(coordinator)
+
+
+def test_an_export_at_the_limit_is_read(monkeypatch):
+    monkeypatch.setattr(cellar_data, "MAX_EXPORT_BYTES", len(TWO_BOTTLES))
+    assert update(build(text=TWO_BOTTLES))["total_bottles"] == 2
+
+
+def test_non_ascii_text_survives_the_byte_read():
+    payload = TWO_BOTTLES.replace("Barolo", "Château Grüner")
+    result = update(build(text=payload))
+    assert {b["Wine"] for b in result["bottles"]} == {"Château Grüner", "Rioja"}
+
+
+@pytest.mark.parametrize("written", ["nan", "NaN", "inf", "-Infinity"])
+def test_a_non_finite_valuation_counts_as_nothing(written):
+    payload = TWO_BOTTLES.replace("45.50", written)
+    result = update(build(text=payload))
+    assert result["total_value"] == 22.0
+
+
+@pytest.mark.parametrize("charset", [None, "utf-8", "UTF8", "no-such-codec"])
+def test_an_export_decodes_with_or_without_a_usable_charset(monkeypatch, charset):
+    """No charset is the common case; aiohttp's get_encoding() raises there."""
+    monkeypatch.setattr(FakeClientResponse, "charset", charset)
+    payload = TWO_BOTTLES.replace("Barolo", "Château")
+    result = update(build(text=payload))
+    assert "Château" in {b["Wine"] for b in result["bottles"]}
+
+
+def test_a_declared_latin_1_export_is_decoded_as_latin_1():
+    assert cellar_data._charset("ISO-8859-1") == "iso8859-1"

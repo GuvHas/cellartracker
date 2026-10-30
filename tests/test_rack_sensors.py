@@ -92,7 +92,9 @@ def test_format_reads_back_to_the_same_racks():
 
 @pytest.mark.parametrize(
     ("written", "cell"),
-    [("D2", (3, 1)), ("d-2", (3, 1)), ("D 2", (3, 1)), ("D02", (3, 1)), ("A0", None), ("7", None)],
+    [("D2", (3, 1)), ("d-2", (3, 1)), ("D 2", (3, 1)), ("D02", (3, 1)), ("A0", None), ("7", None),
+     ("d_2", (3, 1)), ("A1B", None), ("12A", None), ("AA", None), ("A1000", None),
+     ("A" + "9" * 30, None), ("A0000013", (0, 12))],
 )
 def test_bins_are_read_the_way_people_write_them(written, cell):
     assert parse_bin(written) == cell
