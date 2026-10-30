@@ -415,6 +415,11 @@ wifi:
   # ".iot.example.com". Delete both lines if your network has no such suffix -
   # an empty secret is not the same thing as an absent option.
   domain: !secret wifi_domain
+  # The radio stays awake. ESP32 light sleep between beacons is the default,
+  # and on a node that answers bursts of actions it shows as the API dropping
+  # and Home Assistant waiting on a connection that never comes back. The
+  # node is mains powered, so the saving is worth nothing here.
+  power_save_mode: none
 
   # The fallback hotspot, for when the WiFi it is meant to join is not there.
   ap:
@@ -422,6 +427,26 @@ wifi:
     password: !secret winerack1bled_ap_password
 
 captive_portal:
+
+# --- DIAGNOSTICS -------------------------------------------------------------
+# Enough to tell, after the rack stops answering, whether the board rebooted
+# (uptime starts over, and the reset reason says why) or only lost the
+# network (uptime keeps counting, the signal says how weak it was).
+debug:
+  update_interval: 60s
+
+sensor:
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 60s
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: Reset reason
 
 # --- STATE -------------------------------------------------------------------
 # Two arrays over the whole 13 x 13 envelope, both row-major and both indexed
@@ -528,12 +553,22 @@ script:
               lit = rgb[0] || rgb[1] || rgb[2];
             }
             any_lit = any_lit || lit;
+            // Only a strand whose on/off has to change is called. Every call
+            // logs and sends Home Assistant a state message, so calling all
+            // of them on every render made a burst of dashboard clicks a
+            // flood of messages, enough to drop the API connection. A lit
+            // strand already running the effect needs nothing: the effect
+            // reads cell_rgb on its next frame. Effect 1 is "Rack", the only
+            // one each strand has.
+            auto *light = strand[s];
             if (lit) {
-              auto call = strand[s]->turn_on();
-              call.set_effect("Rack");
-              call.perform();
-            } else {
-              strand[s]->turn_off().perform();
+              if (!light->remote_values.is_on() || light->get_current_effect_index() != 1) {
+                auto call = light->turn_on();
+                call.set_effect("Rack");
+                call.perform();
+              }
+            } else if (light->remote_values.is_on()) {
+              light->turn_off().perform();
             }
           }
 
@@ -541,10 +576,12 @@ script:
           // the rail only once every row on this board is dark. The effect
           // repaints every ${redraw_interval}, so a strand that was unpowered
           // a moment ago is repainted within one interval of the relay closing.
-          if (any_lit) {
-            id(led_power).turn_on();
-          } else {
-            id(led_power).turn_off();
+          if (any_lit != id(led_power).state) {
+            if (any_lit) {
+              id(led_power).turn_on();
+            } else {
+              id(led_power).turn_off();
+            }
           }
 
   # Hands the overview back when a locator's hold expires. `mode: restart` so
