@@ -463,6 +463,31 @@ def test_each_half_of_rack_one_drives_the_rows_it_says_it_does():
         assert listed == [light["id"] for light in node["light"]]
 
 
+def test_render_only_calls_the_strands_that_change():
+    """Each light call logs and sends Home Assistant a state message. Calling
+    all seven strands on every render turned a burst of dashboard clicks into
+    a flood of messages and dropped rack 2's API connection, so a strand is
+    called only when its on/off or its effect has to change."""
+    for name, node in NODES.items():
+        render_script = next(s for s in node["script"] if s["id"] == "render")
+        body = render_script["then"][0]["lambda"]
+        assert "remote_values.is_on()" in body, name
+        assert "get_current_effect_index() != 1" in body, name
+        assert "id(led_power).state" in body, name
+        for light in node["light"]:
+            assert [e["addressable_lambda"]["name"] for e in light["effects"]] == ["Rack"], (
+                f"{name}: effect index 1 must be Rack"
+            )
+
+
+def test_nodes_keep_the_radio_awake_and_report_why_they_restarted():
+    for name, node in NODES.items():
+        assert node["wifi"]["power_save_mode"] == "none", name
+        assert {s["platform"] for s in node["sensor"]} >= {"uptime", "wifi_signal"}, name
+        debug = [s for s in node["text_sensor"] if s["platform"] == "debug"]
+        assert debug and "reset_reason" in debug[0], name
+
+
 #: A classic ESP32 has eight RMT channels with one 64-symbol memory block each.
 RMT_BLOCK_SYMBOLS = 64
 RMT_BLOCKS = 8
