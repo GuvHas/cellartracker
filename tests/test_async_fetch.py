@@ -25,7 +25,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from cellar_tracker import cellar_data
 from cellar_tracker.cellar_data import WineCellarData
-from conftest import ConfigEntry, FakeHass, FakeSession
+from conftest import ConfigEntry, FakeClientResponse, FakeHass, FakeSession
 
 HEADER = "iWine\tWine\tVintage\tValuation\tLocation\tBin\tBeginConsume\tEndConsume"
 TWO_BOTTLES = "\n".join(
@@ -181,3 +181,16 @@ def test_a_non_finite_valuation_counts_as_nothing(written):
     payload = TWO_BOTTLES.replace("45.50", written)
     result = update(build(text=payload))
     assert result["total_value"] == 22.0
+
+
+@pytest.mark.parametrize("charset", [None, "utf-8", "UTF8", "no-such-codec"])
+def test_an_export_decodes_with_or_without_a_usable_charset(monkeypatch, charset):
+    """No charset is the common case; aiohttp's get_encoding() raises there."""
+    monkeypatch.setattr(FakeClientResponse, "charset", charset)
+    payload = TWO_BOTTLES.replace("Barolo", "Château")
+    result = update(build(text=payload))
+    assert "Château" in {b["Wine"] for b in result["bottles"]}
+
+
+def test_a_declared_latin_1_export_is_decoded_as_latin_1():
+    assert cellar_data._charset("ISO-8859-1") == "iso8859-1"

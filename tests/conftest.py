@@ -817,8 +817,9 @@ class FakeClientResponse:
     async def text(self):
         return self._text
 
-    def get_encoding(self):
-        return "utf-8"
+    # What Content-Type declared, as aiohttp's ClientResponse.charset reads
+    # it. Most exports declare none.
+    charset = None
 
     @property
     def content(self):

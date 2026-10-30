@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import csv
 import hashlib
 import io
@@ -261,6 +262,16 @@ def _event_bottle(bottle: Mapping[str, Any]) -> dict[str, Any]:
     return {field: bottle[field] for field in EVENT_BOTTLE_FIELDS if field in bottle}
 
 
+def _charset(declared: str | None) -> str:
+    """The codec for a declared charset, or UTF-8 if none or none usable."""
+    if declared:
+        try:
+            return codecs.lookup(declared).name
+        except LookupError:
+            pass
+    return "utf-8"
+
+
 async def async_fetch_inventory_payload(hass: HomeAssistant, username: str, password: str) -> str:
     """Fetch the raw inventory export for an account.
 
@@ -307,9 +318,10 @@ async def async_fetch_inventory_payload(hass: HomeAssistant, username: str, pass
                         failure = "CellarTracker sent an export larger than the size limit"
                         break
                 else:
-                    # As response.text() decoded it: the declared charset,
-                    # else UTF-8.
-                    payload = bytes(raw).decode(response.get_encoding(), errors="replace")
+                    # The declared charset, else UTF-8, as text() would. Not
+                    # get_encoding(): with no charset declared it needs the
+                    # body text() caches, and raises after a streamed read.
+                    payload = bytes(raw).decode(_charset(response.charset), errors="replace")
     except aiohttp.ClientResponseError as err:
         # The status is the diagnostic part and carries nothing sensitive.
         failure = f"HTTP {err.status} from CellarTracker"
