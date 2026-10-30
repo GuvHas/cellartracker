@@ -749,6 +749,20 @@ TEST_SUITE("bin ids") {
     }
   }
 
+  TEST_CASE("a bin number too long to be a bin is refused, not overflowed") {
+    for (const char *written : {"A1000", "A999999999999999999999999", "A2147483648"}) {
+      CAPTURE(written);
+      int column = -1, row = -1;
+      CHECK_FALSE(parse(written, &column, &row));
+    }
+    // Leading zeros are not digits that count towards the limit.
+    int column = -1, row = -1;
+    REQUIRE(parse("A0000000013", &column, &row));
+    CHECK(column == 12);
+    REQUIRE(parse("A999", &column, &row));
+    CHECK(column == 998);
+  }
+
   TEST_CASE("null arguments are refused rather than dereferenced") {
     int column = 0, row = 0;
     CHECK_FALSE(parse(nullptr, &column, &row));

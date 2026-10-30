@@ -23,7 +23,8 @@ import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from yarl import URL
 
-from cellar_tracker.cellar_data import MAX_BACKOFF, WineCellarData
+from cellar_tracker import cellar_data
+from cellar_tracker.cellar_data import MANUAL_REFRESH_SPACING, MAX_BACKOFF, WineCellarData
 from conftest import ConfigEntry, FakeHass, FakeSession
 
 HEADER = "iWine\tWine\tValuation"
@@ -154,3 +155,77 @@ def test_a_server_still_cannot_extend_a_daily_schedule_without_bound():
     coordinator = daily(raise_for_status=throttled("604800"))
     refresh(coordinator)
     assert coordinator.update_interval == timedelta(seconds=DAILY)
+
+
+# --------------------------------------------------------------------------
+# The refresh action obeys the backoff and a spacing of its own
+# --------------------------------------------------------------------------
+class Counting:
+    """Counts the refreshes a coordinator actually asks Home Assistant for."""
+
+    def __init__(self, coordinator):
+        self.count = 0
+
+        async def request_refresh():
+            self.count += 1
+
+        coordinator.async_request_refresh = request_refresh
+
+
+def manual(coordinator) -> bool:
+    return asyncio.run(coordinator.async_request_manual_refresh())
+
+
+def test_the_first_manual_refresh_goes_through():
+    coordinator = build(text=GOOD)
+    counting = Counting(coordinator)
+    assert manual(coordinator)
+    assert counting.count == 1
+
+
+def test_a_manual_refresh_during_a_backoff_is_skipped(monkeypatch):
+    coordinator = build(raise_for_status=throttled("3600"))
+    counting = Counting(coordinator)
+    now = [1000.0]
+    monkeypatch.setattr(cellar_data.time, "monotonic", lambda: now[0])
+    refresh(coordinator)
+
+    # Well past the manual spacing, still inside the hour asked for.
+    for later in (120, 1800, 3599):
+        now[0] = 1000.0 + later
+        assert not manual(coordinator)
+    assert counting.count == 0
+
+    now[0] = 1000.0 + 3600
+    assert manual(coordinator)
+    assert counting.count == 1
+
+
+def test_manual_refreshes_are_spaced_out(monkeypatch):
+    coordinator = build(text=GOOD)
+    counting = Counting(coordinator)
+    now = [1000.0]
+    monkeypatch.setattr(cellar_data.time, "monotonic", lambda: now[0])
+    asyncio.run(coordinator._async_update_data())
+
+    now[0] += MANUAL_REFRESH_SPACING - 1
+    assert not manual(coordinator)
+    now[0] += 1
+    assert manual(coordinator)
+    assert counting.count == 1
+
+
+def test_a_success_ends_the_backoff_for_manual_refreshes_too(monkeypatch):
+    coordinator = build(raise_for_status=throttled("3600"))
+    now = [1000.0]
+    monkeypatch.setattr(cellar_data.time, "monotonic", lambda: now[0])
+    refresh(coordinator)
+
+    coordinator.hass.session.raise_for_status = None
+    coordinator.hass.session.text = GOOD
+    asyncio.run(coordinator._async_update_data())
+
+    now[0] += MANUAL_REFRESH_SPACING
+    counting = Counting(coordinator)
+    assert manual(coordinator)
+    assert counting.count == 1

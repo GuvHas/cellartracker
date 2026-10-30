@@ -5,7 +5,9 @@ import csv
 import hashlib
 import io
 import logging
+import math
 import random
+import time
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -86,6 +88,17 @@ MAX_BACKOFF = 21600
 # top is kept and never exceeded: the nominal delay is already the cap's idea of
 # "long enough", so jitter shortens it rather than lengthening past the cap.
 JITTER_FLOOR = 0.75
+
+# How soon after the last request to CellarTracker the refresh action may make
+# another. Home Assistant's own debouncer allows one every ten seconds, which
+# lets an automation in a loop poll far faster than any schedule this
+# integration would ever set.
+MANUAL_REFRESH_SPACING = 60
+
+# The largest export the integration will read. A thousand-bottle cellar is
+# around 1 MB, so this is far past any real cellar, and stops an abnormal
+# response from being held in memory whole before it is parsed.
+MAX_EXPORT_BYTES = 32 * 1024 * 1024
 
 # Bounds the exponent so a very long streak cannot build an absurd integer
 # before the cap is applied. 2**16 is far past any cap this can meet.
@@ -285,7 +298,18 @@ async def async_fetch_inventory_payload(hass: HomeAssistant, username: str, pass
         async with asyncio.timeout(REQUEST_TIMEOUT):
             async with session.get(BASE_URL, params=params) as response:
                 response.raise_for_status()
-                payload = await response.text()
+                # Read in chunks so an oversized export is dropped as soon as
+                # it passes the limit, rather than once it is all in memory.
+                raw = bytearray()
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    raw += chunk
+                    if len(raw) > MAX_EXPORT_BYTES:
+                        failure = "CellarTracker sent an export larger than the size limit"
+                        break
+                else:
+                    # As response.text() decoded it: the declared charset,
+                    # else UTF-8.
+                    payload = bytes(raw).decode(response.get_encoding(), errors="replace")
     except aiohttp.ClientResponseError as err:
         # The status is the diagnostic part and carries nothing sensitive.
         failure = f"HTTP {err.status} from CellarTracker"
@@ -398,6 +422,12 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # Consecutive polls the upstream asked us to slow down for. Drives the
         # exponential growth; forgotten on the first success.
         self._consecutive_backoffs = 0
+
+        # time.monotonic() of the last request to CellarTracker, and the end of
+        # any backoff. Both gate the refresh action: the schedule obeys the
+        # backoff through update_interval, but a requested refresh does not.
+        self._last_request: float | None = None
+        self._backoff_until: float | None = None
 
         # When the cellar last synchronised. None until the first success, so
         # the sensor can report "unknown" rather than invent a time.
@@ -523,6 +553,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
         # Reset unconditionally: a backoff that landed exactly on the configured
         # interval leaves nothing to restore, but the streak is over all the same.
         self._consecutive_backoffs = 0
+        self._backoff_until = None
         if self.update_interval != self._scan_interval:
             _LOGGER.info("%s; restoring the %s poll interval", why, self._scan_interval)
             self.update_interval = self._scan_interval
@@ -593,6 +624,10 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
 
             try:
                 valuation = float(row.get("Valuation") or 0.0)
+                # float() reads "nan" and "inf", and one of either spoils
+                # every total it is added to.
+                if not math.isfinite(valuation):
+                    valuation = 0.0
             except (ValueError, TypeError):
                 valuation = 0.0
             row["Valuation"] = valuation
@@ -707,8 +742,32 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             }
         return states
 
+    async def async_request_manual_refresh(self) -> bool:
+        """Request a refresh for the refresh action, unless it is too soon.
+
+        Too soon is during a backoff, which the server asked for, or within
+        MANUAL_REFRESH_SPACING of the last request. Returns whether a refresh
+        was requested.
+        """
+        now = time.monotonic()
+        if self._backoff_until is not None and now < self._backoff_until:
+            _LOGGER.info(
+                "Refresh skipped: CellarTracker asked us to wait another %d s",
+                self._backoff_until - now,
+            )
+            return False
+        if self._last_request is not None and now - self._last_request < MANUAL_REFRESH_SPACING:
+            _LOGGER.info(
+                "Refresh skipped: the last request to CellarTracker was %d s ago",
+                now - self._last_request,
+            )
+            return False
+        await self.async_request_refresh()
+        return True
+
     async def _fetch_payload(self) -> str:
         """Fetch the raw inventory export for this entry's account."""
+        self._last_request = time.monotonic()
         return await async_fetch_inventory_payload(self.hass, self._username, self._password)
 
     async def _async_update_data(self) -> CellarData:
@@ -855,6 +914,7 @@ class WineCellarData(DataUpdateCoordinator[CellarData]):
             self._consecutive_backoffs += 1
             backoff = self._backoff_for(err.retry_after)
             self.update_interval = backoff
+            self._backoff_until = time.monotonic() + backoff.total_seconds()
             _LOGGER.info("CellarTracker asked us to slow down (%s); next poll in %s", err, backoff)
             raise UpdateFailed(f"CellarTracker asked us to slow down: {err}") from err
         except (CannotConnect, TimeoutError, OSError) as err:

@@ -425,7 +425,17 @@ def test_locate_names_the_rack_as_configured(racked):
 
 
 @pytest.mark.parametrize(
-    "data", [{"location": "Garage", "bin": "A1"}, {"location": "Cellar", "bin": "  "}]
+    "data",
+    [
+        {"location": "Garage", "bin": "A1"},
+        {"location": "Cellar", "bin": "  "},
+        # Well formed, but not a bin this 2x2 rack has.
+        {"location": "Cellar", "bin": "C1"},
+        {"location": "Cellar", "bin": "A3"},
+        # Not a bin at all.
+        {"location": "Cellar", "bin": "A1B"},
+        {"location": "Cellar", "bin": "A" + "9" * 30},
+    ],
 )
 def test_locate_refuses_a_bottle_no_rack_can_show(racked, data):
     """Saying so beats firing an event no automation will ever answer."""
@@ -696,3 +706,41 @@ def test_a_reload_puts_the_overview_back_over_a_highlight(racked):
     assert showing_now(racked) == "overview"
     assert events(racked, "cellartracker_rack_paint")
     assert pending(racked) == []
+
+
+def test_locate_sends_the_bin_as_the_boards_read_it(racked):
+    call(racked, "locate_bottle", {"location": "Cellar", "bin": "b-02"})
+    assert events(racked, "cellartracker_rack_locate")[0]["bin"] == "B2"
+
+
+def test_locate_refuses_an_oversized_bin(racked):
+    with pytest.raises(vol.Invalid):
+        call(racked, "locate_bottle", {"location": "Cellar", "bin": "A" * 33})
+    assert racked.bus.events == []
+
+
+def test_highlight_refuses_an_oversized_list(racked):
+    from cellar_tracker.services import MAX_HIGHLIGHT_BOTTLES
+
+    with pytest.raises(vol.Invalid):
+        call(racked, "highlight_bottles", {"bottles": ["u1"] * (MAX_HIGHLIGHT_BOTTLES + 1)})
+    assert racked.bus.events == []
+
+
+def test_highlight_refuses_an_oversized_bottle_id(racked):
+    with pytest.raises(vol.Invalid):
+        call(racked, "highlight_bottles", {"bottles": ["x" * 101]})
+    assert racked.bus.events == []
+
+
+def test_a_refresh_that_comes_too_soon_is_skipped_not_raised():
+    """An automation calling refresh must not be stopped by the cooldown."""
+
+    class Busy(FakeCoordinator):
+        async def async_request_manual_refresh(self):
+            return False
+
+    coordinator = Busy(bottles=BOTTLES)
+    hass = make_hass(a=coordinator)
+    call(hass, "refresh")
+    assert coordinator.refresh_requests == 0

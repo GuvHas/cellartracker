@@ -74,5 +74,16 @@ target_compile_options(rack_yaml_tests PRIVATE
   # Signed/unsigned mixing is how an LED index quietly wraps to four billion.
   -Wconversion -Wsign-conversion -Wshadow)
 
+# Undefined behaviour in a lambda - a signed overflow, an index past a buffer -
+# can look fine on the host and corrupt the board. The sanitizers make it fail
+# the build here instead. Off with -DRACK_SANITIZE=OFF for a compiler without
+# them.
+option(RACK_SANITIZE "Build the tests with ASan and UBSan" ON)
+if(RACK_SANITIZE)
+  target_compile_options(rack_yaml_tests PRIVATE
+    -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+  target_link_options(rack_yaml_tests PRIVATE -fsanitize=address,undefined)
+endif()
+
 enable_testing()
 add_test(NAME rack_yaml COMMAND rack_yaml_tests)

@@ -153,3 +153,31 @@ def test_a_timeout_is_not_reported_as_bad_credentials(monkeypatch):
 
 def test_the_timeout_is_still_configured():
     assert 0 < cellar_data.REQUEST_TIMEOUT <= 300
+
+
+# --------------------------------------------------------------------------
+# An abnormal response is bounded before it is held whole
+# --------------------------------------------------------------------------
+def test_an_oversized_export_is_refused(monkeypatch):
+    monkeypatch.setattr(cellar_data, "MAX_EXPORT_BYTES", len(TWO_BOTTLES) - 1)
+    coordinator = build(text=TWO_BOTTLES)
+    with pytest.raises(UpdateFailed, match="size limit"):
+        update(coordinator)
+
+
+def test_an_export_at_the_limit_is_read(monkeypatch):
+    monkeypatch.setattr(cellar_data, "MAX_EXPORT_BYTES", len(TWO_BOTTLES))
+    assert update(build(text=TWO_BOTTLES))["total_bottles"] == 2
+
+
+def test_non_ascii_text_survives_the_byte_read():
+    payload = TWO_BOTTLES.replace("Barolo", "Château Grüner")
+    result = update(build(text=payload))
+    assert {b["Wine"] for b in result["bottles"]} == {"Château Grüner", "Rioja"}
+
+
+@pytest.mark.parametrize("written", ["nan", "NaN", "inf", "-Infinity"])
+def test_a_non_finite_valuation_counts_as_nothing(written):
+    payload = TWO_BOTTLES.replace("45.50", written)
+    result = update(build(text=payload))
+    assert result["total_value"] == 22.0

@@ -429,8 +429,10 @@ recorder for every bottle.
 
 ### `cellar_tracker.refresh`
 
-Fetches the inventory now, instead of at the next scheduled poll. It goes through Home
-Assistant's own refresh debouncer, so calling it in a loop cannot hammer CellarTracker.
+Fetches the inventory now, instead of at the next scheduled poll. It is skipped (and logged)
+within a minute of the last request to CellarTracker, and for as long as CellarTracker has asked
+the integration to back off, so calling it in a loop cannot hammer CellarTracker. A skipped
+refresh is not an error, so an automation that calls it carries on.
 
 ```yaml
 action: cellar_tracker.refresh
@@ -1037,10 +1039,12 @@ first if you want to switch accounts.
 
 ### Passing `?token=` in the dashboard URL
 
-Deprecated. It still works, but a Home Assistant long-lived token grants full account access and
-never expires, so a URL carrying one leaks it into browser history, server logs and screenshots.
-The page now moves any token it finds into session storage and strips it from the address bar.
-Embedded as an iframe card, no token is needed at all.
+No longer supported. A Home Assistant long-lived token grants full account access and never
+expires, and a URL carrying one has reached the server's and any proxy's access logs before the
+page can do anything about it. The page now ignores a `?token=`, strips it from the address bar and
+drops any copy an older version stored. Embed the page as an iframe card instead, so it uses your
+Home Assistant session. **If you ever used a token in the URL, revoke it** under your profile's
+**Security** tab.
 
 ### My cellar value looks wrong
 

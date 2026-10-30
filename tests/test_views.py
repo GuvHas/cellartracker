@@ -170,3 +170,20 @@ def test_settings_lists_the_led_racks():
 def test_settings_lists_no_racks_without_the_option():
     _, settings = build({"a": FakeCoordinator()})
     assert body(get(settings))["racks"] == []
+
+
+# --------------------------------------------------------------------------
+# The answers hold the cellar, so nothing between here and the page keeps them
+# --------------------------------------------------------------------------
+def test_the_inventory_is_never_stored_by_a_cache():
+    # The compact view is returned by the same line, from a different body.
+    inventory, _ = build({"a": FakeCoordinator(bottles=BOTTLES)})
+    response = get(inventory)
+    assert response.headers["Cache-Control"] == "no-store, private"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_an_empty_inventory_is_not_cached_either():
+    inventory, settings = build({"a": FakeCoordinator(data=False)})
+    assert get(inventory).headers["Cache-Control"] == "no-store, private"
+    assert get(settings).headers["Cache-Control"] == "no-store, private"

@@ -649,6 +649,10 @@ class FakeCoordinator:
     async def async_request_refresh(self):
         self.refresh_requests += 1
 
+    async def async_request_manual_refresh(self):
+        await self.async_request_refresh()
+        return True
+
 
 class FakeHttp:
     """Records what the component registered on hass.http."""
@@ -813,6 +817,13 @@ class FakeClientResponse:
     async def text(self):
         return self._text
 
+    def get_encoding(self):
+        return "utf-8"
+
+    @property
+    def content(self):
+        return _FakeStream(self._text.encode("utf-8"))
+
     def raise_for_status(self):
         if self._raise_for_status is not None:
             raise self._raise_for_status
@@ -822,6 +833,17 @@ class FakeClientResponse:
 
     async def __aexit__(self, *exc_info):
         return False
+
+
+class _FakeStream:
+    """The response body as aiohttp's StreamReader hands it out."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    async def iter_chunked(self, size):
+        for start in range(0, len(self._body), size):
+            yield self._body[start : start + size]
 
 
 class _RequestContext:

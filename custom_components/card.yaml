@@ -9,9 +9,9 @@ title: My Wine Collection
 #
 # Embed the page with this card rather than opening it in a tab: embedded, it
 # reads your live Home Assistant session from the parent frame and needs no
-# stored credential. Passing ?token=... still works for old bookmarks but is
-# deprecated - a long-lived token is full-account and never expires, so a URL
-# carrying one leaks it into history and server logs.
+# stored credential. A ?token=... in the URL is ignored: a long-lived token is
+# full-account and never expires, and a URL carrying one has already reached
+# the access logs. Revoke any token you used that way.
 #
 # One CellarTracker account is supported per Home Assistant installation,
 # so the card needs no account parameter.
