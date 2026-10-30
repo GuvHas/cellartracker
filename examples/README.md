@@ -10,6 +10,7 @@ loaded by Home Assistant on its own — copy what you want.
 | [`esphome/winerack2led.yaml`](esphome/winerack2led.yaml) | The same design for the second rack, a full 7 × 7 on its own E8-WiFi Plus |
 | [`blueprints/`](../blueprints/) | Not in this folder, but part of the set: two Home Assistant blueprints, one automation that pushes each rack's grid to its nodes and one script for the locator. [Connecting Home Assistant to the racks](../README.md#connecting-home-assistant-to-the-racks) has the import buttons. The racks themselves are set in the integration's options |
 | [`enclosure/e8_wifi_plus_enclosure.scad`](enclosure/) | Parametric OpenSCAD wall enclosure for one E8-WiFi Plus, printed in PETG |
+| [`led-clip/led_profile_divider_clip.scad`](led-clip/) | Parametric OpenSCAD clip that carries a 16 x 16 mm corner LED profile across the 37 mm diamond-set dividers, aimed 45° towards the front, printed in PETG |
 
 These are halves of one thing: the nodes own the pixels and know nothing about wine, the
 integration owns the wine and knows nothing about pixels, and the blueprints only carry one to the
