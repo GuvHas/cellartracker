@@ -274,6 +274,10 @@ esp32:
 logger:
 
 api:
+  # Counted for the diagnostics below.
+  on_client_disconnected:
+    - lambda: 'id(api_drops) += 1;'
+
   encryption:
     key: !secret winerack1bled_api_key
 
@@ -420,6 +424,9 @@ wifi:
   # and Home Assistant waiting on a connection that never comes back. The
   # node is mains powered, so the saving is worth nothing here.
   power_save_mode: none
+  # Counted for the diagnostics below.
+  on_disconnect:
+    - lambda: 'id(wifi_drops) += 1;'
 
   # The fallback hotspot, for when the WiFi it is meant to join is not there.
   ap:
@@ -442,11 +449,32 @@ sensor:
   - platform: wifi_signal
     name: WiFi signal
     update_interval: 60s
+  # A board that drops off the API but not the network counts API
+  # disconnects and no Wi-Fi ones; a radio or access point problem counts
+  # both. Since boot, so they start over with the uptime.
+  - platform: template
+    name: WiFi disconnects
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: 'return id(wifi_drops);'
+  - platform: template
+    name: API disconnects
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: 'return id(api_drops);'
 
 text_sensor:
   - platform: debug
     reset_reason:
       name: Reset reason
+  # Which access point the board is on, to spot it roaming between mesh nodes.
+  - platform: wifi_info
+    bssid:
+      name: Access point
 
 # --- STATE -------------------------------------------------------------------
 # Two arrays over the whole 13 x 13 envelope, both row-major and both indexed
@@ -456,6 +484,15 @@ text_sensor:
 # destroying it. This half keeps the other half's rows too and never draws
 # them - 169 bytes is cheaper than teaching Home Assistant where the seam is.
 globals:
+  - id: wifi_drops
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: api_drops
+    type: int
+    restore_value: false
+    initial_value: '0'
+
   - id: cell_state
     type: uint8_t[169] # rack_cells
     restore_value: false
