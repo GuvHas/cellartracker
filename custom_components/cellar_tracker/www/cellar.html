@@ -960,11 +960,30 @@
                 + encodeURIComponent(wine.iWine);
             open.target = '_blank';
             open.rel = 'noopener noreferrer';
-            open.addEventListener('click', (event) => event.stopPropagation());
+            open.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (openFromHomeAssistant(open.href)) event.preventDefault();
+            });
             actions.appendChild(open);
         }
         drawer.appendChild(actions);
         return drawer;
+    }
+
+    // The iframe card sandboxes this page, and a window it opens inherits
+    // that sandbox. In the Companion app such a window can go nowhere at all,
+    // so the link opens from Home Assistant's own window instead, as Home
+    // Assistant's own external links do. Same origin, so the parent is
+    // reachable; anywhere it is not, the plain link takes over.
+    function openFromHomeAssistant(url) {
+        try {
+            const host = window.top;
+            if (!host || host === window || typeof host.open !== 'function') return false;
+            host.open(url, '_blank', 'noopener,noreferrer');
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     // execCommand is deprecated, and it is also the only thing that works
