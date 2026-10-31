@@ -171,7 +171,8 @@ globalThis.fetch = (url, options) => {
     }
     if (!fixture.wines) return Promise.resolve({ ok: false, status: 401, json: async () => ({}) });
     const body = path.indexOf('settings') !== -1
-        ? { currency: 'SEK', currency_symbol: 'kr', racks: fixture.racks || [] }
+        ? { currency: 'SEK', currency_symbol: 'kr', racks: fixture.racks || [],
+            rack_shapes: fixture.rackShapes || [] }
         : fixture.wines;
     return Promise.resolve({ ok: true, status: 200, json: async () => body });
 };
@@ -194,6 +195,7 @@ def run_js(
     exec_command=True,
     racks=None,
     service_ok=True,
+    rack_shapes=None,
 ) -> str:
     """Load the page script, then run `checks`. Non-zero exit means a failure."""
     fixture = json.dumps(
@@ -204,6 +206,7 @@ def run_js(
             "execCommand": exec_command,
             "racks": racks,
             "serviceOk": service_ok,
+            "rackShapes": rack_shapes,
         }
     )
     source = "\n".join(

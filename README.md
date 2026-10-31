@@ -360,6 +360,14 @@ they are [set to turn off by themselves](#driving-the-led-racks). The **Light ra
 switch, the light-bulb button beside the search box, turns this off on that device, and appears only once LED racks are set up.
 See [Lighting the rack](#lighting-the-rack).
 
+**The rack map**, behind the grid button beside the light bulb, draws each LED rack as the grid of
+bins it is, gaps included, with every bin in the colour of its most urgent bottle, the same
+colour its LEDs show. With a chip or a search on, only the bottles in the list colour their bins,
+and bins holding other bottles are drawn dashed, the way they go dark on the rack. Tap a bin to
+list its bottles under the map and light it on the rack. An empty bin lights too, which is a quick
+way to find the space for a bottle you are putting away. The map follows the *LED racks* option,
+so it appears only once racks are set up, and the page remembers whether you left it open.
+
 The page follows your Home Assistant light/dark theme, and every control is sized for a thumb.
 
 The card needs no account parameter — one account is supported per installation, so the

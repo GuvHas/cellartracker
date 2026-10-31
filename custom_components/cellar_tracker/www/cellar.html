@@ -165,6 +165,91 @@
     #light-racks svg { width: 24px; height: 24px; }
     #light-racks[aria-pressed="true"] { color: var(--accent-contrast); }
     #light-racks[hidden] { display: none; }
+    #map-toggle {
+        flex: 0 0 var(--touch);
+        width: var(--touch);
+        height: var(--touch);
+        padding: 0;
+        justify-content: center;
+        border-radius: var(--radius);
+        color: var(--text-secondary);
+    }
+    #map-toggle svg { width: 24px; height: 24px; }
+    #map-toggle[aria-pressed="true"] { color: var(--accent-contrast); }
+    #map-toggle[hidden] { display: none; }
+
+    /* ---------------------------------------------------------------- *
+     * The rack map: each rack as the grid of bins it is, coloured the way
+     * its LEDs are. Tap a bin to see what is in it and light it.
+     * ---------------------------------------------------------------- */
+    #rack-map { margin-bottom: 12px; }
+    #rack-map[hidden] { display: none; }
+    .rack {
+        background-color: var(--card-bg);
+        border-radius: var(--radius);
+        padding: 10px 12px 12px;
+        margin-bottom: 8px;
+    }
+    .rack h2 {
+        margin: 0 0 8px;
+        font-size: 0.9375rem;
+        font-weight: 600;
+    }
+    .rack h2 .count { font-weight: 400; color: var(--text-secondary); font-size: 0.8125rem; }
+    /* The row letters are a column of their own and the bin numbers a row,
+       so a 13-wide rack still fits a 280px phone without labels in the bins. */
+    .rack-grid {
+        display: grid;
+        gap: 3px;
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+    .rack-grid .axis {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+    }
+    .cell {
+        aspect-ratio: 1;
+        min-width: 0;
+        padding: 0;
+        border: 1px solid var(--divider);
+        border-radius: 4px;
+        background-color: transparent;
+        cursor: pointer;
+    }
+    .cell:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 1px; }
+    .cell.gap { visibility: hidden; cursor: default; }
+    .cell.state-past { background-color: var(--status-red); border-color: var(--status-red); }
+    .cell.state-urgent { background-color: var(--status-amber); border-color: var(--status-amber); }
+    .cell.state-ready { background-color: var(--status-green); border-color: var(--status-green); }
+    .cell.state-aging { background-color: var(--accent-color); border-color: var(--accent-color); }
+    .cell.state-unknown { background-color: var(--status-grey); border-color: var(--status-grey); }
+    /* Holds bottles, none of them in the list on screen: dark on the rack. */
+    .cell.state-other {
+        background-color: var(--track);
+        border-color: var(--text-secondary);
+        border-style: dashed;
+    }
+    .cell[aria-pressed="true"] {
+        outline: 2px solid var(--text-primary);
+        outline-offset: 1px;
+    }
+    .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        margin-top: 10px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .legend .cell { width: 12px; cursor: default; }
+    .bin-detail { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .bin-detail h3 { margin: 0; font-size: 0.875rem; font-weight: 600; }
+    .bin-detail p { margin: 0; font-size: 0.8125rem; color: var(--text-secondary); }
     #sort {
         /* A select is otherwise as wide as its longest option and refuses
            to shrink, which pushed the row past the edge of a narrow phone. */
@@ -350,6 +435,13 @@
                 <path d="M12 2a7 7 0 0 0-4 12.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26A7 7 0 0 0 12 2zm-3 18h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1z"/>
             </svg>
         </button>
+        <button type="button" id="map-toggle" class="chip" aria-pressed="false" hidden
+                aria-label="Rack map" aria-controls="rack-map"
+                title="Rack map: see the racks bin by bin, and tap a bin to see what is in it">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                <path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm8-2h8v8h-8v-8zm2 2v4h4v-4h-4z"/>
+            </svg>
+        </button>
     </div>
 
     <!-- Static markup rather than generated: the chips are the page's primary
@@ -384,6 +476,7 @@
     </div>
 </div>
 
+<div id="rack-map" hidden></div>
 <div id="status" role="status">Loading cellar…</div>
 <div id="list"></div>
 
@@ -527,6 +620,67 @@
             .filter((wine) => isOnRack(wine, racks) && !isBlank(wine.unique_bottle_id))
             .map((wine) => String(wine.unique_bottle_id));
         return { service: 'highlight_bottles', data: { bottles } };
+    }
+
+    // A bin the way people write it, as [row, column] from 0, or null. The
+    // integration's parse_bin, which is the boards' grammar: a row letter,
+    // then digits, with spaces, dashes and underscores allowed after the
+    // letter. "D2", "d 2", "D-02" are all one bin; "A1B" is none.
+    const ROW_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    function parseBin(value) {
+        const text = isBlank(value) ? '' : String(value).trim().toUpperCase();
+        const match = /^([A-Z])[\s\-_]*((?:[0-9][\s\-_]*)+)$/.exec(text);
+        if (!match) return null;
+        const col = parseInt(match[2].replace(/[\s\-_]/g, ''), 10);
+        if (!(col >= 1 && col <= 999)) return null;
+        return [ROW_LETTERS.indexOf(match[1]), col - 1];
+    }
+
+    // How urgently a bottle wants dealing with: the rank racks.py gives it,
+    // which is the colour its bin gets. A bin shows its most urgent bottle.
+    const RANK_STATE = ['empty', 'unknown', 'aging', 'ready', 'urgent', 'past'];
+    function wineRank(wine, year) {
+        const state = drinkWindowState(wine, year);
+        if (state === 'unknown') return 1;
+        if (state === 'aging') return 2;
+        if (state === 'past') return 5;
+        return isUrgent(wine, year) ? 4 : 3;
+    }
+
+    // One rack as cells, row-major, the same envelope the boards paint.
+    // `shown` is the list on screen, or null for all of it: a bin whose
+    // bottles are all outside it is 'other', which is a dark bin on the rack
+    // while that list is highlighted there.
+    function rackCells(wines, shape, year, shown) {
+        const missing = new Set((shape.missing || []).map((cell) => cell[0] + ',' + cell[1]));
+        const cells = [];
+        for (let row = 0; row < shape.rows; row += 1) {
+            for (let col = 0; col < shape.cols; col += 1) {
+                cells.push({
+                    row, col,
+                    bin: ROW_LETTERS[row] + (col + 1),
+                    exists: !missing.has(row + ',' + col),
+                    bottles: [],
+                    rank: 0,
+                    state: 'empty',
+                });
+            }
+        }
+        const here = locationKey(shape.location);
+        wines.forEach((wine) => {
+            if (locationKey(wine.Location) !== here) return;
+            const at = parseBin(wine.Bin);
+            if (!at || at[0] >= shape.rows || at[1] >= shape.cols) return;
+            const cell = cells[at[0] * shape.cols + at[1]];
+            if (!cell.exists) return;
+            cell.bottles.push(wine);
+            if (!shown || shown.has(wine)) cell.rank = Math.max(cell.rank, wineRank(wine, year));
+        });
+        cells.forEach((cell) => {
+            if (cell.rank > 0) cell.state = RANK_STATE[cell.rank];
+            else if (cell.bottles.length > 0) cell.state = 'other';
+        });
+        return cells;
     }
 
     // normaliseWine collapses an unrecorded year to 0, and 0 is smaller than
@@ -700,6 +854,15 @@
     // The LED racks' locations, from the settings. Empty means no LEDs, and
     // then the page never calls a rack action at all.
     let ledRacks = [];
+    // Their shapes, for the map. Empty without the LED racks option.
+    let rackShapes = [];
+    const RACK_MAP_KEY = 'cellartracker_rack_map';
+    let mapOpen = false;
+    try {
+        mapOpen = localStorage.getItem(RACK_MAP_KEY) === 'open';
+    } catch (e) { /* storage unavailable: start closed */ }
+    // The bin last tapped on the map, kept across redraws.
+    let mapPick = null;
     const LIGHT_RACKS_KEY = 'cellartracker_light_racks';
     let lightRacks = true;
     try {
@@ -914,7 +1077,119 @@
         return card;
     }
 
+    const MAP_LABEL = {
+        past: 'Past window', urgent: 'Drink this year', ready: 'Ready',
+        aging: 'Needs aging', unknown: 'No window', other: 'Not in the list', empty: 'Empty',
+    };
+
+    function cellLabel(shape, cell) {
+        const count = cell.bottles.length;
+        return shape.location + ' ' + cell.bin + ': '
+            + (count === 0 ? 'empty' : count + (count === 1 ? ' bottle, ' : ' bottles, ')
+                + MAP_LABEL[cell.state].toLowerCase());
+    }
+
+    function pickBin(shape, cell) {
+        const same = mapPick && mapPick.location === shape.location && mapPick.bin === cell.bin;
+        mapPick = same ? null : { location: shape.location, bin: cell.bin };
+        renderMap();
+        // Tapping a bin is asking where it is - an empty one too, which is
+        // how to find the space for a bottle you are about to put away.
+        if (!same && lightRacks) locate({ Location: shape.location, Bin: cell.bin });
+    }
+
+    function buildRack(shape, shown, widest) {
+        const cells = rackCells(allWines, shape, currentYear, shown);
+        const section = element('section', 'rack');
+        const heading = element('h2', null, shape.location + ' ');
+        const bottles = cells.reduce((sum, cell) => sum + cell.bottles.length, 0);
+        heading.appendChild(element('span', 'count',
+            bottles + (bottles === 1 ? ' bottle' : ' bottles')));
+        section.appendChild(heading);
+
+        const grid = element('div', 'rack-grid');
+        grid.style.gridTemplateColumns = 'auto repeat(' + shape.cols + ', minmax(0, 1fr))';
+        // Every rack at one bin size, so a 7-wide rack sits beside a 13-wide
+        // one as it does in the cellar, and never more than 36px a bin: on a
+        // desktop it should not turn into dinner plates.
+        grid.style.width = 'calc((100% - 24px) * ' + shape.cols + ' / ' + widest + ' + 24px)';
+        grid.style.maxWidth = (24 + shape.cols * 39) + 'px';
+        grid.setAttribute('role', 'group');
+        grid.setAttribute('aria-label', shape.location);
+        grid.appendChild(element('span', 'axis'));
+        for (let col = 0; col < shape.cols; col += 1) {
+            grid.appendChild(element('span', 'axis', String(col + 1)));
+        }
+        let picked = null;
+        cells.forEach((cell) => {
+            if (cell.col === 0) grid.appendChild(element('span', 'axis', ROW_LETTERS[cell.row]));
+            const button = element('button', 'cell state-' + cell.state);
+            button.type = 'button';
+            if (!cell.exists) {
+                button.className = 'cell gap';
+                button.disabled = true;
+                button.setAttribute('aria-hidden', 'true');
+                grid.appendChild(button);
+                return;
+            }
+            const isPick = mapPick && mapPick.location === shape.location
+                && mapPick.bin === cell.bin;
+            if (isPick) picked = cell;
+            button.setAttribute('aria-pressed', isPick ? 'true' : 'false');
+            button.setAttribute('aria-label', cellLabel(shape, cell));
+            button.title = cellLabel(shape, cell);
+            button.addEventListener('click', () => pickBin(shape, cell));
+            grid.appendChild(button);
+        });
+        section.appendChild(grid);
+
+        if (picked) {
+            const detail = element('div', 'bin-detail');
+            detail.appendChild(element('h3', null, shape.location + ' · ' + picked.bin));
+            if (picked.bottles.length === 0) {
+                detail.appendChild(element('p', null, 'Empty bin.'));
+            } else {
+                picked.bottles.forEach((wine) => detail.appendChild(buildBottle(wine)));
+            }
+            section.appendChild(detail);
+        }
+        return section;
+    }
+
+    function buildLegend() {
+        const legend = element('div', 'legend');
+        ['past', 'urgent', 'ready', 'aging', 'unknown', 'other', 'empty'].forEach((state) => {
+            const item = element('span');
+            const swatch = element('span', 'cell state-' + state);
+            swatch.setAttribute('aria-hidden', 'true');
+            item.appendChild(swatch);
+            item.appendChild(element('span', null, MAP_LABEL[state]));
+            legend.appendChild(item);
+        });
+        return legend;
+    }
+
+    function renderMap() {
+        const map = document.getElementById('rack-map');
+        if (!map) return;
+        map.hidden = !mapOpen || rackShapes.length === 0;
+        if (map.hidden) {
+            map.replaceChildren();
+            return;
+        }
+        const filtered = view.filter !== 'all' || String(view.term || '').trim() !== '';
+        const shown = filtered
+            ? new Set(selectWines(allWines, { filter: view.filter, term: view.term, year: currentYear }))
+            : null;
+        const fragment = document.createDocumentFragment();
+        const widest = Math.max(...rackShapes.map((shape) => shape.cols));
+        rackShapes.forEach((shape) => fragment.appendChild(buildRack(shape, shown, widest)));
+        fragment.appendChild(buildLegend());
+        map.replaceChildren(fragment);
+    }
+
     function render() {
+        renderMap();
         const list = document.getElementById('list');
         const status = document.getElementById('status');
         const shown = sortWines(
@@ -993,6 +1268,19 @@
             });
         }
 
+        const mapToggle = document.getElementById('map-toggle');
+        if (mapToggle) {
+            mapToggle.setAttribute('aria-pressed', mapOpen ? 'true' : 'false');
+            mapToggle.addEventListener('click', () => {
+                mapOpen = !mapOpen;
+                mapToggle.setAttribute('aria-pressed', mapOpen ? 'true' : 'false');
+                try {
+                    localStorage.setItem(RACK_MAP_KEY, mapOpen ? 'open' : 'closed');
+                } catch (e) { /* storage unavailable: the choice lasts this visit */ }
+                renderMap();
+            });
+        }
+
         const direction = document.getElementById('direction');
         if (direction) {
             direction.addEventListener('click', () => {
@@ -1022,6 +1310,16 @@
             ledRacks = Array.isArray(settings.racks) ? settings.racks.map(String) : [];
             const toggle = document.getElementById('light-racks');
             if (toggle) toggle.hidden = ledRacks.length === 0;
+            rackShapes = (Array.isArray(settings.rack_shapes) ? settings.rack_shapes : [])
+                .filter((shape) => shape && Number(shape.rows) > 0 && Number(shape.cols) > 0)
+                .map((shape) => ({
+                    location: String(shape.location),
+                    rows: Math.min(26, Number(shape.rows)),
+                    cols: Math.min(255, Number(shape.cols)),
+                    missing: Array.isArray(shape.missing) ? shape.missing : [],
+                }));
+            const mapToggle = document.getElementById('map-toggle');
+            if (mapToggle) mapToggle.hidden = rackShapes.length === 0;
             loadWines(data);
         })
         .catch((err) => {
