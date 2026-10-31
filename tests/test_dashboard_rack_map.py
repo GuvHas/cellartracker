@@ -174,6 +174,25 @@ def test_tapping_a_bin_shows_its_bottles_and_lights_it():
     )
 
 
+def test_focus_stays_on_the_bin_after_the_redraw():
+    """Enter on a bin redraws the map; the keyboard must not lose its place."""
+    page(
+        "let focused = null;\n"
+        "const realCreate = document.createElement;\n"
+        "document.createElement = (tag) => {\n"
+        "    const el = realCreate(tag);\n"
+        "    el.focus = () => { focused = el; };\n"
+        "    return el;\n"
+        "};\n"
+        "renderMap();\n"
+        "cellButton(0, 'C4').dispatch('click');\n"
+        + check("focused === cellButton(0, 'C4')", "focus left the bin when it opened")
+        + "focused = null;\n"
+        "cellButton(0, 'C4').dispatch('click');\n"
+        + check("focused === cellButton(0, 'C4')", "focus left the bin when it closed")
+    )
+
+
 def test_tapping_an_empty_bin_still_lights_it():
     """Finding the space for a bottle you are putting away."""
     page(

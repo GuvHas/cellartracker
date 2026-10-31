@@ -863,6 +863,9 @@
     } catch (e) { /* storage unavailable: start closed */ }
     // The bin last tapped on the map, kept across redraws.
     let mapPick = null;
+    // The bin to hand focus back to after a redraw, and its new button.
+    let mapFocus = null;
+    let mapFocusButton = null;
     const LIGHT_RACKS_KEY = 'cellartracker_light_racks';
     let lightRacks = true;
     try {
@@ -1092,7 +1095,13 @@
     function pickBin(shape, cell) {
         const same = mapPick && mapPick.location === shape.location && mapPick.bin === cell.bin;
         mapPick = same ? null : { location: shape.location, bin: cell.bin };
+        // The redraw replaces every bin, the focused one too. Put focus back
+        // on the bin just used, so a keyboard can close it again or move on.
+        mapFocus = { location: shape.location, bin: cell.bin };
         renderMap();
+        if (mapFocusButton) mapFocusButton.focus();
+        mapFocus = null;
+        mapFocusButton = null;
         // Tapping a bin is asking where it is - an empty one too, which is
         // how to find the space for a bottle you are about to put away.
         if (!same && lightRacks) locate({ Location: shape.location, Bin: cell.bin });
@@ -1135,6 +1144,9 @@
             const isPick = mapPick && mapPick.location === shape.location
                 && mapPick.bin === cell.bin;
             if (isPick) picked = cell;
+            if (mapFocus && mapFocus.location === shape.location && mapFocus.bin === cell.bin) {
+                mapFocusButton = button;
+            }
             button.setAttribute('aria-pressed', isPick ? 'true' : 'false');
             button.setAttribute('aria-label', cellLabel(shape, cell));
             button.title = cellLabel(shape, cell);
