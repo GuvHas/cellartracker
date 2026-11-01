@@ -12,7 +12,7 @@ from dashboard_js import equals, requires_node, run_js
 
 pytestmark = requires_node
 
-URL = "https://www.cellartracker.com/wine.asp?iWine=42"
+URL = "https://go.cellartracker.com/wine/42"
 
 
 def test_embedded_the_parent_opens_the_link():
@@ -35,4 +35,13 @@ def test_an_unreachable_parent_leaves_it_to_the_link():
     run_js(
         "Object.defineProperty(window, 'top', { get() { throw new Error('cross-origin'); } });\n"
         + equals(f"openFromHomeAssistant('{URL}')", False, "a cross-origin parent threw")
+    )
+
+
+def test_the_link_is_the_one_the_cellartracker_app_shares():
+    """The classic wine.asp address opened the app on its start screen."""
+    run_js(
+        equals("wineUrl('5776149')", "https://go.cellartracker.com/wine/5776149", "wrong page")
+        + equals("wineUrl(' 42 ')", "https://go.cellartracker.com/wine/42", "spaces kept")
+        + equals("wineUrl('1/2')", "https://go.cellartracker.com/wine/1%2F2", "not escaped")
     )

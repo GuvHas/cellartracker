@@ -683,6 +683,15 @@
         return cells;
     }
 
+    // The wine's page, in the form CellarTracker's own app shares. The classic
+    // wine.asp?iWine= address lost the wine on a phone: CellarTracker handed
+    // it to its app without the id, and the app opened on its start screen.
+    // This one opens the wine in the app, and in a browser without it.
+    function wineUrl(iWine) {
+        return 'https://go.cellartracker.com/wine/'
+            + encodeURIComponent(String(iWine).trim());
+    }
+
     // normaliseWine collapses an unrecorded year to 0, and 0 is smaller than
     // every real one - so sorting by vintage ascending led with every NV
     // bottle in the cellar. There is no year zero, so 0 means "not recorded"
@@ -956,8 +965,7 @@
         }
         if (wine.iWine) {
             const open = element('a', 'action', 'Open in CellarTracker');
-            open.href = 'https://www.cellartracker.com/wine.asp?iWine='
-                + encodeURIComponent(wine.iWine);
+            open.href = wineUrl(wine.iWine);
             open.target = '_blank';
             open.rel = 'noopener noreferrer';
             open.addEventListener('click', (event) => {
