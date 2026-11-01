@@ -136,9 +136,24 @@ class CellarTrackerSettingsView(_CellarTrackerView):
         currency = DEFAULT_CURRENCY if coordinator is None else coordinator.currency
         # The LED racks' locations, so the dashboard offers to light a bottle
         # only where a rack can show it.
-        racks = [] if coordinator is None else [rack.location for rack in coordinator.racks]
+        racks = [] if coordinator is None else coordinator.racks
         return web.json_response(
-            {**_currency_payload(currency), "racks": racks}, headers=PRIVATE_HEADERS
+            {
+                **_currency_payload(currency),
+                "racks": [rack.location for rack in racks],
+                # Their shapes too, for the rack map. Missing bins are
+                # (row, column) pairs from 0, the integration's own form.
+                "rack_shapes": [
+                    {
+                        "location": rack.location,
+                        "rows": rack.rows,
+                        "cols": rack.cols,
+                        "missing": sorted([row, col] for row, col in rack.missing),
+                    }
+                    for rack in racks
+                ],
+            },
+            headers=PRIVATE_HEADERS,
         )
 
 

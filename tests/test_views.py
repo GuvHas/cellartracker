@@ -167,9 +167,24 @@ def test_settings_lists_the_led_racks():
     assert body(get(settings))["racks"] == ["Wine Rack 1", "Wine Rack 2"]
 
 
+def test_settings_gives_each_rack_its_shape():
+    """The rack map draws the grid the boards paint, gaps and all."""
+    _, settings = build({"a": FakeCoordinator(racks="Rack 1: 13x13 without A5-B6\nRack 2: 7x7")})
+    assert body(get(settings))["rack_shapes"] == [
+        {
+            "location": "Rack 1",
+            "rows": 13,
+            "cols": 13,
+            "missing": [[0, 4], [0, 5], [1, 4], [1, 5]],
+        },
+        {"location": "Rack 2", "rows": 7, "cols": 7, "missing": []},
+    ]
+
+
 def test_settings_lists_no_racks_without_the_option():
     _, settings = build({"a": FakeCoordinator()})
     assert body(get(settings))["racks"] == []
+    assert body(get(settings))["rack_shapes"] == []
 
 
 # --------------------------------------------------------------------------
