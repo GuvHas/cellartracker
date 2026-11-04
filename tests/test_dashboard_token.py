@@ -49,10 +49,28 @@ const scenario = %s;
 
 const replaceStateCalls = [];
 const fetchUrls = [];
+const fetchAuth = [];
+let refreshes = 0;
 const store = Object.assign({}, scenario.session || {});
 
+// One auth object per frame, kept so a refresh is seen by later lookups,
+// as Home Assistant's own Auth object mutates its data in place.
+const auths = {};
 function hassElement(token) {
-    return token ? { hass: { auth: { data: { access_token: token } } } } : null;
+    if (!token) return null;
+    if (!auths[token]) {
+        const auth = {
+            data: { access_token: token },
+            expired: !!scenario.expired,
+            async refreshAccessToken() {
+                refreshes++;
+                auth.data = { access_token: token + "-refreshed-" + refreshes };
+                auth.expired = false;
+            },
+        };
+        auths[token] = auth;
+    }
+    return { hass: { auth: auths[token] } };
 }
 
 const stubElement = {
@@ -88,22 +106,38 @@ globalThis.document = {
     createElement: () => Object.assign({}, stubElement),
 };
 
-globalThis.fetch = (url) => {
+globalThis.fetch = (url, options) => {
     fetchUrls.push(String(url));
-    return Promise.resolve({ ok: false, status: 401, json: async () => ({}) });
+    const header = (options && options.headers && options.headers.Authorization) || null;
+    fetchAuth.push(header);
+    // Home Assistant accepts only a refreshed token when the scenario says
+    // the one at load has gone stale; otherwise every request is refused.
+    const ok = scenario.acceptRefreshed && header && header.indexOf("-refreshed-") !== -1;
+    return Promise.resolve({ ok, status: ok ? 200 : 401, json: async () => [] });
 };
 
 globalThis.console = { ...console, warn() {}, error() {} };
 """
 
 
-def run_scenario(*, search="", parent_token=None, own_token=None, session=None, checks=""):
+def run_scenario(
+    *,
+    search="",
+    parent_token=None,
+    own_token=None,
+    session=None,
+    checks="",
+    expired=False,
+    accept_refreshed=False,
+):
     scenario = json.dumps(
         {
             "search": search,
             "parentToken": parent_token,
             "ownToken": own_token,
             "session": session or {},
+            "expired": expired,
+            "acceptRefreshed": accept_refreshed,
         }
     )
     source = "\n".join([PRELUDE % scenario, page_script(), textwrap.dedent(checks)])
@@ -206,7 +240,11 @@ def test_no_session_fails_closed_without_an_authorization_header():
         checks="(async () => {\n"
         + "  await new Promise((r) => setTimeout(r, 20));\n"
         + assert_js("!token", "invented a token from nowhere")
-        + assert_js("!fetchOpts.headers", "sent an Authorization header with no session")
+        + assert_js("fetchAuth.length > 0", "no requests were made")
+        + assert_js(
+            "fetchAuth.every((h) => h === null)",
+            "sent an Authorization header with no session",
+        )
         + "})();\n",
     )
 
@@ -232,3 +270,69 @@ def test_the_page_no_longer_advertises_url_tokens():
     """The old error text told users to put a token in the URL."""
     html = CELLAR_HTML.read_text()
     assert "LONG_LIVED_ACCESS_TOKEN" not in html
+
+
+# --------------------------------------------------------------------------
+# Access tokens expire after 30 minutes; a page left open must not keep
+# sending the one it saw at load (HA logs that as a failed login and counts
+# it towards an IP ban).
+# --------------------------------------------------------------------------
+def test_requests_read_the_token_at_send_time():
+    run_scenario(
+        parent_token="first",
+        checks="(async () => {\n"
+        + "  await new Promise((r) => setTimeout(r, 20));\n"
+        + "  auths.first.data = { access_token: 'rotated' };\n"
+        + "  fetchAuth.length = 0;\n"
+        + "  await callService('locate_bottle', { location: 'Rack 1', bin: 'A1' });\n"
+        + assert_js("fetchAuth[0] === 'Bearer rotated'", "sent the token from page load")
+        + "})();\n",
+    )
+
+
+def test_an_expired_token_is_refreshed_before_sending():
+    run_scenario(
+        parent_token="stale",
+        expired=True,
+        accept_refreshed=True,
+        checks="(async () => {\n"
+        + "  await new Promise((r) => setTimeout(r, 20));\n"
+        + "  fetchAuth.length = 0;\n"
+        + "  const ok = await callService('locate_bottle', { location: 'Rack 1', bin: 'A1' });\n"
+        + assert_js("ok === true", "the action was not accepted")
+        + assert_js("fetchAuth.length === 1", "sent more than one request")
+        + assert_js(
+            "fetchAuth[0].indexOf('-refreshed-') !== -1",
+            "sent the expired token",
+        )
+        + "})();\n",
+    )
+
+
+def test_a_401_is_retried_once_with_a_refreshed_token():
+    run_scenario(
+        parent_token="revoked",
+        accept_refreshed=True,
+        checks="(async () => {\n"
+        + "  await new Promise((r) => setTimeout(r, 20));\n"
+        + "  auths.revoked.data = { access_token: 'revoked' };\n"
+        + "  fetchAuth.length = 0;\n"
+        + "  const ok = await callService('locate_bottle', { location: 'Rack 1', bin: 'A1' });\n"
+        + assert_js("ok === true", "did not recover from the 401")
+        + assert_js("fetchAuth.length === 2", "expected exactly one retry")
+        + assert_js("fetchAuth[0] === 'Bearer revoked'", "first try used the wrong token")
+        + assert_js("fetchAuth[1].indexOf('-refreshed-') !== -1", "retry was not refreshed")
+        + "})();\n",
+    )
+
+
+def test_a_401_without_a_session_is_not_retried():
+    run_scenario(
+        checks="(async () => {\n"
+        + "  await new Promise((r) => setTimeout(r, 20));\n"
+        + "  fetchAuth.length = 0;\n"
+        + "  const ok = await callService('locate_bottle', { location: 'Rack 1', bin: 'A1' });\n"
+        + assert_js("ok === false", "reported success without a session")
+        + assert_js("fetchAuth.length === 1", "retried with nothing to refresh")
+        + "})();\n",
+    )

@@ -768,22 +768,25 @@
         );
     }
 
-    function tokenFromHomeAssistant() {
-        // Try the embedding page first, then this document. Each lookup is
-        // guarded: reading a cross-origin parent throws.
+    // The live Home Assistant session, looked up on every request rather
+    // than once at load. Try the embedding page first, then this document.
+    // Each lookup is guarded: reading a cross-origin parent throws.
+    function hassAuth() {
         const sources = [
             () => window.parent && window.parent.document,
             () => document
         ];
         for (const source of sources) {
             try {
-                const found = source()
-                    ?.querySelector('home-assistant')
-                    ?.hass?.auth?.data?.access_token;
-                if (found) return found;
+                const auth = source()?.querySelector('home-assistant')?.hass?.auth;
+                if (auth?.data?.access_token) return auth;
             } catch (e) { /* cross-origin or not embedded */ }
         }
         return null;
+    }
+
+    function tokenFromHomeAssistant() {
+        return hassAuth()?.data?.access_token || null;
     }
 
     function getHassToken() {
@@ -791,13 +794,41 @@
         return tokenFromHomeAssistant();
     }
 
+    // Read at load for the URL strip above. Requests do not reuse it: an
+    // access token lives 30 minutes, and a page left open longer kept
+    // sending the expired one, which Home Assistant answers with 401, logs
+    // as a failed login and counts towards an IP ban.
     const token = getHassToken();
-    const fetchOpts = token
-        ? {
-            credentials: 'same-origin',
-            headers: { Authorization: 'Bearer ' + token }
-        }
-        : { credentials: 'same-origin' };
+
+    // Brings the session's access token up to date when it has expired (or
+    // when forced after a 401). The frontend only refreshes on its own
+    // requests and reconnects, so a page that sits open can easily outlive
+    // the token it last saw. Resolves straight away when nothing is needed.
+    function refreshIfNeeded(auth, force) {
+        if (!auth || typeof auth.refreshAccessToken !== 'function') return null;
+        if (!force && !auth.expired) return null;
+        return Promise.resolve()
+            .then(() => auth.refreshAccessToken())
+            .catch(() => { /* send what we have; HA answers 401 if it is bad */ });
+    }
+
+    // fetch() with the session's current bearer token, read at send time.
+    // A 401 gets one retry after a forced refresh. With a valid token the
+    // request goes out synchronously, as it did before.
+    function authedFetch(url, init) {
+        const send = () => {
+            const bearer = tokenFromHomeAssistant();
+            const headers = Object.assign({}, (init && init.headers) || {});
+            if (bearer) headers.Authorization = 'Bearer ' + bearer;
+            return fetch(url, Object.assign({}, init, { credentials: 'same-origin', headers }));
+        };
+        const sendAfter = (pending) => (pending ? pending.then(send) : send());
+        return sendAfter(refreshIfNeeded(hassAuth(), false)).then((response) => {
+            if (response.status !== 401) return response;
+            const retry = refreshIfNeeded(hassAuth(), true);
+            return retry ? retry.then(send) : response;
+        });
+    }
 
     // One CellarTracker account per installation, so this is normally absent
     // and the endpoints need no account parameter. It is forwarded for the
@@ -825,7 +856,7 @@
     }
 
     async function fetchJson(path) {
-        const response = await fetch(apiUrl(path), fetchOpts);
+        const response = await authedFetch(apiUrl(path));
         if (response.ok) return response.json();
 
         // The endpoints answer 200 or an auth status and nothing else. The
@@ -843,13 +874,9 @@
     // Runs one of the integration's actions with the same session the reads
     // use. Resolves to whether Home Assistant accepted it.
     function callService(service, data) {
-        const headers = Object.assign(
-            { 'Content-Type': 'application/json' }, fetchOpts.headers || {}
-        );
-        return fetch('/api/services/cellar_tracker/' + service, {
+        return authedFetch('/api/services/cellar_tracker/' + service, {
             method: 'POST',
-            credentials: 'same-origin',
-            headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data || {}),
         }).then((response) => response.ok, () => false);
     }
