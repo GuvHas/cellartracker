@@ -1,12 +1,12 @@
 # Wine rack 1, rows A-G - bin lighting for the CellarTracker integration
 # =============================================================================
 #
-# A full 13 x 13 rack: bins A1 to M13, 169 of them, every row the full width.
-# (Until 2026-11 it was a U with no bins at A5-H9; that section is filled in.)
+# A full rectangle of 14 rows by 13 columns: bins A1 to N13, 182 of them, every
+# row the full width. (Until 2026-11 it was a U; that section is filled in.)
 #
-# Thirteen rows are more strands than one controller has ports, so rack 1 is
+# Fourteen rows are more strands than one controller has ports, so rack 1 is
 # two **Lightish E8-WiFi Plus** boards - this one drives rows A-G (7
-# strands) and examples/esphome/winerack1bled.yaml drives rows H-M. The two
+# strands) and examples/esphome/winerack1bled.yaml drives rows H-N. The two
 # files are the same node with a different `node_first_row`, `node_rows`, pin
 # list and name; tests/test_rack_leds_example.py fails if they drift apart in
 # anything else.
@@ -17,13 +17,13 @@
 #
 # Actions exposed to Home Assistant (node name + action name):
 #
-#   esphome.winerack1aled_light_rack   grid: 169 state characters, row-major
-#   esphome.winerack1aled_light_row    row: "A".."M", states: 13 characters
+#   esphome.winerack1aled_light_rack   grid: 182 state characters, row-major
+#   esphome.winerack1aled_light_row    row: "A".."N", states: 13 characters
 #   esphome.winerack1aled_light_bin    bin_id: "A2", r/g/b: 0-255, seconds: hold
 #   esphome.winerack1aled_clear_all    turn everything off
 #
 # The action surface is the whole rack, not this half of it. Both halves take
-# the same 169-character grid and the same locator call; each keeps the whole
+# the same 182-character grid and the same locator call; each keeps the whole
 # envelope and draws only its own rows. That keeps Home Assistant's side
 # trivial - send everything to both - and means a locator aimed at a bin on
 # the other half still blanks this one, which is what a locator is for.
@@ -69,14 +69,14 @@
 #      every bin drink-this-year (150, 55, 0) ....  4.0 A   <- the worst case
 #      per strand, at that worst case ............  0.6 A   (a 13-bin row)
 #
-#    The whole of rack 1 is 7.4 A at worst, and with rack 2's 2.2 A one 12 V
-#    16 A Mean Well XLG-200-12 runs everything at 60 % load. Fuse each strand
+#    The whole of rack 1 is 8.0 A at worst, and with rack 2's 2.2 A one 12 V
+#    16 A Mean Well XLG-200-12 runs everything at 63 % load. Fuse each strand
 #    at 2 A, not the 5 A the board ships with: the fuse protects 0.42 mm2
 #    cable.
 #
 # 3. Driver. 7 strands fit inside the ESP32's eight RMT channels, so this
 #    node uses `esp32_rmt_led_strip` on ESP-IDF, the same as rack 2. That is
-#    the reason rack 1 is two boards rather than one: thirteen strands on one
+#    the reason rack 1 is two boards rather than one: fourteen strands on one
 #    ESP32 needed FastLED, the Arduino framework and transmitting in batches.
 #
 # 4. LED power. GPIO23 drives an external relay that cuts this board's 12 V
@@ -95,7 +95,7 @@ substitutions:
   node_rows: "7" # rows A-G
 
   # --- Rack geometry -------------------------------------------------------
-  # The envelope is 13 x 13; which of those bins exist is decided by the
+  # The envelope is 14 x 13; which of those bins exist is decided by the
   # `rack_table` below. These are the same numbers for the parts of the config
   # that need a plain literal - `num_leds` on each light, and the array sizes
   # further down, neither of which can hold an expression.
@@ -104,9 +104,9 @@ substitutions:
   # LEDs - not a whole number, which is why `bin_first_led` places each bin by
   # its position rather than at a fixed pitch. A piece of N bins is the LEDs
   # whose centres fall inside its N * 95 mm: 23 for four bins, 74 for 13.
-  rack_rows: "13" # rows A..M, one strand each across the two halves
+  rack_rows: "14" # rows A..N, one strand each across the two halves
   rack_cols: "13" # bin columns 1..13
-  rack_cells: "169" # rack_rows * rack_cols, the whole envelope
+  rack_cells: "182" # rack_rows * rack_cols, the whole envelope
   bin_width_mm: "95" # one bin, wall to wall, measured along the back
   strip_density: "60" # LEDs per metre, cut line to cut line
   din_column: "1" # the column DIN enters each row at: 1 or rack_cols
@@ -119,15 +119,15 @@ substitutions:
   # tests prove is literally what the board runs. Retyping any of it into a
   # lambda below would put that guarantee back where it was.
 
-  # The rack's shape, one entry per bin row in row order (row A is 0, row M
-  # is 12): {first column, bins, first column, bins} - the piece of strip the
+  # The rack's shape, one entry per bin row in row order (row A is 0, row N
+  # is 13): {first column, bins, first column, bins} - the piece of strip the
   # data reaches first, then the piece after a jumper. Columns count from 0,
   # so bin 10 is column 9. A row with no jumper has {0, 0} for its second
   # piece. The rack is a full rectangle, so every row is one piece of 13.
   rack_table: >-
     {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
     {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
-    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
 
   # Which bins row kRow carries. A strand only has to say which row it is; the
   # table above answers the rest. `static const` puts it in flash.
@@ -282,7 +282,7 @@ api:
   actions:
     # --- Cellar overview, whole rack in one call --------------------------
     # `grid` is rack_cells state characters, row-major: A1..A13, then B1..B13,
-    # and so on across the whole 13 x 13 envelope. The same grid goes to both
+    # and so on across the whole 14 x 13 envelope. The same grid goes to both
     # halves; this one draws rows A-G of it. An empty bin is sent as
     # '.' and lights nothing.
     - action: light_rack
@@ -325,7 +325,7 @@ api:
             }
             const int r = toupper((unsigned char) row[0]) - 'A';
             if (r < 0 || r >= ${rack_rows}) {
-              ESP_LOGW("winerack", "light_row: '%s' is not a row between A and M", row.c_str());
+              ESP_LOGW("winerack", "light_row: '%s' is not a row between A and N", row.c_str());
               return;
             }
             for (int c = 0; c < ${rack_cols}; c++) {
@@ -474,12 +474,12 @@ text_sensor:
       name: Access point
 
 # --- STATE -------------------------------------------------------------------
-# Two arrays over the whole 13 x 13 envelope, both row-major and both indexed
+# Two arrays over the whole 14 x 13 envelope, both row-major and both indexed
 # by cell: row * rack_cols + column. cell_state is what Home Assistant said;
 # cell_rgb is what the strands draw, composed from it by the render script.
 # Keeping them apart is what lets the locator hide the overview without
 # destroying it. This half keeps the other half's rows too and never draws
-# them - 169 bytes is cheaper than teaching Home Assistant where the seam is.
+# them - 182 bytes is cheaper than teaching Home Assistant where the seam is.
 globals:
   - id: wifi_drops
     type: int
@@ -491,7 +491,7 @@ globals:
     initial_value: '0'
 
   - id: cell_state
-    type: uint8_t[169] # rack_cells
+    type: uint8_t[182] # rack_cells
     restore_value: false
 
   - id: cell_rgb

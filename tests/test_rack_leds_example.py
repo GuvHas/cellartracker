@@ -1,8 +1,9 @@
 """The rack LED examples must keep telling the same story as the sensors.
 
-``examples/`` ships two wine racks lit from this integration: a full 13 x 13
-rack of 169 bins, and a plain 7 x 7 beside it. The 13 x 13 is two
-ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G, one for rows H-M - and
+``examples/`` ships two wine racks lit from this integration: a full
+rectangle of 14 rows by 13 columns (182 bins), and a plain 7 x 7 beside it.
+The big rack is two ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G,
+one for rows H-N - and
 the 7 x 7 is a third. Each owns pixels and knows nothing about wine; two Home
 Assistant blueprints, used once per rack, hand each node the integration's
 per-rack grid sensor and drive its locator.
@@ -51,9 +52,10 @@ YEAR = 2026
 RACK1_LOCATION = "Wine Rack 1"
 RACK2_LOCATION = "Wine Rack 2"
 
-# The rack as rebuilt in 2026-11: A1 to M13, every row the full width. It was a
-# U, with no bins at A5-H9, until that section was filled in.
-RACK1_SHAPE = frozenset((r, c) for r in range(13) for c in range(13))
+# The rack as rebuilt in 2026-11: A1 to N13, 14 rows of 13, every row the full
+# width. It was a U until that section was filled in.
+RACK1_ROWS = 14
+RACK1_SHAPE = frozenset((r, c) for r in range(RACK1_ROWS) for c in range(13))
 RACK2_SHAPE = frozenset((r, c) for r in range(7) for c in range(7))
 
 # Deliberately awkward, and the same shape as the dashboard's fixture: both
@@ -237,7 +239,7 @@ def test_the_two_racks_do_not_read_each_others_bottles():
 
 def test_a_bin_outside_the_envelope_lights_nothing():
     """A typo in CellarTracker should go dark, not light the wrong bottle."""
-    for bad in ("N1", "A0", "A14", "Z9", "A", "", "7", "AA"):
+    for bad in ("O1", "A0", "A14", "Z9", "A", "", "7", "AA"):
         assert set(grid([bottle(bad, "2020", "2030")])) == {"."}, f"bin {bad!r}"
 
 
@@ -264,7 +266,7 @@ def test_a_bottle_outside_the_rack_is_counted_as_an_orphan():
     It is not lost and it is not mis-lit - there is no strand there - but
     something has to say it exists, or a rebuild quietly swallows it.
     """
-    assert bottles_off_rack([bottle("N1", "2020", "2030")], RACK1) == 1
+    assert bottles_off_rack([bottle("O1", "2020", "2030")], RACK1) == 1
 
 
 def test_bins_the_rack_still_has_are_not_orphans():
@@ -280,7 +282,7 @@ def test_the_other_racks_bottles_are_not_rack_ones_orphans():
 # The grid has to fit both a Home Assistant state and the node's buffer
 # --------------------------------------------------------------------------
 def test_each_grid_is_one_character_per_bin_of_its_envelope():
-    assert len(grid([])) == subs(NODE1, "rack_cells") == 13 * 13
+    assert len(grid([])) == subs(NODE1, "rack_cells") == 14 * 13
     assert len(render(RACK2, [])) == subs(NODE2, "rack_cells") == 7 * 7
 
 
@@ -295,7 +297,7 @@ def test_a_full_rack_is_still_one_character_per_bin():
     rendered = grid(full)
     assert len(rendered) == subs(NODE1, "rack_cells")
     assert set(rendered) == {"R"}, "a full rectangle has no bin that stays dark"
-    assert rendered.count("R") == len(RACK1_SHAPE) == 169
+    assert rendered.count("R") == len(RACK1_SHAPE) == 182
 
 
 # --------------------------------------------------------------------------
@@ -415,7 +417,7 @@ def test_every_piece_of_strip_is_one_unbroken_run_of_bins():
 def test_rack_one_has_no_jumpers():
     """The U's eight split rows are whole rows now, so no row needs a jumper."""
     geo = geometry(NODE1)
-    assert all(len(pieces(geo, row)) == 1 for row in range(13))
+    assert all(len(pieces(geo, row)) == 1 for row in range(RACK1_ROWS))
 
 
 def test_rack_two_has_no_jumpers():
@@ -435,7 +437,7 @@ def test_pieces_are_listed_in_the_order_the_data_reaches_them():
 
 def test_one_strand_per_row_and_no_shared_pins():
     """Every row of each rack has exactly one strand, on exactly one board."""
-    for nodes, rows in ((RACK1_HALVES, 13), ((NODE2,), 7)):
+    for nodes, rows in ((RACK1_HALVES, RACK1_ROWS), ((NODE2,), 7)):
         lights = [light for node in nodes for light in node["light"]]
         assert len(lights) == rows
         assert [light["id"] for light in lights] == [
@@ -455,7 +457,7 @@ def test_each_half_of_rack_one_drives_the_rows_it_says_it_does():
         first, count = subs(node, "node_first_row"), subs(node, "node_rows")
         assert [s["row"] for s in strands(node)] == list(range(first, first + count))
         render_script = next(s for s in node["script"] if s["id"] == "render")
-        listed = re.findall(r"id\((row_[a-m])\)", render_script["then"][0]["lambda"])
+        listed = re.findall(r"id\((row_[a-n])\)", render_script["then"][0]["lambda"])
         assert listed == [light["id"] for light in node["light"]]
 
 
@@ -517,12 +519,11 @@ def test_every_strand_sends_colours_in_the_strips_order():
 
 
 def test_rack_one_needs_no_more_data_lines_than_before():
-    """One strand per row keeps rack 1 at thirteen data lines.
+    """One strand per row keeps rack 1 at fourteen data lines.
 
-    That is what fits it on two seven-port controllers: seven rows on one and
-    six on the other.
+    That is what fits it on two seven-port controllers: seven rows on each.
     """
-    assert [len(node["light"]) for node in RACK1_HALVES] == [7, 6]
+    assert [len(node["light"]) for node in RACK1_HALVES] == [7, 7]
 
 
 def test_the_two_halves_of_rack_one_are_one_rack():
@@ -554,9 +555,9 @@ PINS_AVOID_IF_FREE = {0, 1, 2, 3, 5, 14, 15}
 #: Lightish E8-WiFi Plus, whose eight ports are GPIO 5, 12, 4, 27, 17, 26, 33
 #: and 25. A seven-strand board may skip exactly one, and 12 is the one that
 #: matters - GPIO5's worst case is a flicker at reset, GPIO12's is a board
-#: that will not start. So GPIO5 is used, deliberately, on the two
-#: seven-strand boards; rack 1's six-strand half skips it.
-FIXED_PINOUT = {"winerack1aled": {5}, "winerack2led": {5}}
+#: that will not start. So GPIO5 is used, deliberately, on every board: all
+#: three drive seven strands.
+FIXED_PINOUT = {"winerack1aled": {5}, "winerack1bled": {5}, "winerack2led": {5}}
 
 #: The E8-WiFi Plus's ports O1..O8, in order.
 E8_PORTS = [5, 12, 4, 27, 17, 26, 33, 25]
@@ -590,8 +591,8 @@ def test_every_node_matches_its_controllers_port_map():
     """The pins are the E8-WiFi Plus's ports, so they cannot drift from it.
 
     Ports O1..O8 are GPIO 5, 12, 4, 27, 17, 26, 33, 25. Every board leaves O2
-    (GPIO12) empty and uses the rest in port order from its top row down;
-    rack 1's six-row half leaves O1 empty too.
+    (GPIO12) empty and uses the rest in port order from its top row down. A
+    board with fewer than seven strands has no reason to use O1 either.
     """
     for name, node in NODES.items():
         pins = [int(re.sub(r"\D", "", str(light["pin"]))) for light in node["light"]]
@@ -604,9 +605,9 @@ def test_every_node_matches_its_controllers_port_map():
 
 
 def test_every_row_of_rack_one_is_whole():
-    """Rows A-M are all thirteen bins, A-H included now the U is filled in."""
+    """Rows A-N are all thirteen bins, A-H included now the U is filled in."""
     rows = geometry(NODE1)["rows"]
-    for row in range(13):
+    for row in range(RACK1_ROWS):
         assert rows[row] == ((0, 13), (0, 0)), f"row {chr(ord('A') + row)} should be whole"
 
 
@@ -620,9 +621,9 @@ def test_every_light_is_as_long_as_the_geometry_says_its_row_is():
             assert strand["num_leds"] == strand_leds(geo, strand["row"]), strand["id"]
 
 
-def test_rack_one_powers_962_pixels():
+def test_rack_one_powers_1036_pixels():
     geo = geometry(NODE1)
-    assert sum(strand_leds(geo, row) for row in range(13)) == 962
+    assert sum(strand_leds(geo, row) for row in range(RACK1_ROWS)) == 1036
     assert "split_strand" not in NODE1["substitutions"]
     assert subs(NODE1, "full_strand") == piece_leds(geo, 13) == 74
 

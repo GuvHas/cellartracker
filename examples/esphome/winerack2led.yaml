@@ -65,7 +65,7 @@
 #
 # 3. Seven strands is inside the ESP32's eight RMT channels, so this node uses
 #    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1
-#    is the same board twice - rows A-G and rows H-M - for the same reason.
+#    is the same board twice - rows A-G and rows H-N - for the same reason.
 #
 # 4. LED power. GPIO23 drives an external relay that cuts the 12 V rail when
 #    every bin is dark. See the `switch:` block below - and note the bigger

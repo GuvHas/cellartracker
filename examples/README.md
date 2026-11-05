@@ -6,7 +6,7 @@ loaded by Home Assistant on its own — copy what you want.
 | File | What it is |
 |---|---|
 | [`HARDWARE.md`](HARDWARE.md) | **Start here if you are building it** — parts list, wiring, the controller's pin map, build order |
-| [`esphome/winerack1aled.yaml`](esphome/winerack1aled.yaml), [`esphome/winerack1bled.yaml`](esphome/winerack1bled.yaml) | The big rack — a full 13 × 13, 169 bins, one WS2815 strand per bin row, mounted horizontally at the back. Two E8-WiFi Plus boards: rows A–G and rows H–M |
+| [`esphome/winerack1aled.yaml`](esphome/winerack1aled.yaml), [`esphome/winerack1bled.yaml`](esphome/winerack1bled.yaml) | The big rack — a full 14 × 13 (A1–N13), 182 bins, one WS2815 strand per bin row, mounted horizontally at the back. Two E8-WiFi Plus boards: rows A–G and rows H–N |
 | [`esphome/winerack2led.yaml`](esphome/winerack2led.yaml) | The same design for the second rack, a full 7 × 7 on its own E8-WiFi Plus |
 | [`blueprints/`](../blueprints/) | Not in this folder, but part of the set: two Home Assistant blueprints, one automation that pushes each rack's grid to its nodes and one script for the locator. [Connecting Home Assistant to the racks](../README.md#connecting-home-assistant-to-the-racks) has the import buttons. The racks themselves are set in the integration's options |
 | [`enclosure/e8_wifi_plus_enclosure.scad`](enclosure/) | Parametric OpenSCAD wall enclosure for one E8-WiFi Plus, printed in PETG |

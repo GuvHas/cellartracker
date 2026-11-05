@@ -25,14 +25,14 @@
 #include "esphome_stubs.h"
 
 // -----------------------------------------------------------------------------
-// Rack 1 - a full 13 x 13
+// Rack 1 - a full 14 rows by 13 columns
 // -----------------------------------------------------------------------------
 namespace rack1 {
 
 // These mirror the substitutions of the same name. They are duplicated here
 // rather than generated because a test that derives its expectations from the
 // thing under test proves nothing; the Python suite checks they agree.
-constexpr int kRows = 13;
+constexpr int kRows = 14;
 constexpr int kCols = 13;
 constexpr int kBinWidthMm = 95;
 constexpr int kStripDensity = 60;  // LEDs per metre
@@ -106,7 +106,7 @@ bool parse(const char *written, int *out_column, int *out_row) {
 }  // namespace rack1
 
 // -----------------------------------------------------------------------------
-// Rack 1's other half - rows H-M, on the second board
+// Rack 1's other half - rows H-N, on the second board
 // -----------------------------------------------------------------------------
 // The same rack in a second file. Everything above reads rack 1A; this exists
 // so that 1B's copy of the maths is compiled and run too, not just compared as
@@ -420,7 +420,7 @@ TEST_SUITE("row extents") {
   using namespace rack1;
 
   TEST_CASE("every row is one piece of thirteen") {
-    for (int row = 0; row < 13; row++) {
+    for (int row = 0; row < kRows; row++) {
       CAPTURE(row);
       const Extent e = extent_of(row);
       CHECK(e.first_a == 0);
@@ -432,24 +432,24 @@ TEST_SUITE("row extents") {
   TEST_CASE("a row outside the rack carries nothing") {
     // kRow is a literal in each light, so this cannot happen from a strand -
     // but light_bin passes a row that came off the network.
-    for (int row : {-1, 13, 9999}) {
+    for (int row : {-1, 14, 9999}) {
       CAPTURE(row);
       CHECK(extent_of(row).bins_a == 0);
       CHECK(extent_of(row).bins_b == 0);
     }
   }
 
-  TEST_CASE("the rack has all 169 bins of its 13 by 13 envelope") {
+  TEST_CASE("the rack has all 182 bins of its 14 by 13 envelope") {
     int bins = 0;
     for (int row = 0; row < kRows; row++) bins += extent_of(row).bins_a + extent_of(row).bins_b;
-    CHECK(bins == 169);
-    CHECK(kRows * kCols == 169);
+    CHECK(bins == 182);
+    CHECK(kRows * kCols == 182);
   }
 
-  TEST_CASE("the strands add up to 962 pixels") {
+  TEST_CASE("the strands add up to 1036 pixels") {
     int total = 0;
     for (int row = 0; row < kRows; row++) total += strand_leds(row);
-    CHECK(total == 962);
+    CHECK(total == 1036);
   }
 }
 
@@ -547,7 +547,7 @@ TEST_SUITE("painting a strand") {
       paint(it, row);
       lit += it.lit();
     }
-    CHECK(lit == 962);  // every powered pixel: there are no gaps
+    CHECK(lit == 1036);  // every powered pixel: there are no gaps
   }
 
   TEST_CASE("painting clears what was there before") {
@@ -579,7 +579,7 @@ TEST_SUITE("the two halves of rack 1") {
     }
   }
 
-  TEST_CASE("rows H to M paint on the second board as they would on the first") {
+  TEST_CASE("rows H to N paint on the second board as they would on the first") {
     using namespace rack1;
     clear_cells();
     for (int row = 0; row < kRows; row++)

@@ -712,14 +712,14 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | File | What it is |
 |---|---|
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
-| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The big rack — a full 13 × 13, 169 bins, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
+| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The big rack — a full 14 × 13 (A1–N13), 182 bins, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–N. Each is one file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7 on its own E8-WiFi Plus, same design at a smaller size |
 | `blueprints/automation/cellar_tracker/wine_rack_paint.yaml` | Automation blueprint: keeps one rack's LEDs showing its grid sensor |
 | `blueprints/script/cellar_tracker/wine_rack_controls.yaml` | Script blueprint: light one bin to find a bottle, show the overview again, or turn the rack off |
 | `examples/enclosure/` | A parametric OpenSCAD wall enclosure for one E8-WiFi Plus board, printed in PETG — base with standoffs, cable glands and wall flanges, lid on four M3 heat-set inserts |
 
 Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
-slot, so bin `A2` is row A, column 2. Rack 1 is rows **A**–**M**, bins 1–13, every row the full
+slot, so bin `A2` is row A, column 2. Rack 1 is rows **A**–**N**, bins 1–13, every row the full
 width. Rack 2 is rows **A**–**G**, bins 1–7.
 
 The integration itself knows your racks. Under **Settings → Devices & Services → CellarTracker →
@@ -727,7 +727,7 @@ Configure → LED racks** (the gear icon on the integration), list one per line 
 location, its rows × columns, and any bins the rack does not have:
 
 ```text
-Wine Rack 1: 13x13
+Wine Rack 1: 14x13
 Wine Rack 2: 7x7
 ```
 
@@ -776,7 +776,7 @@ create **one** automation from *light the racks when someone comes in* and pick 
 or motion sensors. It covers every rack.
 
 To pick up a later fix, use **⋮ → Re-import blueprint** on each. The grid sensors are worth adding
-to `recorder: exclude:` — they change only when the cellar does, but each state is up to 169
+to `recorder: exclude:` — they change only when the cellar does, but each state is up to 182
 characters.
 
 **Coming from the old `wine_rack_leds.yaml` package?** Delete `<config>/packages/wine_rack_leds.yaml`
@@ -837,13 +837,13 @@ Each node exposes four actions and knows nothing about wine:
 
 | Action | Takes |
 |---|---|
-| `esphome.winerack1aled_light_rack` | `grid`: 169 state characters, row-major — the whole envelope in one call |
-| `esphome.winerack1aled_light_row` | `row`: `A`-`M`, `states`: 13 characters |
+| `esphome.winerack1aled_light_rack` | `grid`: 182 state characters, row-major — the whole envelope in one call |
+| `esphome.winerack1aled_light_row` | `row`: `A`-`N`, `states`: 13 characters |
 | `esphome.winerack1aled_light_bin` | `bin_id`: `A2`, `r`/`g`/`b`, `seconds` to hold it |
 | `esphome.winerack1aled_clear_all` | nothing |
 
 Rack 1's other board, `winerack1bled`, takes exactly the same actions with the same data. Both
-halves keep the whole 13 × 13 envelope and draw only their own rows, so the blueprints send every
+halves keep the whole 14 × 13 envelope and draw only their own rows, so the blueprints send every
 rack-1 call to both and never has to know where the seam is — and a locator aimed at a bin on
 one half blanks the other.
 
@@ -903,7 +903,7 @@ opening in it is a table rather than a special case. Bins are placed by position
 rather than at a fixed number of LEDs each: a 95 mm bin on a 60/m strip is 5.7
 LEDs, and `edge(k)` is the first LED whose centre lies past the k-th bin wall,
 so bins get 5 or 6 LEDs and bin 13 is where bin 13 actually is. Each strand's lambda is its
-row number and three `${...}` references — thirteen copies of an integer and one
+row number and three `${...}` references — fourteen copies of an integer and one
 copy of the maths. To rebuild a rack, edit `rack_table` and the matching
 `num_leds:`; `tests/test_rack_leds_example.py` fails if the two stop agreeing.
 
@@ -960,16 +960,16 @@ decisions still open. The rest of this section is the short version.
 - **No token is needed.** The grids are sensors of the integration, so the blueprints only call
   the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
   long-lived access token; if you set one up for that, you can revoke it.)
-- **Power.** Rack 1 draws 4.4 A for a fully green overview and 7.4 A worst case; rack 2 adds
+- **Power.** Rack 1 draws 4.8 A for a fully green overview and 8.0 A worst case; rack 2 adds
   2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the fed
   end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
   signal share one run up the riser. Halve the lit part by halving the palette.
 - **WS2815, not WS2812B.** The backup data line means one dead pixel is one dark bin rather than a
   dark row, which matters behind a rack you cannot get at. It costs a second rail: 12 V for the
   LEDs, 5 V from a buck for the ESP32 and the level shifters.
-- **Thirteen strands is more than one controller has ports for.** The Lightish E8-WiFi Plus has
-  eight buffered outputs, seven usable once GPIO12 is left alone, so rack 1 is two boards — seven
-  rows and six. That also keeps every node inside the ESP32's eight RMT channels, so all three run
+- **Fourteen strands is more than one controller has ports for.** The Lightish E8-WiFi Plus has
+  eight buffered outputs, seven usable once GPIO12 is left alone, so rack 1 is two boards of seven
+  rows each. That also keeps every node inside the ESP32's eight RMT channels, so all three run
   the native `esp32_rmt_led_strip` driver on ESP-IDF.
 - **Two settings were found on real hardware.** The strip takes its colours in **RGB** order, not
   the GRB most WS281x parts use, so the configurations set `channel_colors: RGB` (with GRB, green
