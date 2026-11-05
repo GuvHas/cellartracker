@@ -1,8 +1,8 @@
 # Wine rack 1, rows A-G - bin lighting for the CellarTracker integration
 # =============================================================================
 #
-# A U-shaped rack: rows A-H hold bins 1-4 and 10-13 with an opening across the
-# middle, and rows I-M run the full width. 129 bins in a 13 x 13 envelope.
+# A full 13 x 13 rack: bins A1 to M13, 169 of them, every row the full width.
+# (Until 2026-11 it was a U with no bins at A5-H9; that section is filled in.)
 #
 # Thirteen rows are more strands than one controller has ports, so rack 1 is
 # two **Lightish E8-WiFi Plus** boards - this one drives rows A-G (7
@@ -12,11 +12,8 @@
 # anything else.
 #
 # One WS2815 strand per bin ROW, mounted horizontally along the back of the
-# rack and fed from the column-1 end. Rows A-H are split by the U's opening
-# into bins 1-4 and 10-13; each is still one strand, its two pieces chained by
-# a jumper of the same 3-core cable (12 V, ground, data) across the opening.
-# The jumper has no pixels, so the firmware simply continues the count: bin 10
-# is the first pixel after bin 4. See examples/HARDWARE.md for the build.
+# rack and fed from the column-1 end. Every row is one unbroken run of 13
+# bins, 74 pixels. See examples/HARDWARE.md for the build.
 #
 # Actions exposed to Home Assistant (node name + action name):
 #
@@ -65,17 +62,17 @@
 #
 #      (R + G + B) / 765 * 25 mA + 1 mA        @ 12 V
 #
-#    This half powers 322 pixels, every one behind a bin:
+#    This half powers 518 pixels, every one behind a bin:
 #
-#      everything off ............................  0.3 A   (4 W)
-#      every bin ready (0, 110, 0) ...............  1.5 A
-#      every bin drink-this-year (150, 55, 0) ....  2.5 A   <- the worst case
-#      per strand, at that worst case ............  0.4 A   (every row here is split)
+#      everything off ............................  0.5 A   (6 W)
+#      every bin ready (0, 110, 0) ...............  2.4 A
+#      every bin drink-this-year (150, 55, 0) ....  4.0 A   <- the worst case
+#      per strand, at that worst case ............  0.6 A   (a 13-bin row)
 #
-#    The whole of rack 1 is 5.7 A at worst, and with rack 2's 2.2 A one 12 V
-#    16 A Mean Well XLG-200-12 runs everything at 49 % load. Fuse each strand
+#    The whole of rack 1 is 7.4 A at worst, and with rack 2's 2.2 A one 12 V
+#    16 A Mean Well XLG-200-12 runs everything at 60 % load. Fuse each strand
 #    at 2 A, not the 5 A the board ships with: the fuse protects 0.42 mm2
-#    cable. A split row's second piece is fed through its jumper.
+#    cable.
 #
 # 3. Driver. 7 strands fit inside the ESP32's eight RMT channels, so this
 #    node uses `esp32_rmt_led_strip` on ESP-IDF, the same as rack 2. That is
@@ -113,8 +110,7 @@ substitutions:
   bin_width_mm: "95" # one bin, wall to wall, measured along the back
   strip_density: "60" # LEDs per metre, cut line to cut line
   din_column: "1" # the column DIN enters each row at: 1 or rack_cols
-  full_strand: "74" # 13 bins, bins 1..13   - rows I-M
-  split_strand: "46" # 2 x 4 bins, 23 + 23   - rows A-H, jumpered across the U
+  full_strand: "74" # 13 bins, bins 1..13   - every row
 
   # --- The coordinate map --------------------------------------------------
   # Everything from here to `redraw_interval` is C++, pasted into the lambdas
@@ -125,13 +121,13 @@ substitutions:
 
   # The rack's shape, one entry per bin row in row order (row A is 0, row M
   # is 12): {first column, bins, first column, bins} - the piece of strip the
-  # data reaches first, then the piece after the jumper. Columns count from 0,
+  # data reaches first, then the piece after a jumper. Columns count from 0,
   # so bin 10 is column 9. A row with no jumper has {0, 0} for its second
-  # piece. Rows A-H are the U's arms, two pieces each; rows I-M are its base.
+  # piece. The rack is a full rectangle, so every row is one piece of 13.
   rack_table: >-
-    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
-    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
-    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
 
   # Which bins row kRow carries. A strand only has to say which row it is; the
   # table above answers the rest. `static const` puts it in flash.
@@ -163,13 +159,15 @@ substitutions:
   # ceil(k * width * density / 1000 - 1/2) in integers. A bin owns the LEDs
   # between its two walls, so the error never exceeds half an LED.
   #
-  # Each piece is cut at its first bin's wall, so piece B is aligned to bin 10
-  # on its own and starts on the pixel after piece A's last. The jumper across
-  # the U's opening carries data and power but no pixels, so its length does
-  # not enter the arithmetic.
+  # A row can be two pieces of strip with a gap between them, chained by a
+  # jumper that carries data and power but no pixels - rack 1 was built that
+  # way while it was a U. Each piece is cut at its first bin's wall, so piece
+  # B is aligned to its own first bin and starts on the pixel after piece A's
+  # last; the jumper's length does not enter the arithmetic. Neither rack has
+  # a split row now, so every row's piece B is {0, 0}.
   #
-  # The range checks are what keep a column in the opening - bin 7 on row A -
-  # from landing on a plausible pixel of either piece.
+  # The range checks are what keep a column a row does not have from landing
+  # on a plausible pixel of either piece.
   bin_first_led: |-
     auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
                             int *count) -> int {
@@ -285,8 +283,8 @@ api:
     # --- Cellar overview, whole rack in one call --------------------------
     # `grid` is rack_cells state characters, row-major: A1..A13, then B1..B13,
     # and so on across the whole 13 x 13 envelope. The same grid goes to both
-    # halves; this one draws rows A-G of it. Bins the U does not have are
-    # sent as '.' like any other empty bin and light nothing.
+    # halves; this one draws rows A-G of it. An empty bin is sent as
+    # '.' and lights nothing.
     - action: light_rack
       variables:
         grid: string
@@ -345,8 +343,7 @@ api:
     #
     # Home Assistant sends this to both halves. The half without that row
     # takes the locator all the same and goes dark, so the bin is the only
-    # thing lit on the whole rack. A bin in the U's opening - A7, say - is
-    # accepted and lights nothing; there are no pixels there.
+    # thing lit on the whole rack.
     - action: light_bin
       variables:
         bin_id: string
@@ -369,8 +366,8 @@ api:
               ESP_LOGW("winerack", "light_bin: '%s' is outside this rack", bin_id.c_str());
               return;
             }
-            // Inside the envelope but not a bin the U actually has - a bottle
-            // still filed at A7 after the rebuild, say. Worth saying out loud,
+            // Inside the envelope but not a bin the rack actually has - only
+            // possible if rack_table is given a gap again. Worth saying out loud,
             // because the locator will simply light nothing. Only the half
             // that owns the row says it, so the log is not doubled.
             const int kRow = row;
@@ -525,8 +522,8 @@ globals:
 # secondary feed to keep the ESP32 alive while the relay cuts the main 12 V
 # rail, so the node stays on the network with every pixel dead.
 #
-# A WS2815 draws about 1 mA just being powered: this half's 322 pixels burn
-# 4 W continuously to show nothing. The render script raises this whenever
+# A WS2815 draws about 1 mA just being powered: this half's 518 pixels burn
+# 6 W continuously to show nothing. The render script raises this whenever
 # any of this board's rows is lit and drops it when they all go dark.
 #
 # With no relay fitted this toggles a pin and does nothing, which is harmless.
@@ -644,8 +641,8 @@ script:
 # three are the substitutions at the top of this file.
 #
 # DATA AND POWER ENTER AT THE COLUMN-1 END of every row, and pixel 0 is that
-# row's bin 1. The bin numbers count up along the strand, across the jumper on
-# rows A-H, to bin 13 at the far end.
+# row's bin 1. The bin numbers count up along the strand to bin 13 at the far
+# end.
 #
 # The pins are the E8-WiFi Plus's ports, which are fixed in copper:
 #
@@ -671,8 +668,8 @@ script:
   platform: esp32_rmt_led_strip
   # WS2815 - 12 V, with the backup data line that keeps a row alive when one
   # pixel dies. It speaks the WS2812 protocol, which is the name this component
-  # knows. Tie the first pixel's BI pad alongside its DI - on both pieces of a
-  # split row; left floating it can oscillate and take the row with it.
+  # knows. Tie the first pixel's BI pad alongside its DI; left floating it
+  # can oscillate and take the row with it.
   chipset: WS2812
   # This strip takes its colours red, green, blue - not the GRB a WS2812B
   # does. Measured on rack 2's first row: with GRB, red from Home Assistant
@@ -692,12 +689,12 @@ script:
   gamma_correct: 1.0
 
 light:
-  # --- Rows A-G: the arms of the U, two pieces jumpered across it ---------
+  # --- Rows A-G: one unbroken piece of 13 bins each ----------------------
   - <<: *strand
     id: row_a
     name: "Row A"
     pin: GPIO5
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -712,7 +709,7 @@ light:
     id: row_b
     name: "Row B"
     pin: GPIO4
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -727,7 +724,7 @@ light:
     id: row_c
     name: "Row C"
     pin: GPIO27
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -742,7 +739,7 @@ light:
     id: row_d
     name: "Row D"
     pin: GPIO17
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -757,7 +754,7 @@ light:
     id: row_e
     name: "Row E"
     pin: GPIO26
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -772,7 +769,7 @@ light:
     id: row_f
     name: "Row F"
     pin: GPIO33
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack
@@ -787,7 +784,7 @@ light:
     id: row_g
     name: "Row G"
     pin: GPIO25
-    num_leds: ${split_strand}
+    num_leds: ${full_strand}
     effects:
       - addressable_lambda:
           name: Rack

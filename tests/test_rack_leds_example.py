@@ -1,7 +1,7 @@
 """The rack LED examples must keep telling the same story as the sensors.
 
-``examples/`` ships two wine racks lit from this integration: a U-shaped rack
-of 129 bins in a 13 x 13 envelope, and a plain 7 x 7 beside it. The U is two
+``examples/`` ships two wine racks lit from this integration: a full 13 x 13
+rack of 169 bins, and a plain 7 x 7 beside it. The 13 x 13 is two
 ESPHome nodes - one Lightish E8-WiFi Plus for rows A-G, one for rows H-M - and
 the 7 x 7 is a third. Each owns pixels and knows nothing about wine; two Home
 Assistant blueprints, used once per rack, hand each node the integration's
@@ -18,9 +18,9 @@ room where you are choosing what to open.
 The rest of the file checks the two halves of the example against each other,
 and the wiring against the shape of the rack. The strips run horizontally along
 the back of the rack - one strand per bin row - because a strip holder anywhere
-else covers a bin's opening. The U splits eight of rack 1's rows in two; each
-of those is still one strand, its two pieces chained by a jumper across the
-opening, and this file asserts that the row table describes exactly that.
+else covers a bin's opening. Both racks are rectangles, so every row is one
+unbroken strand, and this file asserts that the row table describes exactly
+that.
 """
 
 from __future__ import annotations
@@ -51,12 +51,9 @@ YEAR = 2026
 RACK1_LOCATION = "Wine Rack 1"
 RACK2_LOCATION = "Wine Rack 2"
 
-# The rack as rebuilt: rows A-H (0-7) keep bins 1-4 and 10-13, with the U's
-# opening across the middle; rows I-M (8-12) run the full width.
-RACK1_SHAPE = frozenset(
-    [(r, c) for r in range(0, 8) for c in list(range(0, 4)) + list(range(9, 13))]
-    + [(r, c) for r in range(8, 13) for c in range(13)]
-)
+# The rack as rebuilt in 2026-11: A1 to M13, every row the full width. It was a
+# U, with no bins at A5-H9, until that section was filled in.
+RACK1_SHAPE = frozenset((r, c) for r in range(13) for c in range(13))
 RACK2_SHAPE = frozenset((r, c) for r in range(7) for c in range(7))
 
 # Deliberately awkward, and the same shape as the dashboard's fixture: both
@@ -250,16 +247,24 @@ def test_bins_are_read_the_way_people_write_them():
 
 
 # --------------------------------------------------------------------------
-# The U, and the bottles that fall in its hole
+# The section that used to be the U's hole, and bottles off the rack
 # --------------------------------------------------------------------------
-def test_a_bottle_in_the_us_opening_is_counted_as_an_orphan():
-    """After a rebuild, CellarTracker still files bottles at bins that went.
+def test_a_bottle_in_the_filled_in_section_is_on_the_rack():
+    """A5-H9 was the U's opening and is bins now. A bottle filed there lights."""
+    there = [bottle("A7", "2020", "2030"), bottle("C6", "2020", "2030")]
+    assert bottles_off_rack(there, RACK1) == 0
+    rendered = grid(there)
+    assert cell(rendered, "A7") == "R"
+    assert cell(rendered, "C6") == "R"
 
-    They are not lost and they are not mis-lit - there is no strand there - but
-    something has to say they exist, or a rebuild quietly swallows them.
+
+def test_a_bottle_outside_the_rack_is_counted_as_an_orphan():
+    """CellarTracker can file a bottle at a bin the rack does not have.
+
+    It is not lost and it is not mis-lit - there is no strand there - but
+    something has to say it exists, or a rebuild quietly swallows it.
     """
-    gone = [bottle("A7", "2020", "2030"), bottle("C6", "2020", "2030")]
-    assert bottles_off_rack(gone, RACK1) == 2
+    assert bottles_off_rack([bottle("N1", "2020", "2030")], RACK1) == 1
 
 
 def test_bins_the_rack_still_has_are_not_orphans():
@@ -289,8 +294,8 @@ def test_a_full_rack_is_still_one_character_per_bin():
     full = [bottle(f"{chr(ord('A') + r)}{c + 1}", "2020", "2030") for r, c in sorted(RACK1_SHAPE)]
     rendered = grid(full)
     assert len(rendered) == subs(NODE1, "rack_cells")
-    assert set(rendered) == {"R", "."}, "only the bins the rack has should light"
-    assert rendered.count("R") == len(RACK1_SHAPE)
+    assert set(rendered) == {"R"}, "a full rectangle has no bin that stays dark"
+    assert rendered.count("R") == len(RACK1_SHAPE) == 169
 
 
 # --------------------------------------------------------------------------
@@ -398,7 +403,7 @@ def test_every_piece_of_strip_is_one_unbroken_run_of_bins():
 
     So each piece in the table must be exactly one contiguous run of the
     rack's shape - not two runs glued together, which would put pixels
-    behind the U's opening, and not half a run, which would leave a bin dark.
+    behind a gap in the rack, and not half a run, which would leave a bin dark.
     """
     for node, shape in ((NODE1, RACK1_SHAPE), (NODE2, RACK2_SHAPE)):
         geo = geometry(node)
@@ -407,19 +412,10 @@ def test_every_piece_of_strip_is_one_unbroken_run_of_bins():
             assert pieces(geo, row) == runs(cols), f"row {chr(ord('A') + row)}"
 
 
-def test_eight_rows_of_the_u_need_a_jumper():
-    """Rows A-H are split by the U's opening and rows I-M are not.
-
-    One strand per row means one jumper per split row: eight, each carrying
-    12 V, ground and data across the opening. No row is split more than once,
-    which is why the table has room for exactly two pieces.
-    """
+def test_rack_one_has_no_jumpers():
+    """The U's eight split rows are whole rows now, so no row needs a jumper."""
     geo = geometry(NODE1)
-    split = [row for row in range(13) if len(pieces(geo, row)) == 2]
-    assert split == list(range(8))
-    for row in range(13):
-        cols = sorted(c for (r, c) in RACK1_SHAPE if r == row)
-        assert len(runs(cols)) <= 2, f"row {chr(ord('A') + row)} has more than one gap"
+    assert all(len(pieces(geo, row)) == 1 for row in range(13))
 
 
 def test_rack_two_has_no_jumpers():
@@ -521,11 +517,10 @@ def test_every_strand_sends_colours_in_the_strips_order():
 
 
 def test_rack_one_needs_no_more_data_lines_than_before():
-    """Chaining each split row keeps rack 1 at thirteen data lines.
+    """One strand per row keeps rack 1 at thirteen data lines.
 
     That is what fits it on two seven-port controllers: seven rows on one and
-    six on the other. Running each piece of a split row as its own strand
-    would make it 21.
+    six on the other.
     """
     assert [len(node["light"]) for node in RACK1_HALVES] == [7, 6]
 
@@ -535,7 +530,7 @@ def test_the_two_halves_of_rack_one_are_one_rack():
 
     Everything else - the shape, the envelope, the arithmetic, the palette,
     the actions - is the same rack and must stay identical, or one half of the
-    U would disagree with the other about where a bottle is.
+    rack would disagree with the other about where a bottle is.
     """
     allowed = {"device_name", "friendly_name", "node_first_row", "node_rows"}
     a, b = NODE1A["substitutions"], NODE1B["substitutions"]
@@ -608,30 +603,27 @@ def test_every_node_matches_its_controllers_port_map():
             assert 5 not in pins, f"{name}: a six-strand board has no reason to use O1"
 
 
-def test_the_split_rows_are_the_arms_of_the_u():
-    """Rows A-H are bins 1-4 and 10-13; rows I-M are all thirteen."""
+def test_every_row_of_rack_one_is_whole():
+    """Rows A-M are all thirteen bins, A-H included now the U is filled in."""
     rows = geometry(NODE1)["rows"]
-    for row in range(0, 8):
-        assert rows[row] == ((0, 4), (9, 4)), f"row {chr(ord('A') + row)} should be split"
-    for row in range(8, 13):
+    for row in range(13):
         assert rows[row] == ((0, 13), (0, 0)), f"row {chr(ord('A') + row)} should be whole"
 
 
 def test_every_light_is_as_long_as_the_geometry_says_its_row_is():
     """`num_leds` has to be a literal in YAML, so it is a second copy of a
     number `rack_table` already implies. This is the only thing stopping the
-    two from drifting - and a light one pixel short truncates its last bin,
-    which on a split row is bin 13, on the far side of the jumper."""
+    two from drifting - and a light one pixel short truncates its last bin."""
     for node in NODES.values():
         geo = geometry(node)
         for strand in strands(node):
             assert strand["num_leds"] == strand_leds(geo, strand["row"]), strand["id"]
 
 
-def test_rack_one_powers_738_pixels():
+def test_rack_one_powers_962_pixels():
     geo = geometry(NODE1)
-    assert sum(strand_leds(geo, row) for row in range(13)) == 738
-    assert subs(NODE1, "split_strand") == 2 * piece_leds(geo, 4) == 46
+    assert sum(strand_leds(geo, row) for row in range(13)) == 962
+    assert "split_strand" not in NODE1["substitutions"]
     assert subs(NODE1, "full_strand") == piece_leds(geo, 13) == 74
 
 

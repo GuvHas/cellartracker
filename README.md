@@ -712,23 +712,22 @@ in the room rather than on a screen. `examples/` holds a working set of configur
 | File | What it is |
 |---|---|
 | `examples/HARDWARE.md` | The build: parts, power budget, wiring, the controller's pin map, and what is still undecided |
-| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The U-shaped rack — 129 bins in a 13 × 13 envelope, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
+| `examples/esphome/winerack1aled.yaml`, `winerack1bled.yaml` | The big rack — a full 13 × 13, 169 bins, one WS2815 strand per bin row, on two E8-WiFi Plus boards: 1A drives rows A–G, 1B rows H–M. Each is one file, nothing beside it |
 | `examples/esphome/winerack2led.yaml` | The second rack — a full 7 × 7 on its own E8-WiFi Plus, same design at a smaller size |
 | `blueprints/automation/cellar_tracker/wine_rack_paint.yaml` | Automation blueprint: keeps one rack's LEDs showing its grid sensor |
 | `blueprints/script/cellar_tracker/wine_rack_controls.yaml` | Script blueprint: light one bin to find a bottle, show the overview again, or turn the rack off |
 | `examples/enclosure/` | A parametric OpenSCAD wall enclosure for one E8-WiFi Plus board, printed in PETG — base with standoffs, cable glands and wall flanges, lid on four M3 heat-set inserts |
 
 Bins are addressed the way CellarTracker addresses them — `Location` is the rack, `Bin` is the
-slot, so bin `A2` is row A, column 2. Rack 1's rows **A**–**H** hold bins 1–4 and 10–13 with an
-opening across the middle; rows **I**–**M** run the full width. Rack 2 is rows **A**–**G**,
-bins 1–7.
+slot, so bin `A2` is row A, column 2. Rack 1 is rows **A**–**M**, bins 1–13, every row the full
+width. Rack 2 is rows **A**–**G**, bins 1–7.
 
 The integration itself knows your racks. Under **Settings → Devices & Services → CellarTracker →
 Configure → LED racks** (the gear icon on the integration), list one per line — the CellarTracker
 location, its rows × columns, and any bins the rack does not have:
 
 ```text
-Wine Rack 1: 13x13 without A5-H9
+Wine Rack 1: 13x13
 Wine Rack 2: 7x7
 ```
 
@@ -742,7 +741,8 @@ open a bottle in the dashboard to see it. Case and extra spaces do not matter (`
 bottles filed under `Rack 1`), but the words do: `Wine Rack 1` will not find them.
 
 Bins are a row letter and a column number; `a-2`, `A 2` and `A02` all read as `A2`. `without`
-takes single bins or rectangles (`A5-H9` is the U's opening), and a rack can be at most 255 bins,
+takes single bins or rectangles — `Wine Rack 1: 13x13 without A5-H9` is a 13 × 13 with a
+five-by-eight hole in it — and a rack can be at most 255 bins,
 the longest state Home Assistant keeps.
 
 ### Connecting Home Assistant to the racks
@@ -825,12 +825,11 @@ sync.
 The strip's holder sits behind the bins, and anywhere but horizontal along the back of the rack
 it covers a bin's opening. So there is one strand per bin **row**, fed from one end of it.
 
-Eight of rack 1's thirteen rows are split in two by the U's opening — bins 1–4 and 10–13. Each
-of those is still one strand: the two pieces are chained by a jumper carrying 12 V, ground and
-data across the gap, and the firmware continues the pixel count from bin 4 straight to bin 10.
-That keeps rack 1 at thirteen data lines; running every piece as its own strand would make it
-21. The test suite asserts that every piece of strip is exactly one unbroken run of bins and
-that only rows A–H need a jumper, so the wiring cannot quietly stop matching the rack.
+Both racks are rectangles, so every row is one unbroken strand. A rack with a gap in a row is
+still supported: the two pieces either side are chained by a jumper carrying 12 V, ground and
+data across the gap, and the firmware continues the pixel count across it (rack 1 was built that
+way while it was a U). The test suite asserts that every piece of strip is exactly one unbroken
+run of bins, so the wiring cannot quietly stop matching the rack.
 
 ### How the two halves talk
 
@@ -859,10 +858,10 @@ and
 when a node comes back from unavailable, so a power cut does not leave a rack dark until the next
 sync.
 
-Rack 1's grid stays a full 13 × 13 even though the rack has 129 bins: the bins the U does not have
-are sent as empty and light nothing. That also means a bottle CellarTracker still files at a bin
-the rebuild removed is not mis-lit — it is just dark, and the rack's *bottles off the rack* sensor
-counts them so a rebuild does not quietly swallow bottles.
+A grid always covers the rack's whole rows × columns envelope. Bins listed under `without` are
+sent as empty and light nothing, so a bottle CellarTracker files at a bin the rack does not have
+is not mis-lit — it is just dark, and the rack's *bottles off the rack* sensor counts it so a
+rebuild does not quietly swallow bottles.
 
 ### Changing the shape of a rack
 
@@ -872,11 +871,12 @@ pixels are both `substitutions:` at the top of the node's own configuration:
 
 ```yaml
   # {first column, bins, first column, bins} per bin row: the piece of strip
-  # the data reaches first, then the piece after the jumper. Row A is 0.
+  # the data reaches first, then the piece after a jumper. Row A is 0. A row
+  # with a gap at bins 5-9 would be {0, 4, 9, 4}.
   rack_table: >-
-    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
-    {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4}, {0, 4, 9, 4},
-    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0},
+    {0, 13, 0, 0}, {0, 13, 0, 0}, {0, 13, 0, 0}
 
   bin_first_led: |-
     auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
@@ -909,7 +909,7 @@ copy of the maths. To rebuild a rack, edit `rack_table` and the matching
 
 **Data enters at one end of every row, set per rack by `din_column`.** Rack 1
 is fed from bin 1: pixel 0 of every row is its bin 1 and the bin numbers count
-up along the strand, across the jumper on a split row. Rack 2 is fed from bin 7
+up along the strand. Rack 2 is fed from bin 7
 (`din_column: "7"`): A7, B7 ... are pixel 0 and the numbers count down. Either
 way every feed of a rack comes up one riser at that side.
 
@@ -933,8 +933,8 @@ void paint(FakeLight &it, int kRow) {
 Those three lines are the strand's lambda, in the order the YAML has them. The
 text under test is the text that ships, so a test cannot pass against a copy
 that has drifted. `FakeLight::operator[]` goes through `std::vector::at`, which
-turns the bug this whole arrangement exists to catch — a split row indexed as
-a full one, writing past the end of a 46-pixel strand — into a thrown exception
+turns the bug this whole arrangement exists to catch — a row indexed as
+longer than its strand, writing past the end of it — into a thrown exception
 a test can assert on rather than a flickering row somewhere else on the rack.
 
 ```console
@@ -960,7 +960,7 @@ decisions still open. The rest of this section is the short version.
 - **No token is needed.** The grids are sensors of the integration, so the blueprints only call
   the nodes' actions. (Earlier versions read the inventory endpoint back over HTTP with a
   long-lived access token; if you set one up for that, you can revoke it.)
-- **Power.** Rack 1 draws 3.4 A for a fully green overview and 5.7 A worst case; rack 2 adds
+- **Power.** Rack 1 draws 4.4 A for a fully green overview and 7.4 A worst case; rack 2 adds
   2.2 A. One 12 V 12.5 A supply runs both if they can share a bus, and a single feed at the fed
   end of each row is enough at 0.6 A per strand — the same end the data line enters, so power and
   signal share one run up the riser. Halve the lit part by halving the palette.
@@ -1078,7 +1078,7 @@ board's `device_name`, and the ESPHome node must be adopted so its actions exist
 grid that lands on the wrong rack means the two locations are swapped in the options.
 
 If **bottles off the rack** is above zero, some bottles are filed at that rack in a bin it does not
-have — a gap in the U, a bin outside the grid, or a bin name that is not a row letter and a column.
+have — a bin listed under `without`, a bin outside the grid, or a bin name that is not a row letter and a column.
 Open the sensor and expand **Attributes**: `bottles` lists each one's wine, vintage and bin, in rack
 order (the first 25; `not_listed` says how many more). They are still counted everywhere else;
 re-bin them in CellarTracker and they light.
