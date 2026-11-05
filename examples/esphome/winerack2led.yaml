@@ -65,7 +65,7 @@
 #
 # 3. Seven strands is inside the ESP32's eight RMT channels, so this node uses
 #    `esp32_rmt_led_strip` on ESP-IDF and needs no Arduino framework. Rack 1
-#    is the same board twice - rows A-G and rows H-M - for the same reason.
+#    is the same board twice - rows A-G and rows H-N - for the same reason.
 #
 # 4. LED power. GPIO23 drives an external relay that cuts the 12 V rail when
 #    every bin is dark. See the `switch:` block below - and note the bigger
@@ -78,7 +78,7 @@ substitutions:
   friendly_name: Wine Rack 2
 
   # --- Rack geometry -------------------------------------------------------
-  # A full 7 x 7, so every row is the same length - no U here.
+  # A full 7 x 7, so every row is the same length.
   rack_rows: "7" # rows A..G, one strand each
   rack_cols: "7" # bin columns 1..7
   rack_cells: "49" # rack_rows * rack_cols
@@ -96,8 +96,7 @@ substitutions:
 
   # The rack's shape: {first column, bins, first column, bins} per bin row -
   # see rack 1 for the format. A rectangle, so every row is one unbroken piece
-  # of seven bins - which is what makes rack 1's U the interesting case and
-  # this one the control.
+  # of seven bins.
   rack_table: >-
     {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0},
     {0, 7, 0, 0}, {0, 7, 0, 0}, {0, 7, 0, 0}
@@ -132,13 +131,15 @@ substitutions:
   # ceil(k * width * density / 1000 - 1/2) in integers. A bin owns the LEDs
   # between its two walls, so the error never exceeds half an LED.
   #
-  # Each piece is cut at its first bin's wall, so piece B is aligned to bin 10
-  # on its own and starts on the pixel after piece A's last. The jumper across
-  # the U's opening carries data and power but no pixels, so its length does
-  # not enter the arithmetic.
+  # A row can be two pieces of strip with a gap between them, chained by a
+  # jumper that carries data and power but no pixels - rack 1 was built that
+  # way while it was a U. Each piece is cut at its first bin's wall, so piece
+  # B is aligned to its own first bin and starts on the pixel after piece A's
+  # last; the jumper's length does not enter the arithmetic. Neither rack has
+  # a split row now, so every row's piece B is {0, 0}.
   #
-  # The range checks are what keep a column in the opening - bin 7 on row A -
-  # from landing on a plausible pixel of either piece.
+  # The range checks are what keep a column a row does not have from landing
+  # on a plausible pixel of either piece.
   bin_first_led: |-
     auto bin_first_led = [](int col, int first_a, int bins_a, int first_b, int bins_b,
                             int *count) -> int {

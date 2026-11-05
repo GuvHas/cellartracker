@@ -17,12 +17,12 @@ it. Where something is still undecided it is marked **OPEN** and collected at th
 
 | | Rack 1 | Rack 2 |
 |---|---|---|
-| Shape | A **U** — rows A–H hold bins 1–4 and 10–13, rows I–M run full width | A plain **7 × 7** |
-| Bins | 129, in a 13 × 13 envelope | 49 |
-| Strands | **13** (one per bin row) | **7** (one per bin row) |
-| Pixels | 738 | 280 |
-| Strand lengths | 5 × 74 px (1.23 m, rows I–M), 8 × 46 px (two 23 px / 0.38 m pieces, rows A–H) | 7 × 40 px (0.67 m) |
-| Jumpers | 8, one across the U's opening on each of rows A–H | none |
+| Shape | A full **14 × 13** (14 rows, 13 columns), A1–N13 | A plain **7 × 7** |
+| Bins | 182 | 49 |
+| Strands | **14** (one per bin row) | **7** (one per bin row) |
+| Pixels | 1036 | 280 |
+| Strand lengths | 14 × 74 px (1.23 m) | 7 × 40 px (0.67 m) |
+| Jumpers | none | none |
 
 One WS2815 strand per **bin row**, mounted **horizontally along the back** of the rack and fed
 from one end: rack 1 from the **bin-1 end**, rack 2 from the **bin-7 end** (`din_column` in
@@ -43,32 +43,30 @@ between bins any more — the bin wall is the divider.
 | First LED | 0 | 6 | 11 | 17 | 23 | 28 | 34 | 40 | 46 | 51 | 57 | 63 | 68 |
 | LEDs | 6 | 5 | 6 | 6 | 5 | 6 | 6 | 6 | 5 | 6 | 6 | 5 | 6 |
 
-That is a full row; it ends at LED 74, 1233 mm against the rack's 1235. Each piece of strip is
-cut at its first bin's wall, so on a split row bins 10–13 sit on LEDs 23–45 with the same
-5/6 pattern as bins 1–4. `bin_width_mm` and `strip_density` at the top of each config are
+That is every row of rack 1; it ends at LED 74, 1233 mm against the rack's 1235. `bin_width_mm` and `strip_density` at the top of each config are
 the only two numbers involved.
 
-### The U's opening
+### Rack 1 used to be a U
 
-Rows A–H hold bins 1–4 and 10–13 with the opening between them, so each of those rows is two
-four-bin pieces of strip. They are **chained, not split**: a short jumper of the same 3-core
-cable carries +12 V, GND and data from the end of the first piece (bin 4) across the opening
-to the start of the second (bin 10). The jumper has no pixels, so in the firmware bin 10 is
-simply the pixel after bin 4 — `rack_table` lists each row as up to two pieces and
-`bin_first_led` continues the count across the gap. Because of that, the opening's width
-never enters the firmware; it only sets how long the jumper is.
+Until November 2026 rows A–H of rack 1 held only bins 1–4 and 10–13, with an opening at
+A5–H9. Each of those rows was two four-bin pieces (23 LEDs each) chained by a pixel-less
+jumper across the opening. That section has since been built in and a fourteenth row, N,
+added, so the rack is A1–N13, every row is 13 bins and `rack_table` lists each one as
+`{0, 13, 0, 0}`.
 
-| | Chained (built) | Split |
-|---|---|---|
-| Rack 1 strands / data lines | **13** | 21 (16 pieces + 5 full rows) |
-| E8 boards for rack 1 | **2** (7 + 6) | 3 (7 + 7 + 7) |
-| Extra parts | 8 jumpers, ~0.6 m each | 8 more feed runs from the board |
+Row N goes on board 1B, which now drives seven rows like 1A. To keep the ports in row order,
+1B's cables each move up one port: H to O1, I to O3, and so on to N on O8 (see the port table
+below).
 
-Chaining keeps the data-line count exactly where the vertical layout had it, so the controller
-plan does not change. The test suite asserts that every piece in the table is exactly one
-unbroken run of bins and that only rows A–H need a jumper.
+To convert a row built the old way, take the jumper out and splice a **28-LED piece** (bins
+5–9) in its place, so the row runs 23 + 28 + 23 = 74 LEDs unbroken: DO → DI and BI, +12 V and
+GND straight across at each join. The firmware places bin 10 at LED 51, which is where the
+start of the third piece lands. A fresh 74-LED strip per row does the same job with two fewer
+joints. The firmware still accepts a row of two pieces, so a rack with a gap can be described
+again later; the test suite asserts that every piece in the table is exactly one unbroken run of
+bins.
 
-**1018 pixels, 20 strands, 20 independent data lines.** That last number is what rules out
+**1316 pixels, 21 strands, 21 independent data lines.** That last number is what rules out
 most of the LED controllers on the market.
 
 ---
@@ -79,28 +77,29 @@ most of the LED controllers on the market.
 
 | Item | Qty | Notes |
 |---|---|---|
-| **WS2815** strip, 12 V, 60 LEDs/m | **4 × 5 m reels** | 17.0 m used. Confirm `DI` *and* `BI` pads on the listing, and that it cuts at every LED |
-| **Mean Well XLG-200-12** (plain, **not** `-A`) | 1 | 12 V, 16 A, 192 W, IP67, ENEC + CB. Runs both racks at 49 % load |
+| **WS2815** strip, 12 V, 60 LEDs/m | **5 × 5 m reels** | 21.9 m used. Confirm `DI` *and* `BI` pads on the listing, and that it cuts at every LED |
+| **Mean Well XLG-200-12** (plain, **not** `-A`) | 1 | 12 V, 16 A, 192 W, IP67, ENEC + CB. Runs both racks at 63 % load |
 | **Lightish E8-WiFi Plus** | **3** | 8 buffered 5 V outputs each. 1 for rack 2, 2 for rack 1 (7 + 6) |
-| **ROLANCHE 3-core 0.42 mm²** (red/black/yellow) | **7 × 5 m** | 2 reels for rack 2, 5 for rack 1: its 13 feeds plus 8 jumpers of ~0.6 m |
-| **Mini blade fuses, 2 A** | 20 + spares | Littelfuse `0287002.PXCN`. **Not** the 5 A supplied — see *Fusing* |
+| **ROLANCHE 3-core 0.42 mm²** (red/black/yellow) | **7 × 5 m** | 2 reels for rack 2, 5 for rack 1's 14 feeds |
+| **Mini blade fuses, 2 A** | 21 + spares | Littelfuse `0287002.PXCN`. **Not** the 5 A supplied — see *Fusing* |
 | **Ferrules, 0.5 mm²** | 25 | Required: the cable is under the terminal's minimum — see *Terminations* |
 | 16 AWG red + black | 2 m each | XLG → each board's input terminal |
 | WAGO 221 lever connectors | 2 | Splits the XLG's potted leads to both racks (+12 V and GND) |
 | Aluminium channel + diffuser | ~10 × 2 m | Optional, and doubles as the horizontal mount at the back. Six bare LEDs read as six dots |
 | Solder, heatshrink, cable clips, crimp tool | — | |
 
-### Cut plan — 4 reels
+### Cut plan — 5 reels
 
-A 5 m reel is 300 LEDs. Nesting the three piece lengths — 5 full rows (74), 16 half-row pieces
-(23) and 7 rack-2 rows (40):
+A 5 m reel is 300 LEDs. Nesting the two strand lengths — 14 rack-1 rows (74) and 7 rack-2 rows
+(40):
 
 | Reel | Cut | LEDs used |
 |---|---|---|
-| 1 | 4 full (74) | 296 of 300 |
-| 2 | 1 full (74) + 5 rack-2 (40) + 1 piece (23) | 297 |
-| 3 | 2 rack-2 (40) + 9 pieces (23) | 287 |
-| 4 | 6 pieces (23) | 138, ~2.7 m spare |
+| 1–3 | 4 rack-1 rows (74) each | 296 of 300 |
+| 4 | 2 rack-1 rows (74) + 3 rack-2 (40) | 268 |
+| 5 | 4 rack-2 (40) | 160, ~2.3 m spare |
+
+Converting the old U instead needs only 8 pieces of 28 LEDs — 224, under one reel.
 
 Cut every piece **at a bin wall's position**, not by counting from the last cut — the
 firmware assumes each piece starts flush with its first bin.
@@ -124,12 +123,12 @@ caps every channel at 150 and `gamma_correct` is 1.0, so these are what the pixe
 
 | State | Rack 1 | Rack 2 | Both | At 12 V |
 |---|---|---|---|---|
-| Dark but powered | 0.7 A | 0.3 A | **1.0 A** | 12 W |
-| Every bin ready (green) | 3.4 A | 1.3 A | **4.7 A** | 56 W |
-| Every bin amber — **worst case** | 5.7 A | 2.2 A | **7.8 A** | 94 W |
+| Dark but powered | 1.0 A | 0.3 A | **1.3 A** | 16 W |
+| Every bin ready (green) | 4.8 A | 1.3 A | **6.1 A** | 73 W |
+| Every bin amber — **worst case** | 8.0 A | 2.2 A | **10.1 A** | 122 W |
 
-Every pixel is behind a bin now, so all of them can be lit at once; there are fewer of them.
-7.8 A into a 16 A supply is **49 % load** — the efficient, long-lived place for a switching
+Every pixel is behind a bin, so all of them can be lit at once.
+10.1 A into a 16 A supply is **63 % load** — the efficient, long-lived place for a switching
 supply to sit.
 
 ### Why this supply
@@ -137,7 +136,7 @@ supply to sit.
 Not a capacity decision. The XLG is IP67 and potted, so there are no exposed 230 V
 terminals in a damp cellar, and it carries **ENEC and CB** marks — third-party tested,
 unlike a self-declared CE. Its `-A` variant adds a potentiometer that adjusts the current
-limit down to 8 A, barely above the 7.8 A worst case: cross that and the rail walks toward 8.4 V,
+limit down to 8 A, below the 10.1 A worst case: cross that and the rail walks toward 8.4 V,
 under the WS2815's 9.5 V minimum. Buy the plain one.
 
 ### Siting
@@ -146,7 +145,7 @@ Both racks sit within half a metre, with the supply **between** them. Drop over 
 
 | Feed | Current | 16 AWG |
 |---|---|---|
-| Rack 1 | 5.7 A | **0.15 V** |
+| Rack 1 | 8.0 A | **0.21 V** |
 | Rack 2 | 2.2 A | **0.06 V** |
 
 Against a 1.5 V budget (12 V → the 10.5 V a WS2815 wants), both are noise. One supply,
@@ -224,17 +223,16 @@ every rack-1 call to both — and each draws only its own rows.
 | Board 1A — `winerack1aled.yaml` | | | Board 1B — `winerack1bled.yaml` | | |
 |---|---|---|---|---|---|
 | **Bin row** | **Port** | **GPIO** | **Bin row** | **Port** | **GPIO** |
-| A | O1 | 5 | — | O1 | *empty* |
-| B | O3 | 4 | H | O3 | 4 |
-| C | O4 | 27 | I | O4 | 27 |
-| D | O5 | 17 | J | O5 | 17 |
-| E | O6 | 26 | K | O6 | 26 |
-| F | O7 | 33 | L | O7 | 33 |
-| G | O8 | 25 | M | O8 | 25 |
+| A | O1 | 5 | H | O1 | 5 |
+| B | O3 | 4 | I | O3 | 4 |
+| C | O4 | 27 | J | O4 | 27 |
+| D | O5 | 17 | K | O5 | 17 |
+| E | O6 | 26 | L | O6 | 26 |
+| F | O7 | 33 | M | O7 | 33 |
+| G | O8 | 25 | N | O8 | 25 |
 
-Board 1A carries the seven split rows A–G; board 1B carries split row H and the five full
-rows I–M. With only six strands, 1B leaves O1 empty as well as O2, so it uses no strapping
-pin at all. The split is by row rather than by load: 1A draws 2.5 A worst case, 1B 3.2 A,
+Board 1A carries rows A–G; board 1B carries rows H–N. Both drive seven strands, so both use
+O1 and leave only O2 empty, the same as rack 2. Each draws 4.0 A worst case,
 both well inside the board's 30 A.
 
 Purely a build convenience — every `kRow` in the configs still names the bin row its entity
@@ -247,7 +245,7 @@ the GPIO column.
 GPIO23 drives an **external** relay — you supply it. The topology the board expects: a
 secondary feed keeps the controller alive while the relay cuts the main LED rail, so the node
 stays on the network with the pixels dead. Needs a 12 V coil and contacts rated for the
-board's load (a 10 A automotive relay covers any of them: 1A is 2.5 A, 1B 3.2 A, rack 2 2.2 A).
+board's load (a 10 A automotive relay covers any of them: 1A and 1B are 4.0 A each, rack 2 2.2 A).
 One relay per board, each switching only that board's LED rail.
 
 All three configs declare it as a `switch:` that the render script raises whenever any of
@@ -269,23 +267,6 @@ nothing — harmless, and the intent is recorded.
 Write that mapping down somewhere. Yellow is sometimes used for +12 V in automotive wiring,
 and you will have 21 conductors terminated before you next think about it.
 
-### Jumpers across the U (rack 1, rows A–H)
-
-Same cable, same colours, one per split row:
-
-| Core | From (end of bin 4's piece) | To (start of bin 10's piece) |
-|---|---|---|
-| Red | `+12V` | `+12V` |
-| Black | `GND` | `GND` |
-| Yellow | `DO` | `DI` **and** `BI` |
-
-Leave the first piece's `BO` unconnected. Tying the second piece's `DI` and `BI` together
-means the last pixel before the jumper is the one pixel whose failure darkens the far half
-of the row; a fourth core from `BO` to `BI` would close that, and is not worth a different
-cable. The jumper runs behind the opening, so it is visible through it — sleeve it black or
-clip it to the back rail. Measure it from the real rack: the opening is five 95 mm bins,
-475 mm, plus the slack to the pads — about 0.6 m. Only the jumper depends on that number.
-
 ### Gauge
 
 The ROLANCHE cable's 21 strands of 0.16 mm work out to **0.422 mm²** — nearer 21 AWG than the
@@ -295,7 +276,6 @@ The ROLANCHE cable's 21 strands of 0.16 mm work out to **0.422 mm²** — nearer
 |---|---|---|
 | Rack 2, 1.5 m | 0.31 A | **0.038 V** |
 | Rack 1, 2.5 m (up the riser) | 0.57 A | **0.12 V** |
-| Rack 1 jumper, 0.6 m | 0.18 A | **0.009 V** |
 
 Irrelevant against the budget. The cable was chosen for its colour coding and its fit in the
 terminals, not its copper.
@@ -311,8 +291,7 @@ range, and it brings the outside dimension up to what the terminal expects. Stri
 16 AWG feed goes in bare — strip 15–16 mm there.
 
 **Strip end — soldered, and there is no alternative.** A WAGO clamps wires; a WS2815 input is
-a pad on a flexible PCB with nothing to clamp. Four joints per strand, plus seven per jumper
-(three on the way out, four on the way in): 28 for rack 2 and 108 for rack 1:
+a pad on a flexible PCB with nothing to clamp. Four joints per strand: 28 for rack 2 and 56 for rack 1:
 
 - Tin the pad and the wire separately, then join
 - **~350 °C, 2–3 seconds per pad.** Dwelling lifts the pad off the flex — the usual way these
@@ -335,14 +314,13 @@ self-limiting — and 0.42 mm² is good for roughly 3 A enclosed.
 | Strand | As designed | Full white | 2 A fuse |
 |---|---|---|---|
 | Rack 2, 40 px | 0.31 A | 1.04 A | holds |
-| Rack 1 split row, 46 px | 0.35 A | 1.20 A | holds |
-| Rack 1 full row, 74 px | 0.57 A | 1.92 A | holds, just |
+| Rack 1 row, 74 px | 0.57 A | 1.92 A | holds, just |
 
 With the shorter strands nothing clears at full white any more, and nothing needs to: every
 strand at full white is under the cable's rating. Full white is not a state the design
 produces — it only happens if someone selects effect "None" in Home Assistant and turns a row
-up — and all 20 strands at full white would ask **26 A** of a 16 A supply, which then current-
-limits and drops the lot. A 1 A fuse would catch the full rows and the split rows at full white
+up — and all 21 strands at full white would ask **34 A** of a 16 A supply, which then current-
+limits and drops the lot. A 1 A fuse would catch rack 1's rows at full white
 while holding every designed state, but not rack 2's; that trade is listed under **OPEN**.
 
 The holder takes normal, mini or low-profile mini blades; the board ships with **mini**
@@ -356,14 +334,12 @@ Build **rack 2 first**, complete, before cutting anything for rack 1.
 
 Seven strands proves the whole chain — the supply, the ferrules, the fuse ratings, the
 left-to-right indexing, the Home Assistant blueprints, the colour mapping — on a third of the
-soldering. The one thing it cannot prove is a jumper: make one row of rack 1 next, and check
-bins 4 and 10 either side of it before doing the other seven. One reel of strip and one
-controller gets you there, and anything learned applies thirteen times over on rack 1.
+soldering. One reel of strip and one
+controller gets you there, and anything learned applies fourteen times over on rack 1.
 
 1. Check a few bins at the back of the rack are **95 mm** wall to wall, and the strip is
    **60/m** cut line to cut line. Those are `bin_width_mm` and `strip_density`; a different
-   value is a one-number change and the tests recompute every bin. On rack 1, also measure the
-   opening's width for the jumpers.
+   value is a one-number change and the tests recompute every bin.
 2. Flash and bench-test the controller over USB-C before wiring anything to 12 V.
 3. Cut, solder and heatshrink seven strands. Test each one on the bench.
 4. Mount, route, ferrule, fuse at 2 A.
@@ -378,13 +354,13 @@ Worth deciding deliberately, because a permanently-lit rack is not cheap:
 
 | | Power | Per year |
 |---|---|---|
-| Dark but powered | 12 W | ~105 kWh |
-| Overview showing, all green | **56 W** | **~490 kWh** |
+| Dark but powered | 16 W | ~140 kWh |
+| Overview showing, all green | **73 W** | **~640 kWh** |
 
 At Swedish prices that overview is several hundred kronor a year to light a cellar nobody is
 standing in. **The big lever is an automation, not hardware** — light the racks on a door
 contact or a motion sensor and blank them on a timer. The GPIO23 relay then removes the last
-12 W once the picture is dark. Both are worth having; the automation is worth about ten times
+16 W once the picture is dark. Both are worth having; the automation is worth about ten times
 the relay.
 
 Halving the palette's values halves everything above the standing current.
@@ -395,8 +371,8 @@ Halving the palette's values halves everything above the standing current.
 
 | | Why it matters |
 |---|---|
-| **Which CellarTracker `Location` is the 7 × 7 rack?** | The integration's *LED racks* option names `Wine Rack 1` as the 13-strand U and `Wine Rack 2` as the 7 × 7, and each rack's paint automation sends that grid to the nodes named in it. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix in the options, best caught before soldering |
+| **Which CellarTracker `Location` is the 7 × 7 rack?** | The integration's *LED racks* option names `Wine Rack 1` as the 14 × 13 and `Wine Rack 2` as the 7 × 7, and each rack's paint automation sends that grid to the nodes named in it. If your data says otherwise the grids go to the wrong nodes and every bin is wrong — a two-line fix in the options, best caught before soldering |
 | **Does rack 2's board sit at the top or the bottom of the riser?** | Decides whether the port → row table above runs A→G or G→A. One-line change either way |
 | **Which GPIO, if any, the relay needs beyond 23** | The secondary-power input's wiring is not in the published spec |
 | **Bin width** | 95 mm and 60/m are what the configs use. Check a few bins agree before cutting — the mapping tolerates up to half an LED of error per piece, not a different number |
-| **1 A fuses instead of 2 A?** | Would make a full row or split row at full white blow its own fuse rather than tripping the supply's current limit. Rack 2's 40 px rows would still not clear, so it buys less than it did |
+| **1 A fuses instead of 2 A?** | Would make a rack-1 row at full white blow its own fuse rather than tripping the supply's current limit. Rack 2's 40 px rows would still not clear, so it buys less than it did |

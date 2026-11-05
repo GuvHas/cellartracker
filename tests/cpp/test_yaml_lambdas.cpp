@@ -25,20 +25,18 @@
 #include "esphome_stubs.h"
 
 // -----------------------------------------------------------------------------
-// Rack 1 - the U
+// Rack 1 - a full 14 rows by 13 columns
 // -----------------------------------------------------------------------------
 namespace rack1 {
 
 // These mirror the substitutions of the same name. They are duplicated here
 // rather than generated because a test that derives its expectations from the
 // thing under test proves nothing; the Python suite checks they agree.
-constexpr int kRows = 13;
+constexpr int kRows = 14;
 constexpr int kCols = 13;
 constexpr int kBinWidthMm = 95;
 constexpr int kStripDensity = 60;  // LEDs per metre
-constexpr int kFullStrand = 74;    // 13 bins, rows I-M
-constexpr int kPiece = 23;         // 4 bins, one arm of the U
-constexpr int kSplitStrand = 46;   // two pieces jumpered across the U, rows A-H
+constexpr int kFullStrand = 74;    // 13 bins, every row
 
 /// What a lambda sees as `id(cell_rgb)`: the whole envelope, row-major.
 uint8_t cell_rgb[kRows * kCols * 3];
@@ -98,9 +96,7 @@ void paint(FakeLight &it, int kRow) {
 }
 
 /// The strand length a row's light declares as `num_leds`.
-int strand_leds(int row) {
-  return extent_of(row).bins_b > 0 ? kSplitStrand : kFullStrand;
-}
+int strand_leds(int /*row*/) { return kFullStrand; }
 
 bool parse(const char *written, int *out_column, int *out_row) {
 #include "rack1a/parse_bin_id.inc"
@@ -110,7 +106,7 @@ bool parse(const char *written, int *out_column, int *out_row) {
 }  // namespace rack1
 
 // -----------------------------------------------------------------------------
-// Rack 1's other half - rows H-M, on the second board
+// Rack 1's other half - rows H-N, on the second board
 // -----------------------------------------------------------------------------
 // The same rack in a second file. Everything above reads rack 1A; this exists
 // so that 1B's copy of the maths is compiled and run too, not just compared as
@@ -299,63 +295,63 @@ TEST_SUITE("bins placed by position") {
 }
 
 // =============================================================================
-// The jumper across the U
+// The section that used to be the U's opening
 // =============================================================================
 //
-// Rows A-H are two four-bin pieces of strip, bins 1-4 and 10-13, chained by a
-// jumper that carries power and data across the opening but has no pixels. So
-// bin 10 is the pixel straight after bin 4's last LED - not five bins further
-// on, which is where it would be if the strip ran unbroken behind the hole -
-// and piece B is cut at bin 10's wall, so it is placed from there afresh.
+// Rack 1 was a U, with no bins at A5-H9, until that section was filled in.
+// Rows A-H are now whole rows like I-M: bin 10 is five bins of strip further
+// on than it was, and the bins of the old opening have pixels.
 
-TEST_SUITE("split rows") {
+TEST_SUITE("the filled-in section") {
   using namespace rack1;
 
-  TEST_CASE("the first piece is bins 1 to 4, from pixel 0") {
-    CHECK(led_of(0, 0) == 0);   // A1
-    CHECK(led_of(0, 3) == 17);  // A4
-    CHECK(17 + leds_of(0, 3) == kPiece);
-  }
-
-  TEST_CASE("the second piece starts on the pixel after the first piece ends") {
-    CHECK(led_of(0, 9) == kPiece);  // A10, straight across the jumper
-    CHECK(led_of(0, 9) == 23);
-  }
-
-  TEST_CASE("the second piece is bins 10 to 13, spaced like the first") {
-    CHECK(led_of(0, 9) == 23);   // A10
-    CHECK(led_of(0, 10) == 29);  // A11
-    CHECK(led_of(0, 11) == 34);  // A12
-    CHECK(led_of(0, 12) == 40);  // A13
-    CHECK(40 + leds_of(0, 12) == kSplitStrand);
-    for (int i = 0; i < 4; i++) {
-      CAPTURE(i);
-      CHECK(led_of(0, 9 + i) - led_of(0, 9) == led_of(0, i));
-    }
-  }
-
-  TEST_CASE("the jumper skips no pixels") {
-    // Bin 10 starts on the pixel straight after bin 4's last one. If the
-    // formula placed it by its distance along the rack instead, it would land
-    // five bins' worth of LEDs late and run off the end of the strand.
-    CHECK(led_of(0, 9) - led_of(0, 3) == leds_of(0, 3));
-  }
-
-  TEST_CASE("bins in the opening are on neither piece") {
+  TEST_CASE("every bin of the old opening has LEDs") {
     for (int row = 0; row < 8; row++) {
       for (int col = 4; col < 9; col++) {
         CAPTURE(row);
         CAPTURE(col);
-        CHECK(led_of(row, col) == -1);
+        CHECK(led_of(row, col) >= 0);
+        CHECK(leds_of(row, col) >= 5);
       }
     }
   }
 
-  TEST_CASE("the same bin column is at different pixels on a split and a full row") {
-    // Bin 10 is shelf-for-shelf the same column, but on row I there are five
-    // more bins of strip in front of it.
-    CHECK(led_of(0, 9) == 23);
-    CHECK(led_of(8, 9) == 51);
+  TEST_CASE("row A is placed exactly like row M") {
+    for (int col = 0; col < kCols; col++) {
+      CAPTURE(col);
+      CHECK(led_of(0, col) == led_of(12, col));
+      CHECK(leds_of(0, col) == leds_of(12, col));
+    }
+  }
+
+  TEST_CASE("bin 10 is where an unbroken strip puts it") {
+    CHECK(led_of(0, 9) == 51);  // A10, no longer 23 straight across a jumper
+    CHECK(led_of(8, 9) == 51);  // I10
+  }
+}
+
+// =============================================================================
+// A split row, which the maths still supports
+// =============================================================================
+//
+// `bin_first_led` still takes two pieces chained by a jumper with no pixels,
+// so a rack with a gap in a row can be described in `rack_table` again. These
+// drive it with the old U's row - bins 1-4 and 10-13 - directly.
+
+TEST_SUITE("split rows") {
+  using namespace rack1;
+
+  TEST_CASE("the second piece starts on the pixel after the first piece ends") {
+    CHECK(first_led(3, 0, 4, 9, 4) == 17);  // bin 4
+    CHECK(first_led(9, 0, 4, 9, 4) == 23);  // bin 10, straight across the jumper
+    CHECK(first_led(12, 0, 4, 9, 4) == 40); // bin 13
+  }
+
+  TEST_CASE("bins in the gap are on neither piece") {
+    for (int col = 4; col < 9; col++) {
+      CAPTURE(col);
+      CHECK(first_led(col, 0, 4, 9, 4) == -1);
+    }
   }
 }
 
@@ -423,19 +419,8 @@ TEST_SUITE("bounds") {
 TEST_SUITE("row extents") {
   using namespace rack1;
 
-  TEST_CASE("the arms of the U are two pieces of four") {
-    for (int row = 0; row < 8; row++) {
-      CAPTURE(row);
-      const Extent e = extent_of(row);
-      CHECK(e.first_a == 0);
-      CHECK(e.bins_a == 4);
-      CHECK(e.first_b == 9);
-      CHECK(e.bins_b == 4);
-    }
-  }
-
-  TEST_CASE("the base of the U is one piece of thirteen") {
-    for (int row = 8; row < 13; row++) {
+  TEST_CASE("every row is one piece of thirteen") {
+    for (int row = 0; row < kRows; row++) {
       CAPTURE(row);
       const Extent e = extent_of(row);
       CHECK(e.first_a == 0);
@@ -447,24 +432,24 @@ TEST_SUITE("row extents") {
   TEST_CASE("a row outside the rack carries nothing") {
     // kRow is a literal in each light, so this cannot happen from a strand -
     // but light_bin passes a row that came off the network.
-    for (int row : {-1, 13, 9999}) {
+    for (int row : {-1, 14, 9999}) {
       CAPTURE(row);
       CHECK(extent_of(row).bins_a == 0);
       CHECK(extent_of(row).bins_b == 0);
     }
   }
 
-  TEST_CASE("the rack has 129 bins in a 13 by 13 envelope") {
+  TEST_CASE("the rack has all 182 bins of its 14 by 13 envelope") {
     int bins = 0;
     for (int row = 0; row < kRows; row++) bins += extent_of(row).bins_a + extent_of(row).bins_b;
-    CHECK(bins == 129);
-    CHECK(kRows * kCols == 169);
+    CHECK(bins == 182);
+    CHECK(kRows * kCols == 182);
   }
 
-  TEST_CASE("the strands add up to 738 pixels") {
+  TEST_CASE("the strands add up to 1036 pixels") {
     int total = 0;
     for (int row = 0; row < kRows; row++) total += strand_leds(row);
-    CHECK(total == 738);
+    CHECK(total == 1036);
   }
 }
 
@@ -516,40 +501,24 @@ TEST_SUITE("painting a strand") {
     CHECK(it.lit() == 6 + 5);
   }
 
-  TEST_CASE("a split row lights bin 4 and bin 10 back to back") {
-    // Either side of the jumper. On the strip they are adjacent LEDs; on the
-    // rack they are six bins apart.
-    clear_cells();
-    set_cell(0, 3, Color(0, 110, 0));    // A4
-    set_cell(0, 9, Color(0, 45, 120));   // A10
-    FakeLight it(kSplitStrand);
-    paint(it, 0);
-
-    CHECK(it[kPiece - 1] == Color(0, 110, 0));
-    CHECK(it[kPiece] == Color(0, 45, 120));
-    CHECK(it.lit() == leds_of(0, 3) + leds_of(0, 9));
-  }
-
-  TEST_CASE("a split row paints its eight bins and nothing else") {
+  TEST_CASE("a row of the old arms paints all thirteen bins") {
     clear_cells();
     for (int col = 0; col < kCols; col++) set_cell(2, col, Color(0, 45, 120));
-    FakeLight it(kSplitStrand);
+    FakeLight it(kFullStrand);
     paint(it, 2);
 
-    CHECK(it.lit() == kSplitStrand);  // every pixel on it belongs to a bin
+    CHECK(it.lit() == kFullStrand);  // every pixel on it belongs to a bin
     CHECK(it[0] == Color(0, 45, 120));
-    CHECK(it[kSplitStrand - 1] == Color(0, 45, 120));
+    CHECK(it[kFullStrand - 1] == Color(0, 45, 120));
   }
 
-  TEST_CASE("a cell in the U's opening is never drawn") {
-    // A7 is inside the 13 x 13 envelope and outside the rack. Home Assistant
-    // sends the whole envelope, so this cell can carry a colour; row A's
-    // strand has no pixels behind the opening and must not guess.
+  TEST_CASE("a bin in the old opening is drawn") {
     clear_cells();
     set_cell(0, 6, Color(150, 55, 0));  // A7
-    FakeLight it(kSplitStrand);
+    FakeLight it(kFullStrand);
     paint(it, 0);
-    CHECK(it.lit() == 0);
+    CHECK(it.lit() == leds_of(0, 6));
+    CHECK(it[led_of(0, 6)] == Color(150, 55, 0));
   }
 
   TEST_CASE("no row can write past the end of its strand") {
@@ -578,7 +547,7 @@ TEST_SUITE("painting a strand") {
       paint(it, row);
       lit += it.lit();
     }
-    CHECK(lit == 738);  // every powered pixel: there are no gaps any more
+    CHECK(lit == 1036);  // every powered pixel: there are no gaps
   }
 
   TEST_CASE("painting clears what was there before") {
@@ -610,7 +579,7 @@ TEST_SUITE("the two halves of rack 1") {
     }
   }
 
-  TEST_CASE("rows H to M paint on the second board as they would on the first") {
+  TEST_CASE("rows H to N paint on the second board as they would on the first") {
     using namespace rack1;
     clear_cells();
     for (int row = 0; row < kRows; row++)
@@ -771,13 +740,13 @@ TEST_SUITE("bin ids") {
   }
 
   TEST_CASE("parsing does not decide whether the rack has that bin") {
-    // A7 is a well-formed bin id for a rack that does not have that bin. The
+    // A8 is a well-formed bin id for rack 2, which does not have that bin. The
     // parser says where it would be; the row table says whether it exists.
     int column = -1, row = -1;
-    REQUIRE(parse("A7", &column, &row));
+    REQUIRE(parse("A8", &column, &row));
     CHECK(row == 0);
-    CHECK(column == 6);
+    CHECK(column == 7);
 
-    CHECK(rack1::led_of(row, column) == -1);
+    CHECK(rack2::led_of(row, column) == -1);
   }
 }
