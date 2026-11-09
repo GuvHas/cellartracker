@@ -22,7 +22,7 @@ Positions come from the vendor's *Board Dimensions* photo of a V1.02 board, scal
 
 - **Front wall:** two staggered M12 glands per output block, right in front of it. The lower
   gland feeds the block's lower (even) output and the upper gland its upper (odd) output.
-  The M16 power gland sits in front of X5 at the right.
+  The power gland, also M12, sits in front of X5 at the right.
 - **Back wall:** the antenna hole, behind the ESP32's u.FL socket. The board sits 9 mm
   clear of this wall (`back_bay`) so the antenna lead has room to route, and 11 mm from the
   front wall (`front_bay`). Trade one against the other to keep the box the same size.
@@ -44,20 +44,26 @@ calipers is worth it for these:
 
 Measured on a real board: the X5 block is the tallest part at 28 mm above the PCB, and the
 output blocks' wire entries are at 13 mm (lower) and 21 mm (upper). The entries are only 8 mm
-apart, which is too close for staggered M12 lock-nuts, so the gland rows are spread to
-11.5 mm (`gland_row_dz`) and sit at 10.5 and 22 mm. Each cable bends by 1–2.5 mm on its way
-in, which the 11 mm front gap takes easily.
+apart, which is too close for staggered M12 lock-nuts. The upper row is capped at 22 mm by the
+lid lip, so the script drops the lower row until the closest diagonal pair of nuts (12.8 mm
+apart in X) clears by `gland_clear` (1.5 mm). With 17.4 mm nuts (M12, AF15) that puts the rows
+at 8.1 and 22 mm above the PCB. The lower cables bend about 5 mm on their way up to the
+terminal, which the 11 mm front gap takes. If your lock-nuts are bigger, set `gland_nut_ac`
+(across corners = 1.155 x across flats) and the rows re-space themselves.
 
 ## Hardware per enclosure
 
 | Item | Qty |
 |---|---|
-| M3 heat-set insert, 4.0–4.2 mm OD, 4–5 mm long | 8 |
+| ruthex RX-M3Sx4.0 heat-set insert (4.0 mm hole, 5 mm deep) | 8 |
 | M3 × 6 screw, board to standoffs | 4 |
-| M3 × 8 screw, lid | 4 |
-| M12 × 1.5 cable gland (3–6.5 mm cable) | up to 8, one per output in use |
-| M16 × 1.5 cable gland | 1, power in |
+| M3 × 6 screw, lid | 4 |
+| M12 × 1.5 cable gland (3–6.5 mm cable) | up to 9: one per output in use, plus 1 for power in |
 | 4 mm countersunk wood screw + plug | 4 |
+
+The power gland is the same M12 as the outputs, so it grips a 16 AWG (1.5 mm²) twin power
+cable. If that cable is flat rather than round, slide a short piece of heat-shrink over it
+where it passes through the gland so the insert can seal around it.
 
 Board 1B (`winerack1bled.yaml`) drives O3–O8 and leaves O1 and O2 empty, so print its box with
 `outputs_used = [false, false, true, true, true, true, true, true]`. That leaves out both X1
