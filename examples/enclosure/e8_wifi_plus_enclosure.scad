@@ -41,7 +41,9 @@
 //    * 0.2 mm layers, 4 perimeters (gives a solid 3 mm wall at 0.45 mm width),
 //      25-40 % gyrid infill. No supports needed: the side holes are
 //      teardrop-shaped so they bridge cleanly.
-//    * Heat-set inserts: M3 x 4-5 mm long, 4.0-4.2 mm OD knurled brass.
+//    * Heat-set inserts: sized for ruthex RX-M3Sx4.0 (4.6 mm OD, 4.0 mm long,
+//      4.0 mm hole >= 5.0 mm deep, 1.6 mm min wall). Other M3 inserts: set
+//      the bore below.
 //      Press at ~230 C. If you would rather self-tap, set
 //      `insert_hole_d = 2.6` and use M3 (or 3.5 mm PT-type) self-tappers.
 //
@@ -93,8 +95,9 @@ top_clear = 3.0;            // air between tallest component and the lid lip
 /* [Board standoffs] */
 standoff_d     = 8.0;
 standoff_h     = 7.0;       // floor top to PCB underside (>= board_under_h + 2)
-insert_hole_d  = 4.2;       // heat-set insert bore (4.0-4.5). 2.6 for self-tapping
-insert_depth   = 5.0;       // insert bore depth (4-5)
+insert_hole_d  = 4.0;       // heat-set insert bore (ruthex M3Sx4.0: 4.0).
+                            //   2.6 for self-tapping screws
+insert_depth   = 5.0;       // ruthex minimum for the 4 mm insert
 screw_relief_d = 2.8;       // extra bore below the insert for the screw tip
 screw_relief_h = 1.5;
 
@@ -137,10 +140,15 @@ lower_entry_h  = 13.0;      // lower terminal level's wire entry above
                             //   the PCB top (measured)
 upper_entry_h  = 21.0;      // upper level's wire entry above the PCB top
                             //   (measured)
-gland_row_dz   = 11.5;      // minimum height between the two gland rows so
-                            //   neighbouring lock-nuts don't collide. The
-                            //   entries are only 8 mm apart, so the rows are
-                            //   spread around their midpoint by this much.
+gland_row_dz   = 11.5;      // minimum height between the two gland rows.
+                            //   The rows are spread further if the staggered
+                            //   lock-nuts would otherwise touch (see
+                            //   gland_clear), and the upper row is capped by
+                            //   the lid lip, so in practice the LOWER row
+                            //   moves down.
+gland_clear    = 1.5;       // free gap between neighbouring lock-nuts' corner
+                            //   circles, so each nut can still be spun on and
+                            //   tightened. 0 lets the corners touch.
 
 // Optional zip-tie anchor rib behind the front wall (for grommets instead
 // of glands -- glands already clamp the cable).
@@ -153,8 +161,9 @@ tie_slot_h     = 2.2;       // zip-tie thickness + clearance
 
 
 /* [Power entry (X5, front wall)] */
-power_hole_d   = 15.2;      // M16x1.5 gland, takes a 2-core 1.5 mm2 cable
-power_nut_ac   = 22.0;      // M16 lock-nut across corners (AF19)
+power_hole_d   = 12.2;      // M12x1.5 gland, same as the outputs (fits
+                            //   ~3-6.5 mm cable, e.g. 16 AWG red/black twin)
+power_nut_ac   = 17.4;      // M12 lock-nut across corners (AF15)
 power_x        = 119.2;     // X5 centre from board's left edge         [CHECK]
 power_entry_h  = 14.0;      // X5 wire entry above the PCB top        [CHECK]
 
@@ -220,8 +229,18 @@ assert(standoff_h >= board_under_h + 2,
 // Gland row heights (absolute z): spread to at least gland_row_dz around
 // the entries' midpoint, then pulled down if the upper nuts would reach
 // the lid lip.
+// The staggered glands sit diagonally to each other, so the rows must be
+// far enough apart that the closest upper/lower pair (smallest X offset)
+// clears by gland_clear.
+gland_xs   = [for (i = [0 : 7]) if (outputs_used[i])
+                 [block_x[floor(i/2)] + (i % 2 == 0 ? pair_dx : -pair_dx), i % 2]];
+min_pair_dx = min(concat([1e3], [for (a = gland_xs, b = gland_xs)
+                  if (a[1] == 0 && b[1] == 1) abs(a[0] - b[0])]));
+nut_pitch  = gland_nut_ac + gland_clear;
+nut_row_dz = min_pair_dx >= nut_pitch ? 0
+             : sqrt(nut_pitch*nut_pitch - min_pair_dx*min_pair_dx);
 row_mid    = pcb_top + (lower_entry_h + upper_entry_h)/2;
-row_dz     = max(upper_entry_h - lower_entry_h, gland_row_dz);
+row_dz     = max(upper_entry_h - lower_entry_h, gland_row_dz, nut_row_dz);
 row_top_max = base_h - lip_h - gland_nut_ac/2 - 0.3;
 row_shift  = min(0, row_top_max - (row_mid + row_dz/2));
 upper_row_z = row_mid + row_dz/2 + row_shift;
@@ -244,7 +263,7 @@ assert(bx + power_x + power_nut_ac/2 < out_l - boss_reach,
        "power gland nut hits the corner boss: raise end_bay");
 for (a = front_glands, b = front_glands)
     if (a != b)
-        assert(norm([a[0] - b[0], a[1] - b[1]]) >= (a[3] + b[3])/2 - 0.5,
+        assert(norm([a[0] - b[0], a[1] - b[1]]) >= (a[3] + b[3])/2 + gland_clear - 0.01,
                str("gland nuts overlap at x=", a[0], " and x=", b[0]));
 assert(lower_row_z - gland_nut_ac/2 > floor_t,
        "lower gland nuts hit the floor: raise standoff_h or lower gland_row_dz");
@@ -477,7 +496,7 @@ module lid_lip() {
 }
 
 module lid() {
-    // lid screw: M3 x (lid_t - lid_head_depth + insert_depth), e.g. M3x6/M3x8
+    // lid screw: M3 x 6 (1.8 mm through the counterbored lid + 4.2 mm thread)
     translate([0, 0, base_h])
     difference() {
         union() {
