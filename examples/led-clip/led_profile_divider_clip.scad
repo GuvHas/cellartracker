@@ -20,10 +20,15 @@
 //    the V lies as an "L": one back flat on a horizontal floor and the other
 //    against a vertical back wall, with the light going out forwards and
 //    upwards at 45 deg.
-//  * The aluminium has a small edge where each back meets the diffuser. Two
-//    lips hook over those edges by `lip_overlap`, so the profile slides in
-//    from the end and cannot lift out. If your diffuser bulges out over the
-//    full width, lower `lip_overlap` (0 = rely on the crush ribs).  [CHECK]
+//  * The aluminium has a small edge where each back meets the diffuser. A
+//    lip on top of the back wall hooks over the upper edge by `lip_overlap`.
+//    With the floor and back wall that traps the profile: it slides in from
+//    the end and cannot lift or tip out. If your diffuser bulges out over
+//    the full width, lower `lip_overlap` (0 = rely on the crush ribs).
+//    [CHECK]
+//    A second lip over the floor's front edge (`front_lip`) is off by
+//    default: printed on the back face it starts in mid-air under the
+//    profile, which Bambu Studio flags as a floating region.
 //  * The divider is clear under its two side corners where the clip sits,
 //    so the hooks can wrap `grip_depth` past them. If not, set
 //    `grip_depth = 0` and the clip becomes a rest-on saddle.
@@ -80,8 +85,10 @@ grip_depth    = 2.5;        // how far the hooks reach BELOW the divider's
 /* [LED profile] */
 profile_leg  = 16.0;        // length of each flat back of the corner profile
 profile_tol  = 0.3;         // sliding clearance, per face (0.25-0.3 PETG)
-lip_overlap  = 1.2;         // how far each lip hooks over the profile's
-                            //   front edges                       [CHECK]
+lip_overlap  = 1.2;         // how far the lip hooks over the profile's
+                            //   upper front edge                  [CHECK]
+front_lip    = false;       // also hook over the floor's front edge. Needs
+                            //   support under it when printed.
 crush        = 0.15;        // crush-rib interference with the profile backs.
                             //   Ribs run along the profile, so it still
                             //   slides but stays put. 0 = no ribs.
@@ -183,10 +190,15 @@ module seat_outer_2d() {
 
 // What the profile needs: its triangle (+ clearance), a slot over the
 // diffuser between the lips, and a small relief at the back corner.
+// The +x leg is the floor for a positive beam_angle; without `front_lip`
+// everything beyond the diffuser on that side is cut away, leaving the
+// floor's front end as a face that points up when printed.
 module seat_pocket_2d() {
     offset(delta = profile_tol)
         polygon([[0, 0], [pa, pa], [-pa, pa]]);
     translate([-(pa - lip_overlap), pa - 2]) square([2*(pa - lip_overlap), big]);
+    if (!front_lip)
+        translate([0, pa + profile_tol]) square([big, big]);
     circle(r = seat_relief_r);
 }
 

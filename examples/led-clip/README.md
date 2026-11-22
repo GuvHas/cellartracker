@@ -20,9 +20,13 @@ right.
   straight down. The divider's upper faces act as the lead-in ramp.
 - **Channel:** runs at 90° to the divider. The corner profile lies in it at `beam_angle` (45°),
   with one back flat on the floor and the other against a vertical back wall, so the diffuser faces
-  forwards and upwards. There is 0.3 mm sliding clearance on every face. Two lips hook
-  `lip_overlap` (1.2 mm) over the profile's front edges, so it slides in from the end and cannot
-  lift out. Two crush ribs add a 0.15 mm interference so it stays put.
+  forwards and upwards. There is 0.3 mm sliding clearance on every face. A lip on top of the
+  back wall hooks `lip_overlap` (1.2 mm) over the profile's upper edge. Together with the floor
+  and back wall, that traps the profile, so it slides in from the end and cannot lift or tip out.
+  Two crush ribs add a 0.15 mm interference so it stays put.
+- **No front lip by default:** a second lip over the floor's front edge would start in mid-air
+  when printed on the back face, and Bambu Studio flags it as a floating region. Set
+  `front_lip = true` to add it, and enable supports if you do.
 - **Coordinates:** X is along the profile, Y along the divider (+Y towards the front of the rack),
   Z is up.
 
@@ -49,7 +53,7 @@ right.
 | `grip_depth` | 2.5 | the clip is too hard to push on (lower) or falls off (raise). 0 = no hooks |
 | `profile_tol` | 0.3 | the profile slides too stiffly or rattles |
 | `crush` | 0.15 | the profile slips (raise) or won't go in (lower, or 0) |
-| `lip_overlap` | 1.2 | the diffuser bulges out under the lips (lower) |
+| `lip_overlap` | 1.2 | the diffuser bulges out under the lip (lower) |
 | `beam_angle` | 45 | you want the light aimed differently: 0 = up, 90 = straight forward |
 | `channel_len` | 30 | you want more or less support under the profile |
 
