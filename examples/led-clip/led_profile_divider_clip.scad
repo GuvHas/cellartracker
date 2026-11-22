@@ -20,15 +20,16 @@
 //    the V lies as an "L": one back flat on a horizontal floor and the other
 //    against a vertical back wall, with the light going out forwards and
 //    upwards at 45 deg.
-//  * The aluminium has a small edge where each back meets the diffuser. A
-//    lip on top of the back wall hooks over the upper edge by `lip_overlap`.
-//    With the floor and back wall that traps the profile: it slides in from
-//    the end and cannot lift or tip out. If your diffuser bulges out over
-//    the full width, lower `lip_overlap` (0 = rely on the crush ribs).
-//    [CHECK]
-//    A second lip over the floor's front edge (`front_lip`) is off by
-//    default: printed on the back face it starts in mid-air under the
-//    profile, which Bambu Studio flags as a floating region.
+//  * The aluminium has a small edge where each back meets the diffuser.
+//    Two lips hook over those edges by `lip_overlap`: one on top of the
+//    back wall and one at the floor's front edge, so the profile slides in
+//    from the end and a knock from a bottle cannot pop it out. If your
+//    diffuser bulges out over the full width, lower `lip_overlap`
+//    (0 = rely on the crush ribs).                                 [CHECK]
+//    Printed on its back face, the front lip starts in mid-air over the
+//    profile's pocket, so it needs support (see PRINT NOTES). With
+//    `front_lip = false` the clip prints with no support at all, held by
+//    the top lip alone.
 //  * The divider is clear under its two side corners where the clip sits,
 //    so the hooks can wrap `grip_depth` past them. If not, set
 //    `grip_depth = 0` and the clip becomes a rest-on saddle.
@@ -53,8 +54,13 @@
 //      cross-section then lies in every layer, so the hooks flex within a
 //      layer (their strong direction), the back wall of the channel is on
 //      the bed, and at the default 45 deg beam every overhang is 45 deg or
-//      less. No supports needed. Other beam angles may need a little
-//      support under the front lip.
+//      less, except the front lip. That lip's underside starts in mid-air
+//      inside the channel and needs support there only: in Bambu Studio
+//      paint support under it, or use the P2S project files, which carry
+//      a support enforcer for exactly that spot.
+//      The support stands on the back wall inside the channel and pulls
+//      out along the channel. Clean the lip's underside before fitting
+//      the profile.
 //    * 0.2 mm layers, 4 perimeters (a solid 2.5 mm wall at 0.45 mm width),
 //      25-40 % gyroid infill for the solid block under the channel.
 //    * Print one first and adjust `divider_clear`, `profile_tol` and
@@ -87,8 +93,9 @@ profile_leg  = 16.0;        // length of each flat back of the corner profile
 profile_tol  = 0.3;         // sliding clearance, per face (0.25-0.3 PETG)
 lip_overlap  = 1.2;         // how far the lip hooks over the profile's
                             //   upper front edge                  [CHECK]
-front_lip    = false;       // also hook over the floor's front edge. Needs
-                            //   support under it when printed.
+front_lip    = true;        // lip over the floor's front edge too. Needs
+                            //   support under it when printed. false =
+                            //   top lip only, no support needed.
 crush        = 0.15;        // crush-rib interference with the profile backs.
                             //   Ribs run along the profile, so it still
                             //   slides but stays put. 0 = no ribs.

@@ -20,13 +20,13 @@ right.
   straight down. The divider's upper faces act as the lead-in ramp.
 - **Channel:** runs at 90° to the divider. The corner profile lies in it at `beam_angle` (45°),
   with one back flat on the floor and the other against a vertical back wall, so the diffuser faces
-  forwards and upwards. There is 0.3 mm sliding clearance on every face. A lip on top of the
-  back wall hooks `lip_overlap` (1.2 mm) over the profile's upper edge. Together with the floor
-  and back wall, that traps the profile, so it slides in from the end and cannot lift or tip out.
+  forwards and upwards. There is 0.3 mm sliding clearance on every face. Two lips hook
+  `lip_overlap` (1.2 mm) over the profile's edges, one on top of the back wall and one at the
+  floor's front edge, so it slides in from the end and a knock from a bottle cannot pop it out.
   Two crush ribs add a 0.15 mm interference so it stays put.
-- **No front lip by default:** a second lip over the floor's front edge would start in mid-air
-  when printed on the back face, and Bambu Studio flags it as a floating region. Set
-  `front_lip = true` to add it, and enable supports if you do.
+- **Front lip needs support:** printed on the back face, the front lip starts in mid-air inside
+  the channel. Support it there only (see Print notes). `front_lip = false` drops that lip and
+  the clip prints with no support, held by the top lip alone.
 - **Coordinates:** X is along the profile, Y along the divider (+Y towards the front of the rack),
   Z is up.
 
@@ -61,9 +61,12 @@ right.
 
 `part = "clip"` exports it standing on its back face. The saddle's cross-section then lies in
 every layer, so the hooks flex within a layer (their strong direction), the channel's back wall
-is on the bed, and at the default 45° beam every overhang is 45° or less, so no supports are
-needed. Other beam angles may need a little support under the front lip. Use 0.2 mm layers,
-4 perimeters and 25–40 % gyroid infill.
+is on the bed, and at the default 45° beam every overhang is 45° or less except the front lip.
+That lip's underside needs support, and nothing else does: in Bambu Studio, paint support under
+it, or open the P2S project files in the project's `led-clip/bambu-p2s/` folder, which carry a
+support enforcer for exactly that spot. The support stands on the back wall inside the channel
+and pulls out along it. Clean the lip's underside before fitting the profile. Use 0.2 mm layers,
+6 walls and 30 % gyroid infill.
 
 ## Assumptions
 
