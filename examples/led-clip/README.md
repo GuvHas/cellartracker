@@ -20,10 +20,10 @@ right.
   straight down. The divider's upper faces act as the lead-in ramp.
 - **Channel:** runs at 90° to the divider. The corner profile lies in it at `beam_angle` (45°),
   with one back flat on the floor and the other against a vertical back wall, so the diffuser faces
-  forwards and upwards. There is 0.3 mm sliding clearance on every face. Two lips hook
-  `lip_overlap` (1.2 mm) over the profile's edges, one on top of the back wall and one at the
+  forwards and upwards. There is 0.4 mm sliding clearance on every face. Two lips hook
+  `lip_overlap` (0.9 mm) over the profile's edges, one on top of the back wall and one at the
   floor's front edge, so it slides in from the end and a knock from a bottle cannot pop it out.
-  Two crush ribs add a 0.15 mm interference so it stays put.
+  Two crush ribs add a 0.05 mm interference so it stays put.
 - **Front lip needs support:** printed on the back face, the front lip starts in mid-air inside
   the channel. Support it there only (see Print notes). `front_lip = false` drops that lip and
   the clip prints with no support, held by the top lip alone.
@@ -51,9 +51,9 @@ right.
 | `divider_side` | 37.0 | the real wood measures differently |
 | `divider_clear` | 0.4 | the clip is too tight or loose on the wood |
 | `grip_depth` | 2.5 | the clip is too hard to push on (lower) or falls off (raise). 0 = no hooks |
-| `profile_tol` | 0.3 | the profile slides too stiffly or rattles |
-| `crush` | 0.15 | the profile slips (raise) or won't go in (lower, or 0) |
-| `lip_overlap` | 1.2 | the diffuser bulges out under the lip (lower) |
+| `profile_tol` | 0.4 | the profile slides too stiffly or rattles |
+| `crush` | 0.05 | the profile slips (raise) or won't go in (lower, or 0) |
+| `lip_overlap` | 0.9 | the profile won't clip in or the diffuser bulges out under the lips (lower), or it pops out (raise) |
 | `beam_angle` | 45 | you want the light aimed differently: 0 = up, 90 = straight forward |
 | `channel_len` | 30 | you want more or less support under the profile |
 

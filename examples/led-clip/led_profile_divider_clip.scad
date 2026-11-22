@@ -90,13 +90,15 @@ grip_depth    = 2.5;        // how far the hooks reach BELOW the divider's
 
 /* [LED profile] */
 profile_leg  = 16.0;        // length of each flat back of the corner profile
-profile_tol  = 0.3;         // sliding clearance, per face (0.25-0.3 PETG)
-lip_overlap  = 1.2;         // how far the lip hooks over the profile's
-                            //   upper front edge                  [CHECK]
+profile_tol  = 0.4;         // sliding clearance, per face. 0.3 proved too
+                            //   tight on the first print (2026-11-22)
+lip_overlap  = 0.9;         // how far each lip hooks over the profile's
+                            //   edges. 1.2 made the profile impossible to
+                            //   clip in.                          [CHECK]
 front_lip    = true;        // lip over the floor's front edge too. Needs
                             //   support under it when printed. false =
                             //   top lip only, no support needed.
-crush        = 0.15;        // crush-rib interference with the profile backs.
+crush        = 0.05;        // crush-rib interference with the profile backs.
                             //   Ribs run along the profile, so it still
                             //   slides but stays put. 0 = no ribs.
 rib_r        = 0.6;         // crush-rib radius
