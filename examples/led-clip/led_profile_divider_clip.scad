@@ -1,6 +1,6 @@
 // =============================================================================
 //  LED profile clip for diamond-set wine rack dividers
-//  Snaps over a 37 mm square wooden divider that sits corner-up (rotated
+//  Snaps over a 27 mm square wooden divider that sits corner-up (rotated
 //  45 deg) and carries a 16 x 16 mm aluminium corner LED profile ACROSS it,
 //  so one long profile bridges several dividers behind the bottles. The
 //  profile is tilted so the light shines towards the front of the rack.
@@ -9,7 +9,7 @@
 //
 //  ASSUMPTIONS (check these against the real parts)
 //  ------------------------------------------------
-//  * The divider is a square 37 x 37 mm stick running front-to-back, turned
+//  * The divider is a square 27 x 27 mm stick running front-to-back, turned
 //    45 deg about its length so one corner points straight up and two point
 //    sideways. The clip's saddle wraps its upper corner.
 //  * The LED profile is a 90 deg CORNER profile: two flat 16 mm backs at a
@@ -65,7 +65,7 @@
 //      25-40 % gyroid infill for the solid block under the channel.
 //    * Print one first and adjust `divider_clear`, `profile_tol` and
 //      `crush` until both fits feel right. Wood varies, so measure the real
-//      divider rather than trusting the nominal 37 mm.
+//      divider rather than trusting the nominal 27 mm.
 //
 // =============================================================================
 
@@ -77,7 +77,8 @@ $fn = 64;
 
 
 /* [Wooden divider] */
-divider_side  = 37.0;       // square section, side length         [CHECK]
+divider_side  = 27.0;       // square section, side length (measured by
+                            //   Gustav, 2026-11-24; first spec said 37)
 divider_clear = 0.4;        // gap between wood and saddle, per face. Wood
                             //   swells and varies, so this is looser than
                             //   the profile fit.

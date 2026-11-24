@@ -1,7 +1,7 @@
 # LED profile clip for the rack dividers
 
 [`led_profile_divider_clip.scad`](led_profile_divider_clip.scad) is a parametric PETG clip that
-snaps over a 37 mm square wooden divider set corner-up (45°). It carries a 16 × 16 mm aluminium
+snaps over a 27 mm square wooden divider set corner-up (45°). It carries a 16 × 16 mm aluminium
 corner LED profile **across** the divider, so one long profile bridges every divider in a row
 behind the bottles. The profile is tilted so the light shines forwards into the rack. Open it in
 OpenSCAD, set `part`, press F6 and export the STL.
@@ -48,7 +48,7 @@ right.
 
 | Parameter | Default | Change it when |
 |---|---|---|
-| `divider_side` | 37.0 | the real wood measures differently |
+| `divider_side` | 27.0 | the real wood measures differently |
 | `divider_clear` | 0.4 | the clip is too tight or loose on the wood |
 | `grip_depth` | 2.5 | the clip is too hard to push on (lower) or falls off (raise). 0 = no hooks |
 | `profile_tol` | 0.4 | the profile slides too stiffly or rattles |
