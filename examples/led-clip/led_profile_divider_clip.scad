@@ -1,6 +1,6 @@
 // =============================================================================
 //  LED profile clip for diamond-set wine rack dividers
-//  Snaps over a 37 mm square wooden divider that sits corner-up (rotated
+//  Snaps over a 27 mm square wooden divider that sits corner-up (rotated
 //  45 deg) and carries a 16 x 16 mm aluminium corner LED profile ACROSS it,
 //  so one long profile bridges several dividers behind the bottles. The
 //  profile is tilted so the light shines towards the front of the rack.
@@ -9,7 +9,7 @@
 //
 //  ASSUMPTIONS (check these against the real parts)
 //  ------------------------------------------------
-//  * The divider is a square 37 x 37 mm stick running front-to-back, turned
+//  * The divider is a square 27 x 27 mm stick running front-to-back, turned
 //    45 deg about its length so one corner points straight up and two point
 //    sideways. The clip's saddle wraps its upper corner.
 //  * The LED profile is a 90 deg CORNER profile: two flat 16 mm backs at a
@@ -20,10 +20,16 @@
 //    the V lies as an "L": one back flat on a horizontal floor and the other
 //    against a vertical back wall, with the light going out forwards and
 //    upwards at 45 deg.
-//  * The aluminium has a small edge where each back meets the diffuser. Two
-//    lips hook over those edges by `lip_overlap`, so the profile slides in
-//    from the end and cannot lift out. If your diffuser bulges out over the
-//    full width, lower `lip_overlap` (0 = rely on the crush ribs).  [CHECK]
+//  * The aluminium has a small edge where each back meets the diffuser.
+//    Two lips hook over those edges by `lip_overlap`: one on top of the
+//    back wall and one at the floor's front edge, so the profile slides in
+//    from the end and a knock from a bottle cannot pop it out. If your
+//    diffuser bulges out over the full width, lower `lip_overlap`
+//    (0 = rely on the crush ribs).                                 [CHECK]
+//    Printed on its back face, the front lip starts in mid-air over the
+//    profile's pocket, so it needs support (see PRINT NOTES). With
+//    `front_lip = false` the clip prints with no support at all, held by
+//    the top lip alone.
 //  * The divider is clear under its two side corners where the clip sits,
 //    so the hooks can wrap `grip_depth` past them. If not, set
 //    `grip_depth = 0` and the clip becomes a rest-on saddle.
@@ -48,13 +54,18 @@
 //      cross-section then lies in every layer, so the hooks flex within a
 //      layer (their strong direction), the back wall of the channel is on
 //      the bed, and at the default 45 deg beam every overhang is 45 deg or
-//      less. No supports needed. Other beam angles may need a little
-//      support under the front lip.
+//      less, except the front lip. That lip's underside starts in mid-air
+//      inside the channel and needs support there only: in Bambu Studio
+//      paint support under it, or use the P2S project files, which carry
+//      a support enforcer for exactly that spot.
+//      The support stands on the back wall inside the channel and pulls
+//      out along the channel. Clean the lip's underside before fitting
+//      the profile.
 //    * 0.2 mm layers, 4 perimeters (a solid 2.5 mm wall at 0.45 mm width),
 //      25-40 % gyroid infill for the solid block under the channel.
 //    * Print one first and adjust `divider_clear`, `profile_tol` and
 //      `crush` until both fits feel right. Wood varies, so measure the real
-//      divider rather than trusting the nominal 37 mm.
+//      divider rather than trusting the nominal 27 mm.
 //
 // =============================================================================
 
@@ -66,25 +77,31 @@ $fn = 64;
 
 
 /* [Wooden divider] */
-divider_side  = 37.0;       // square section, side length         [CHECK]
-divider_clear = 0.4;        // gap between wood and saddle, per face. Wood
-                            //   swells and varies, so this is looser than
-                            //   the profile fit.
+divider_side  = 27.0;       // square section, side length (measured by
+                            //   Gustav, 2026-11-24; first spec said 37)
+divider_clear = 0.25;       // gap between wood and saddle, per face. 0.4
+                            //   slid and lifted off too easily on the 27 mm
+                            //   print (2026-11-25).
 wood_relief_r = 1.0;        // relief along the saddle's top inside corner
                             //   so a sharp (un-eased) wood edge still seats
-grip_depth    = 2.5;        // how far the hooks reach BELOW the divider's
+grip_depth    = 3.5;        // how far the hooks reach BELOW the divider's
                             //   side corners (vertical mm). More = firmer
                             //   grip but harder to push on. 0 = no hooks.
 
 
 /* [LED profile] */
 profile_leg  = 16.0;        // length of each flat back of the corner profile
-profile_tol  = 0.3;         // sliding clearance, per face (0.25-0.3 PETG)
-lip_overlap  = 1.2;         // how far each lip hooks over the profile's
-                            //   front edges                       [CHECK]
-crush        = 0.15;        // crush-rib interference with the profile backs.
-                            //   Ribs run along the profile, so it still
-                            //   slides but stays put. 0 = no ribs.
+profile_tol  = 0.4;         // sliding clearance, per face. 0.3 proved too
+                            //   tight on the first print (2026-11-22)
+lip_overlap  = 0.9;         // how far each lip hooks over the profile's
+                            //   edges. 1.2 made the profile impossible to
+                            //   clip in.                          [CHECK]
+front_lip    = true;        // lip over the floor's front edge too. Needs
+                            //   support under it when printed. false =
+                            //   top lip only, no support needed.
+crush        = 0;           // crush-rib interference with the profile backs.
+                            //   0 = no ribs (default since 2026-11-25: the
+                            //   ribs kept the profile from sitting flush).
 rib_r        = 0.6;         // crush-rib radius
 
 
@@ -183,10 +200,15 @@ module seat_outer_2d() {
 
 // What the profile needs: its triangle (+ clearance), a slot over the
 // diffuser between the lips, and a small relief at the back corner.
+// The +x leg is the floor for a positive beam_angle; without `front_lip`
+// everything beyond the diffuser on that side is cut away, leaving the
+// floor's front end as a face that points up when printed.
 module seat_pocket_2d() {
     offset(delta = profile_tol)
         polygon([[0, 0], [pa, pa], [-pa, pa]]);
     translate([-(pa - lip_overlap), pa - 2]) square([2*(pa - lip_overlap), big]);
+    if (!front_lip)
+        translate([0, pa + profile_tol]) square([big, big]);
     circle(r = seat_relief_r);
 }
 
