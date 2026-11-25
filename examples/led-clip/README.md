@@ -16,14 +16,14 @@ right.
 ## How it works
 
 - **Saddle:** a 2.5 mm band, 26 mm long, that follows the divider's two upper faces. Its hooks
-  reach `grip_depth` (2.5 mm) under the divider's side corners, so the clip clicks on when pushed
+  reach `grip_depth` (3.5 mm) under the divider's side corners, so the clip clicks on when pushed
   straight down. The divider's upper faces act as the lead-in ramp.
 - **Channel:** runs at 90° to the divider. The corner profile lies in it at `beam_angle` (45°),
   with one back flat on the floor and the other against a vertical back wall, so the diffuser faces
   forwards and upwards. There is 0.4 mm sliding clearance on every face. Two lips hook
   `lip_overlap` (0.9 mm) over the profile's edges, one on top of the back wall and one at the
   floor's front edge, so it slides in from the end and a knock from a bottle cannot pop it out.
-  Two crush ribs add a 0.05 mm interference so it stays put.
+  Crush ribs are off by default (`crush = 0`) so the profile sits flush.
 - **Front lip needs support:** printed on the back face, the front lip starts in mid-air inside
   the channel. Support it there only (see Print notes). `front_lip = false` drops that lip and
   the clip prints with no support, held by the top lip alone.
@@ -49,10 +49,10 @@ right.
 | Parameter | Default | Change it when |
 |---|---|---|
 | `divider_side` | 27.0 | the real wood measures differently |
-| `divider_clear` | 0.4 | the clip is too tight or loose on the wood |
-| `grip_depth` | 2.5 | the clip is too hard to push on (lower) or falls off (raise). 0 = no hooks |
+| `divider_clear` | 0.25 | the clip is too tight or loose on the wood |
+| `grip_depth` | 3.5 | the clip is too hard to push on (lower) or falls off (raise). 0 = no hooks |
 | `profile_tol` | 0.4 | the profile slides too stiffly or rattles |
-| `crush` | 0.05 | the profile slips (raise) or won't go in (lower, or 0) |
+| `crush` | 0 | the profile slips (raise) or won't go in (lower, or 0) |
 | `lip_overlap` | 0.9 | the profile won't clip in or the diffuser bulges out under the lips (lower), or it pops out (raise) |
 | `beam_angle` | 45 | you want the light aimed differently: 0 = up, 90 = straight forward |
 | `channel_len` | 30 | you want more or less support under the profile |

@@ -79,12 +79,12 @@ $fn = 64;
 /* [Wooden divider] */
 divider_side  = 27.0;       // square section, side length (measured by
                             //   Gustav, 2026-11-24; first spec said 37)
-divider_clear = 0.4;        // gap between wood and saddle, per face. Wood
-                            //   swells and varies, so this is looser than
-                            //   the profile fit.
+divider_clear = 0.25;       // gap between wood and saddle, per face. 0.4
+                            //   slid and lifted off too easily on the 27 mm
+                            //   print (2026-11-25).
 wood_relief_r = 1.0;        // relief along the saddle's top inside corner
                             //   so a sharp (un-eased) wood edge still seats
-grip_depth    = 2.5;        // how far the hooks reach BELOW the divider's
+grip_depth    = 3.5;        // how far the hooks reach BELOW the divider's
                             //   side corners (vertical mm). More = firmer
                             //   grip but harder to push on. 0 = no hooks.
 
@@ -99,9 +99,9 @@ lip_overlap  = 0.9;         // how far each lip hooks over the profile's
 front_lip    = true;        // lip over the floor's front edge too. Needs
                             //   support under it when printed. false =
                             //   top lip only, no support needed.
-crush        = 0.05;        // crush-rib interference with the profile backs.
-                            //   Ribs run along the profile, so it still
-                            //   slides but stays put. 0 = no ribs.
+crush        = 0;           // crush-rib interference with the profile backs.
+                            //   0 = no ribs (default since 2026-11-25: the
+                            //   ribs kept the profile from sitting flush).
 rib_r        = 0.6;         // crush-rib radius
 
 
